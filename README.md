@@ -15,10 +15,12 @@ agent engine.
 
 ## Status
 
-Phase 0 (foundation docs, repo, monorepo scaffold, Prisma schema, Cloudflare Pages + R2
-provisioned) is complete. Everything else in `IMPLEMENTATION_PLAN.md` is in progress —
-this is a large system being built incrementally, phase by phase; nothing is marked done
-until it's real, tested, and (where genuinely mocked) labeled `MOCK` in the UI.
+Phases 0–2 are complete: foundation (docs, monorepo, Prisma schema, Cloudflare Pages + R2),
+auth/orgs/RBAC/tenant isolation, and the configuration system (encrypted credentials, the
+Map Server registry, Map Server + Integration config). Everything else in
+`IMPLEMENTATION_PLAN.md` is in progress — this is a large system being built
+incrementally, phase by phase; nothing is marked done until it's real, tested, and (where
+genuinely mocked) labeled `MOCK` in the UI.
 
 ## Quick start (local, zero cloud accounts)
 

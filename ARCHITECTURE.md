@@ -74,7 +74,7 @@ action is a typed capability call validated against a Zod schema before and afte
 execution.
 
 ```typescript
-// packages/map-servers/types.ts
+// packages/map-servers/src/types.ts
 export type MapServerType =
   | "FABRIC" | "DATABRICKS" | "SNOWFLAKE" | "AZURE" | "AWS" | "GCP"
   | "KUBERNETES" | "DATADOG" | "SPLUNK" | "DYNATRACE" | "NEW_RELIC"
@@ -124,7 +124,7 @@ under `packages/map-servers/<provider>/`:
 6. `config.schema.ts` — Zod schema for org-entered config (workspace id, region, cluster, …)
 7. `<provider>.test.ts`
 
-The provider self-registers into a `MapServerRegistry` (`packages/map-servers/registry.ts`)
+The provider self-registers into a `MapServerRegistry` (`packages/map-servers/src/registry.ts`)
 read by the orchestrator at runtime — the orchestrator only ever asks the registry "which
 capabilities does this org's Map Server for this system expose" and calls through it. Full
 walkthrough: `docs/map-server.md`.
@@ -147,18 +147,26 @@ Credential {
   lastValidatedAt, maskedHint: "••••1234" }`).
 
 ```typescript
-// packages/credentials/secret-provider.ts
+// packages/credentials/src/secret-provider.ts
 export interface SecretProvider {
   encrypt(plaintext: Record<string, unknown>, context: { organizationId: string }): Promise<string>;
   decrypt(ciphertext: string, context: { organizationId: string }): Promise<Record<string, unknown>>;
-  rotate(credentialId: string): Promise<void>;
 }
 ```
 
-Implementations: `EncryptedDbSecretProvider` (default, local/dev — AES-GCM blob in
-Postgres), `AwsSecretsManagerProvider`, `AzureKeyVaultProvider`, `GcpSecretManagerProvider`
-— selected via `SECRET_PROVIDER` env var, same interface, swappable without touching
-callers. See `docs/credentials.md`.
+Rotation is deliberately not a `SecretProvider` method — the provider only knows how to
+seal/open a blob, not about `Credential` rows. `/api/credentials/:id/rotate` validates the
+new payload, calls `encrypt()` again, and updates the row (resetting `status` to
+`UNVERIFIED`) — see `apps/api/src/routes/credentials.ts`.
+
+Implemented: `EncryptedDbSecretProvider` (default — real envelope encryption entirely in
+Postgres: a random per-credential data key encrypts the payload, wrapped by a root key from
+`ENCRYPTION_MASTER_KEY`, both AES-256-GCM with `organizationId` as AAD so a blob can't be
+decrypted under the wrong org's context). Selected via `SECRET_PROVIDER` env var.
+`AwsSecretsManagerProvider` / `AzureKeyVaultProvider` / `GcpSecretManagerProvider` are
+designed for behind the same interface but not implemented yet (Phase 12 — production
+hardening; selecting one via `SECRET_PROVIDER` throws a clear error rather than silently
+falling back). See `docs/credentials.md`.
 
 ## 6. AI agent architecture
 

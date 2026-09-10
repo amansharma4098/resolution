@@ -1,28 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import type { PrismaClient } from "@resolution/database";
-import { buildApp } from "../app";
-import { loadEnv } from "../env";
-import { createFakeDb } from "./fake-db";
-
-const env = loadEnv({
-  NODE_ENV: "test",
-  DATABASE_URL: "postgresql://unused/test",
-  JWT_SECRET: "test-secret-at-least-32-characters-long",
-  CORS_ORIGIN: "http://localhost:3000",
-  MOCK_MODE: "true",
-});
-
-async function buildTestApp(): Promise<{ app: FastifyInstance; db: ReturnType<typeof createFakeDb> }> {
-  const db = createFakeDb();
-  const app = await buildApp({ db: db as unknown as PrismaClient, env });
-  return { app, db };
-}
-
-function cookieFrom(setCookieHeader: string | string[] | undefined): string {
-  const raw = Array.isArray(setCookieHeader) ? setCookieHeader[0] : setCookieHeader;
-  return raw!.split(";")[0]!;
-}
+import { buildTestApp, cookieFrom, parseCookie } from "./test-helpers";
 
 describe("auth routes", () => {
   let app: FastifyInstance;
@@ -224,9 +202,3 @@ describe("organization routes", () => {
     expect(second.json().organization.slug).toBe("acme-2");
   });
 });
-
-/** Turns a raw "name=value" Set-Cookie fragment into fastify.inject()'s cookies map. */
-function parseCookie(raw: string): Record<string, string> {
-  const [name, value] = raw.split("=");
-  return { [name!]: decodeURIComponent(value!) };
-}

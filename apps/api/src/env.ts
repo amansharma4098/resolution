@@ -18,6 +18,12 @@ const EnvSchema = z.object({
     .string()
     .default("true")
     .transform((v) => v === "true"),
+  SECRET_PROVIDER: z
+    .enum(["ENCRYPTED_DB", "AWS_SECRETS_MANAGER", "AZURE_KEY_VAULT", "GCP_SECRET_MANAGER"])
+    .default("ENCRYPTED_DB"),
+  // Dev-only default (a fixed, public value — same treatment as JWT_SECRET's default): any
+  // real deployment must set its own via `openssl rand -base64 32`. See docs/credentials.md.
+  ENCRYPTION_MASTER_KEY: z.string().default("M5MlvZfby1B0D9PY4DHTrTRoFtO3G1wR5oS4pJPnw1g="),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

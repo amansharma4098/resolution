@@ -48,12 +48,29 @@ Docker available in this environment — apps/api tests use an in-memory fake DB
 the same route behavior); OAuth login (email/password only so far); organization member
 invite/management UI.
 
-## Phase 2 — Configuration system
-- [ ] `packages/credentials`: `SecretProvider` interface + `EncryptedDbSecretProvider`
-- [ ] Credential CRUD API + UI (create/list/mask/test/rotate)
-- [ ] `packages/map-servers`: registry + base interface + config wizard API
-- [ ] Map Server CRUD API + UI (select type → select credential → configure environment → configure capabilities)
-- [ ] Integration CRUD (incident sources) API + UI
+## Phase 2 — Configuration system ✅ complete (capability toggling deferred to Phase 5)
+- [x] `packages/credentials`: `SecretProvider` interface + `EncryptedDbSecretProvider` (real
+      envelope encryption — random per-credential data key, wrapped by a root key, AES-256-
+      GCM, organizationId as AAD so a blob can't decrypt under the wrong org's context) +
+      per-`authenticationType` Zod payload schemas + masked-hint derivation
+- [x] Credential CRUD API + UI (create/list/test/rotate/delete) — secret never returned
+      after creation, only a masked hint; ADMIN+ required for all mutating routes
+- [x] `packages/map-servers`: `Capability`/`MapServerProvider`/`MapServerContext` types,
+      registry (`registerMapServer`/`getMapServerProvider`/`getMapServerCatalog`) — starts
+      empty on purpose, FABRIC lands Phase 5, mocks land Phase 10; the catalog honestly
+      shows every `MapServerType` as unavailable until a provider actually registers
+- [x] Map Server CRUD API + UI (select type from the live catalog → select credential →
+      environments → JSON config). **Capability selection UI deferred**: there's nothing
+      real to toggle until Phase 5 registers a provider with actual capabilities — building
+      that UI now would mean it's always empty, so it ships alongside Phase 5 instead
+- [x] Integration CRUD (incident sources) API + UI — config layer only; real Jira/
+      ServiceNow OAuth and ingestion are Phases 3–4
+- [x] `docs/credentials.md`
+- [x] Tests: 77 tests across 8 packages (16 new in `packages/credentials`, 5 in
+      `packages/map-servers`, 19 new route tests in `apps/api` covering tenant isolation,
+      RBAC gating, honest not-yet-available status, and full envelope-encryption round-trip
+      through the real HTTP layer); `turbo run typecheck|lint|test|build` all green; real
+      server smoke-tested with the new routes wired
 
 ## Phase 3 — Jira integration (real)
 - [ ] OAuth app + connection flow
