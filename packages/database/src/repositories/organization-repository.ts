@@ -11,6 +11,11 @@ export interface Membership extends Omit<OrganizationMember, "role"> {
   role: Role;
 }
 
+export interface MemberWithUser extends Membership {
+  email: string;
+  name: string | null;
+}
+
 /**
  * Organization is the tenant root, not a tenant-owned resource — so, like UserRepository,
  * this doesn't extend TenantScopedRepository. Every method takes the caller's userId (from
@@ -75,6 +80,56 @@ export class OrganizationRepository {
   async slugExists(slug: string): Promise<boolean> {
     const existing = await this.db.organization.findUnique({ where: { slug } });
     return existing !== null;
+  }
+
+  /** The org's full member roster — for the Settings/Team screen. Every enterprise
+   *  customer needs this: an OWNER/ADMIN brings teammates into their own tenant, never the
+   *  other way around (no cross-tenant self-signup into someone else's org). */
+  async listMembers(organizationId: string): Promise<MemberWithUser[]> {
+    const members = await this.db.organizationMember.findMany({
+      where: { organizationId },
+      include: { user: true },
+      orderBy: { createdAt: "asc" },
+    });
+    return members.map((m) => ({
+      id: m.id,
+      organizationId: m.organizationId,
+      userId: m.userId,
+      role: m.role as Role,
+      createdAt: m.createdAt,
+      email: m.user.email,
+      name: m.user.name,
+    }));
+  }
+
+  async countOwners(organizationId: string): Promise<number> {
+    return this.db.organizationMember.count({ where: { organizationId, role: "OWNER" } });
+  }
+
+  addMember(organizationId: string, userId: string, role: Role): Promise<OrganizationMember> {
+    return this.db.organizationMember.create({ data: { organizationId, userId, role } });
+  }
+
+  /** Returns false (never throws) if the membership doesn't exist — callers turn that into
+   *  a 404. Callers are responsible for the "don't remove the last OWNER" check
+   *  (countOwners) before calling this; it's a business rule, not a data-layer concern. */
+  async removeMember(organizationId: string, userId: string): Promise<boolean> {
+    const existing = await this.findMembership(userId, organizationId);
+    if (!existing) return false;
+    await this.db.organizationMember.delete({
+      where: { organizationId_userId: { organizationId, userId } },
+    });
+    return true;
+  }
+
+  async updateMemberRole(organizationId: string, userId: string, role: Role): Promise<Membership | null> {
+    const existing = await this.findMembership(userId, organizationId);
+    if (!existing) return null;
+    const updated = await this.db.organizationMember.update({
+      where: { organizationId_userId: { organizationId, userId } },
+      data: { role },
+    });
+    return { ...updated, role: updated.role as Role };
   }
 }
 

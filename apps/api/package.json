@@ -13,6 +13,7 @@
   "dependencies": {
     "@resolution/credentials": "*",
     "@resolution/database": "*",
+    "@resolution/integrations": "*",
     "@resolution/map-servers": "*",
     "@resolution/security": "*",
     "@resolution/shared": "*",

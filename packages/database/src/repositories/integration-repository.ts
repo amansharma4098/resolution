@@ -91,4 +91,15 @@ export class IntegrationRepository extends TenantScopedRepository {
     await this.db.integration.delete({ where: { id } });
     return true;
   }
+
+  /** The one legitimate place an Integration is looked up without org scoping: an
+   *  inbound webhook (POST /api/webhooks/jira/:integrationId) arrives with no session and
+   *  so no tenant context yet — the integrationId in the URL, combined with the
+   *  per-integration webhook secret checked separately, is what establishes which org the
+   *  event belongs to. Never used from an authenticated route — those always go through
+   *  an org-scoped instance's `findById`. */
+  static async findByIdUnscoped(db: PrismaClient, id: string): Promise<Integration | null> {
+    const row = await db.integration.findUnique({ where: { id } });
+    return row ? toPublic(row) : null;
+  }
 }

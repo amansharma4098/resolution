@@ -73,6 +73,38 @@ export interface FakeIntegration {
   updatedAt: Date;
 }
 
+export interface FakeIncident {
+  id: string;
+  organizationId: string;
+  integrationId: string | null;
+  externalId: string;
+  source: string;
+  title: string;
+  description: string;
+  severity: string;
+  priority: string;
+  status: string;
+  service: string | null;
+  environment: string | null;
+  resource: string | null;
+  affectedSystem: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: Date;
+  updatedAt: Date;
+  resolvedAt: Date | null;
+}
+
+export interface FakeWebhookEvent {
+  id: string;
+  organizationId: string | null;
+  source: string;
+  externalId: string;
+  eventHash: string;
+  payload: string;
+  processedAt: Date | null;
+  createdAt: Date;
+}
+
 interface OrgScopedWhere {
   organizationId: string;
   id?: string;
@@ -115,11 +147,22 @@ export interface FakeDb {
   organizationMember: {
     create(args: { data: Partial<FakeMembership> }): Promise<FakeMembership>;
     findMany(args: {
-      where: { userId: string };
-    }): Promise<(FakeMembership & { organization: FakeOrganization })[]>;
+      where: { userId?: string; organizationId?: string };
+      include?: { organization?: boolean; user?: boolean };
+    }): Promise<
+      (FakeMembership & { organization?: FakeOrganization; user?: FakeUser })[]
+    >;
     findUnique(args: {
       where: { organizationId_userId: { organizationId: string; userId: string } };
     }): Promise<FakeMembership | null>;
+    count(args: { where: { organizationId: string; role: string } }): Promise<number>;
+    update(args: {
+      where: { organizationId_userId: { organizationId: string; userId: string } };
+      data: Partial<FakeMembership>;
+    }): Promise<FakeMembership>;
+    delete(args: {
+      where: { organizationId_userId: { organizationId: string; userId: string } };
+    }): Promise<FakeMembership>;
   };
   credential: {
     create(args: { data: Partial<FakeCredential> }): Promise<FakeCredential>;
@@ -139,8 +182,25 @@ export interface FakeDb {
     create(args: { data: Partial<FakeIntegration> }): Promise<FakeIntegration>;
     findMany(args: { where: { organizationId: string } }): Promise<FakeIntegration[]>;
     findFirst(args: { where: OrgScopedWhere }): Promise<FakeIntegration | null>;
+    findUnique(args: { where: { id: string } }): Promise<FakeIntegration | null>;
     update(args: { where: { id: string }; data: Partial<FakeIntegration> }): Promise<FakeIntegration>;
     delete(args: { where: { id: string } }): Promise<FakeIntegration>;
+  };
+  incident: {
+    create(args: { data: Partial<FakeIncident> }): Promise<FakeIncident>;
+    findMany(args: { where: { organizationId: string } }): Promise<FakeIncident[]>;
+    findFirst(args: { where: OrgScopedWhere }): Promise<FakeIncident | null>;
+    findUnique(args: {
+      where: {
+        organizationId_source_externalId: { organizationId: string; source: string; externalId: string };
+      };
+    }): Promise<FakeIncident | null>;
+  };
+  webhookEvent: {
+    create(args: { data: Partial<FakeWebhookEvent> }): Promise<FakeWebhookEvent>;
+    findUnique(args: {
+      where: { source_externalId_eventHash: { source: string; externalId: string; eventHash: string } };
+    }): Promise<FakeWebhookEvent | null>;
   };
   auditLog: {
     create(args: { data: unknown }): Promise<unknown>;
@@ -154,6 +214,8 @@ export interface FakeDb {
     credentials: FakeCredential[];
     mapServers: FakeMapServer[];
     integrations: FakeIntegration[];
+    incidents: FakeIncident[];
+    webhookEvents: FakeWebhookEvent[];
     auditLogs: unknown[];
   };
 }
@@ -165,6 +227,8 @@ export function createFakeDb(): FakeDb {
   const credentials: FakeCredential[] = [];
   const mapServers: FakeMapServer[] = [];
   const integrations: FakeIntegration[] = [];
+  const incidents: FakeIncident[] = [];
+  const webhookEvents: FakeWebhookEvent[] = [];
   const auditLogs: unknown[] = [];
 
   const db: FakeDb = {
@@ -218,12 +282,25 @@ export function createFakeDb(): FakeDb {
         memberships.push(membership);
         return membership;
       },
-      async findMany({ where }: { where: { userId: string } }) {
+      async findMany({
+        where,
+        include,
+      }: {
+        where: { userId?: string; organizationId?: string };
+        include?: { organization?: boolean; user?: boolean };
+      }) {
         return memberships
-          .filter((m) => m.userId === where.userId)
+          .filter(
+            (m) =>
+              (where.userId === undefined || m.userId === where.userId) &&
+              (where.organizationId === undefined || m.organizationId === where.organizationId),
+          )
           .map((m) => ({
             ...m,
-            organization: organizations.find((o) => o.id === m.organizationId)!,
+            ...(include?.organization
+              ? { organization: organizations.find((o) => o.id === m.organizationId)! }
+              : {}),
+            ...(include?.user ? { user: users.find((u) => u.id === m.userId)! } : {}),
           }));
       },
       async findUnique({
@@ -236,6 +313,33 @@ export function createFakeDb(): FakeDb {
           memberships.find((m) => m.organizationId === organizationId && m.userId === userId) ??
           null
         );
+      },
+      async count({ where }: { where: { organizationId: string; role: string } }) {
+        return memberships.filter((m) => m.organizationId === where.organizationId && m.role === where.role)
+          .length;
+      },
+      async update({
+        where,
+        data,
+      }: {
+        where: { organizationId_userId: { organizationId: string; userId: string } };
+        data: Partial<FakeMembership>;
+      }) {
+        const { organizationId, userId } = where.organizationId_userId;
+        const membership = memberships.find((m) => m.organizationId === organizationId && m.userId === userId);
+        if (!membership) throw new Error("fake membership not found");
+        Object.assign(membership, data);
+        return membership;
+      },
+      async delete({
+        where,
+      }: {
+        where: { organizationId_userId: { organizationId: string; userId: string } };
+      }) {
+        const { organizationId, userId } = where.organizationId_userId;
+        const idx = memberships.findIndex((m) => m.organizationId === organizationId && m.userId === userId);
+        if (idx === -1) throw new Error("fake membership not found");
+        return memberships.splice(idx, 1)[0]!;
       },
     },
     credential: {
@@ -295,6 +399,83 @@ export function createFakeDb(): FakeDb {
         integrations.push(row);
         return row;
       },
+      async findUnique({ where }: { where: { id: string } }) {
+        return integrations.find((i) => i.id === where.id) ?? null;
+      },
+    },
+    incident: {
+      async create({ data }: { data: Partial<FakeIncident> }) {
+        const row: FakeIncident = {
+          id: randomUUID(),
+          organizationId: data.organizationId!,
+          integrationId: data.integrationId ?? null,
+          externalId: data.externalId!,
+          source: data.source!,
+          title: data.title!,
+          description: data.description!,
+          severity: data.severity!,
+          priority: data.priority!,
+          status: data.status ?? "NEW",
+          service: data.service ?? null,
+          environment: data.environment ?? null,
+          resource: data.resource ?? null,
+          affectedSystem: data.affectedSystem ?? null,
+          metadata: data.metadata ?? {},
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          resolvedAt: null,
+        };
+        incidents.push(row);
+        return row;
+      },
+      async findMany({ where }: { where: { organizationId: string } }) {
+        return incidents.filter((i) => i.organizationId === where.organizationId);
+      },
+      async findFirst({ where }: { where: OrgScopedWhere }) {
+        return incidents.find((i) => i.organizationId === where.organizationId && i.id === where.id) ?? null;
+      },
+      async findUnique({
+        where,
+      }: {
+        where: {
+          organizationId_source_externalId: { organizationId: string; source: string; externalId: string };
+        };
+      }) {
+        const { organizationId, source, externalId } = where.organizationId_source_externalId;
+        return (
+          incidents.find(
+            (i) => i.organizationId === organizationId && i.source === source && i.externalId === externalId,
+          ) ?? null
+        );
+      },
+    },
+    webhookEvent: {
+      async create({ data }: { data: Partial<FakeWebhookEvent> }) {
+        const row: FakeWebhookEvent = {
+          id: randomUUID(),
+          organizationId: data.organizationId ?? null,
+          source: data.source!,
+          externalId: data.externalId!,
+          eventHash: data.eventHash!,
+          payload: data.payload!,
+          processedAt: data.processedAt ?? null,
+          createdAt: new Date(),
+        };
+        webhookEvents.push(row);
+        return row;
+      },
+      async findUnique({
+        where,
+      }: {
+        where: { source_externalId_eventHash: { source: string; externalId: string; eventHash: string } };
+      }) {
+        const { source, externalId, eventHash } = where.source_externalId_eventHash;
+        return (
+          webhookEvents.find(
+            (w) => w.source === source && w.externalId === externalId && w.eventHash === eventHash,
+          ) ?? null
+        );
+      },
     },
     auditLog: {
       async create({ data }: { data: unknown }) {
@@ -311,7 +492,17 @@ export function createFakeDb(): FakeDb {
       return Promise.all(ops) as Promise<T>;
     },
     async $disconnect() {},
-    _debug: { users, organizations, memberships, credentials, mapServers, integrations, auditLogs },
+    _debug: {
+      users,
+      organizations,
+      memberships,
+      credentials,
+      mapServers,
+      integrations,
+      incidents,
+      webhookEvents,
+      auditLogs,
+    },
   };
 
   return db;

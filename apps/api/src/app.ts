@@ -12,6 +12,8 @@ import { buildOrganizationRoutes } from "./routes/organizations";
 import { buildCredentialRoutes } from "./routes/credentials";
 import { buildMapServerRoutes } from "./routes/map-servers";
 import { buildIntegrationRoutes } from "./routes/integrations";
+import { buildIncidentRoutes } from "./routes/incidents";
+import { buildWebhookRoutes } from "./routes/webhooks";
 
 export interface BuildAppOptions {
   db: PrismaClient;
@@ -55,7 +57,12 @@ export function buildApp({ db, env, secretProvider }: BuildAppOptions): Hono<App
     buildCredentialRoutes({ db, env, secretProvider: resolvedSecretProvider, organizationRepository }),
   );
   app.route("/api/map-servers", buildMapServerRoutes({ db, env, organizationRepository }));
-  app.route("/api/integrations", buildIntegrationRoutes({ db, env, organizationRepository }));
+  app.route(
+    "/api/integrations",
+    buildIntegrationRoutes({ db, env, secretProvider: resolvedSecretProvider, organizationRepository }),
+  );
+  app.route("/api/incidents", buildIncidentRoutes({ db, env, organizationRepository }));
+  app.route("/api/webhooks", buildWebhookRoutes({ db, env }));
 
   app.notFound((c) =>
     c.json({ error: { code: "NOT_FOUND", message: "Not found", requestId: c.get("requestId") } }, 404),

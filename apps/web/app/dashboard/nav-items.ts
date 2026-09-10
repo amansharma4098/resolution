@@ -9,7 +9,7 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/dashboard" },
-  { label: "Incidents", href: "/dashboard/incidents", builtInPhase: 6 },
+  { label: "Incidents", href: "/dashboard/incidents" },
   { label: "AI Investigations", href: "/dashboard/investigations", builtInPhase: 7 },
   { label: "Map Servers", href: "/dashboard/map-servers" },
   { label: "Credentials", href: "/dashboard/credentials" },
