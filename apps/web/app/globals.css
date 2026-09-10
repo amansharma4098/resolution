@@ -1,0 +1,58 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Design tokens as CSS variables — BUILD spec §13. Values must stay in sync with
+   packages/ui/src/tokens.ts by hand (Tailwind consumes the TS values at build time;
+   these power runtime theme switching, which Tailwind's static config can't do alone). */
+:root {
+  --navy: #1e2761;
+  --navy-dark: #161b4d;
+  --ice: #cadcfc;
+
+  --background: #f7f8fc;
+  --surface: #ffffff;
+  --border: #e3e7f1;
+  --ink: #111827;
+  --subink: #5b6273;
+
+  --success: #16a34a;
+  --warning: #d97706;
+  --error: #dc2626;
+  --critical: #b91c1c;
+  --info: #2563eb;
+}
+
+/* System dark mode — only applies when the viewer hasn't made an explicit choice. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --background: #0f1233;
+    --surface: #161b4d;
+    --border: #2b3166;
+    --ink: #f7f8fc;
+    --subink: #cadcfc;
+  }
+}
+
+/* Explicit dark-mode toggle wins in both directions. */
+:root[data-theme="dark"] {
+  --background: #0f1233;
+  --surface: #161b4d;
+  --border: #2b3166;
+  --ink: #f7f8fc;
+  --subink: #cadcfc;
+}
+
+body {
+  background: var(--background);
+  color: var(--ink);
+}
+
+/* Section kickers — small-caps, letter-spaced, info blue. See BUILD spec §13. */
+.kicker {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--info);
+}

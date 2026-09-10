@@ -3,26 +3,50 @@
 Status legend: `[ ]` not started · `[~]` in progress · `[x]` done. Update this file as work
 lands — it's the source of truth for what's actually built vs. spec'd.
 
-## Phase 0 — Foundation docs & repo (this session)
+## Phase 0 — Foundation docs & repo ✅ complete
 - [x] `ARCHITECTURE.md`
 - [x] `IMPLEMENTATION_PLAN.md`
 - [x] Git repo initialized, pushed to `github.com/amansharma4098/resolution`
 - [x] `.env`/`.gitignore` — Cloudflare token stored untracked
-- [~] Monorepo scaffold (`apps/*`, `packages/*`)
-- [ ] Cloudflare Pages project + R2 bucket provisioned via API
-- [ ] `docker-compose.yml` (Postgres+pgvector, Redis) for local dev
+- [x] Monorepo scaffold (`apps/*`, `packages/*`)
+- [x] Cloudflare Pages project (`resolution`) + R2 bucket (`resolution-storage`) provisioned via API
+- [x] `docker-compose.yml` (Postgres+pgvector, Redis) for local dev
 
-## Phase 1 — Foundation (app skeleton, auth, orgs, RBAC)
-- [ ] Turborepo/npm-workspaces root config, shared `tsconfig`, `eslint`, `prettier`
-- [ ] `packages/database`: Prisma schema (full model list from ARCHITECTURE.md §8), migrations
-- [ ] `packages/shared`: Zod schemas for core types, `NormalizedIncident`, enums
-- [ ] `packages/ui`: `tokens.ts` design system (palette, type scale from spec §13)
-- [ ] `apps/api`: Fastify bootstrap, session auth (email/password + OAuth-ready), request-ID middleware, error shape
-- [ ] `apps/web`: Next.js bootstrap, Tailwind + shadcn/ui wired to design tokens, login/signup, org creation/switcher
-- [ ] RBAC: `OrganizationMember.role`, middleware enforcing role per route
-- [ ] Tenant-context middleware: derive `organizationId` from session, never from client input
-- [ ] Audit log write on auth events
-- [ ] Tests + typecheck + lint green
+## Phase 1 — Foundation (app skeleton, auth, orgs, RBAC) ✅ complete
+- [x] Turborepo/npm-workspaces root config, shared `tsconfig`, `eslint`, `prettier`
+- [x] `packages/database`: Prisma schema (28 models per ARCHITECTURE.md §8), migrations —
+      `UserRepository`, `OrganizationRepository`, `TenantScopedRepository` base class,
+      `auditLogWriter` Prisma adapter
+- [x] `packages/shared`: Zod schemas — `NormalizedIncident`, RCA claim types
+      (FACT/INFERENCE/HYPOTHESIS with evidence-citation enforcement)
+- [x] `packages/ui`: `tokens.ts` design system (exact palette/type scale from spec §13),
+      `StatusBadge` component
+- [x] `packages/security` (new — not in original plan list, needed to share RBAC/session/
+      password/audit logic between apps/api and future apps/worker): password hashing,
+      session JWT (identity-only claim, role always re-resolved from DB), RBAC role
+      ranking, redacting audit-log writer
+- [x] `apps/api`: Fastify bootstrap, cookie-based session auth (signup/login/logout/me),
+      request-ID middleware + header, `{error:{code,message,requestId}}` error shape,
+      rate limiting, CORS
+- [x] `apps/web`: Next.js App Router bootstrap, Tailwind wired to design tokens via CSS
+      variables, dark hero landing page, login/signup, org creation, dashboard shell with
+      nav (unbuilt sections shown disabled with a "soon" tag, not fake links) and an org
+      switcher
+- [x] RBAC: `Role` ranking (OWNER>ADMIN>MEMBER>VIEWER), `requireMinimumRole` preHandler
+- [x] Tenant-context middleware: `X-Organization-Id` header re-validated against
+      `OrganizationMember` on every request; non-members get 404, never 403 (no membership
+      disclosure)
+- [x] Audit log write on `organization.created` (identity events — signup/login — have no
+      org yet; `AuditLog.organizationId` made nullable to allow future account-level events)
+- [x] Tests + typecheck + lint green: 37 tests across 6 packages, full `turbo run
+      typecheck|lint|test|build` green, real `apps/api` server smoke-tested booting and
+      serving requests end to end (DB-dependent routes correctly 500 without a live
+      Postgres, confirming wiring rather than masking failures)
+
+**Not yet done, deferred to when needed:** integration tests against a live Postgres (no
+Docker available in this environment — apps/api tests use an in-memory fake DB covering
+the same route behavior); OAuth login (email/password only so far); organization member
+invite/management UI.
 
 ## Phase 2 — Configuration system
 - [ ] `packages/credentials`: `SecretProvider` interface + `EncryptedDbSecretProvider`

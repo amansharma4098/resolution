@@ -374,7 +374,7 @@ CREATE TABLE "AutomationPolicy" (
 -- CreateTable
 CREATE TABLE "AuditLog" (
     "id" TEXT NOT NULL,
-    "organizationId" TEXT NOT NULL,
+    "organizationId" TEXT,
     "actorType" TEXT NOT NULL,
     "actorId" TEXT,
     "action" TEXT NOT NULL,

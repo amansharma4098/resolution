@@ -589,18 +589,21 @@ model AutomationPolicy {
 
 model AuditLog {
   id             String   @id @default(uuid())
-  organizationId String
+  // Nullable: most audit entries are org-scoped (credential created, remediation
+  // executed), but account-level events (signup, login) have no organization yet —
+  // see apps/api/src/routes/auth.ts. Every org-scoped write path still always sets it.
+  organizationId String?
   actorType      String // "user" | "agent" | "system"
   actorId        String? // userId or agent name
-  action         String // e.g. "credential.created", "remediation.executed"
+  action         String // e.g. "credential.created", "remediation.executed", "user.login"
   targetType     String?
   targetId       String?
   requestId      String?
   metadata       Json     @default("{}")
   createdAt      DateTime @default(now())
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  user         User?        @relation(fields: [actorId], references: [id])
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?         @relation(fields: [actorId], references: [id])
 
   @@index([organizationId, createdAt])
   @@index([organizationId, action])
