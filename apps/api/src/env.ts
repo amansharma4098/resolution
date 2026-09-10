@@ -4,11 +4,15 @@ import { z } from "zod";
  * Fail fast on a missing/malformed env var at boot, not on the first request that happens
  * to touch it. `JWT_SECRET` has no default on purpose — a real deployment must set one;
  * only local dev falls back (see `.env.example`).
+ *
+ * No `DATABASE_URL`/`PORT` here — this app runs as a Cloudflare Worker (ARCHITECTURE.md
+ * §2), which has no filesystem/port to bind and gets its database via the `DB` D1 binding
+ * in wrangler.toml instead of a connection string. `DATABASE_URL` still exists as a
+ * variable for local Prisma tooling (`prisma migrate`) against a plain sqlite file, but
+ * that's outside this schema, which only validates what the running app itself reads.
  */
 const EnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  PORT: z.coerce.number().int().positive().default(4000),
-  DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   JWT_SECRET: z
     .string()
     .min(32, "JWT_SECRET must be at least 32 characters")
@@ -28,7 +32,7 @@ const EnvSchema = z.object({
 
 export type Env = z.infer<typeof EnvSchema>;
 
-export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
+export function loadEnv(source: Record<string, string | undefined>): Env {
   const parsed = EnvSchema.safeParse(source);
   if (!parsed.success) {
     // eslint-disable-next-line no-console

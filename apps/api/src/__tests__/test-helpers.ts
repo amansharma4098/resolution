@@ -1,14 +1,14 @@
-import type { FastifyInstance } from "fastify";
+import { randomBytes } from "node:crypto";
+import type { Hono } from "hono";
 import type { PrismaClient } from "@resolution/database";
 import { EncryptedDbSecretProvider } from "@resolution/credentials";
-import { randomBytes } from "node:crypto";
 import { buildApp } from "../app";
 import { loadEnv } from "../env";
 import { createFakeDb } from "./fake-db";
+import type { AppEnv } from "../types";
 
 export const testEnv = loadEnv({
   NODE_ENV: "test",
-  DATABASE_URL: "postgresql://unused/test",
   JWT_SECRET: "test-secret-at-least-32-characters-long",
   CORS_ORIGIN: "http://localhost:3000",
   MOCK_MODE: "true",
@@ -17,45 +17,68 @@ export const testEnv = loadEnv({
 /** Real envelope encryption (not a fake) with a fresh random key per test app instance —
  *  exercises packages/credentials end to end through the HTTP layer, not just its own
  *  unit tests. */
-export async function buildTestApp(): Promise<{
-  app: FastifyInstance;
-  db: ReturnType<typeof createFakeDb>;
-}> {
+export function buildTestApp(): { app: Hono<AppEnv>; db: ReturnType<typeof createFakeDb> } {
   const db = createFakeDb();
   const secretProvider = new EncryptedDbSecretProvider(randomBytes(32).toString("base64"));
-  const app = await buildApp({ db: db as unknown as PrismaClient, env: testEnv, secretProvider });
+  const app = buildApp({ db: db as unknown as PrismaClient, env: testEnv, secretProvider });
   return { app, db };
 }
 
-export function cookieFrom(setCookieHeader: string | string[] | undefined): string {
-  const raw = Array.isArray(setCookieHeader) ? setCookieHeader[0] : setCookieHeader;
-  return raw!.split(";")[0]!;
+/** Extracts just "name=value" from a Set-Cookie response header (drops attributes like
+ *  Path/HttpOnly/SameSite) so it can be replayed as a request Cookie header. */
+export function cookieFrom(response: Response): string {
+  const raw = response.headers.get("set-cookie");
+  if (!raw) throw new Error("Response had no Set-Cookie header");
+  return raw.split(";")[0]!;
 }
 
-export function parseCookie(raw: string): Record<string, string> {
-  const [name, value] = raw.split("=");
-  return { [name!]: decodeURIComponent(value!) };
+export interface TestRequestOptions {
+  method?: string;
+  cookie?: string;
+  organizationId?: string;
+  body?: unknown;
+}
+
+/** Hono's app.request() is the fetch-style equivalent of Fastify's `.inject()` — no real
+ *  server/socket needed. This wrapper just fills in the headers our app cares about. */
+export async function req(
+  app: Hono<AppEnv>,
+  path: string,
+  options: TestRequestOptions = {},
+): Promise<Response> {
+  const headers: Record<string, string> = {};
+  if (options.body !== undefined) headers["content-type"] = "application/json";
+  if (options.cookie) headers.cookie = options.cookie;
+  if (options.organizationId) headers["x-organization-id"] = options.organizationId;
+
+  return app.request(path, {
+    method: options.method ?? "GET",
+    headers,
+    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+  });
+}
+
+/** Response.json() is typed `Promise<unknown>` under @types/node's fetch types (stricter
+ *  than DOM lib's `any`) — this is just a typed cast point for test assertions, not
+ *  runtime validation (the routes' own Zod schemas are what actually validate shape). */
+export async function jsonOf<T = any>(response: Response): Promise<T> {
+  return (await response.json()) as T;
 }
 
 /** Signs up a fresh user, creates an organization, and returns everything a route test
- *  needs: the session cookie jar and the X-Organization-Id header value. */
+ *  needs: the session cookie and the X-Organization-Id header value. */
 export async function signupWithOrg(
-  app: FastifyInstance,
+  app: Hono<AppEnv>,
   email: string,
   orgName: string,
-): Promise<{ cookies: Record<string, string>; organizationId: string }> {
-  const signup = await app.inject({
+): Promise<{ cookie: string; organizationId: string }> {
+  const signup = await req(app, "/api/auth/signup", {
     method: "POST",
-    url: "/api/auth/signup",
-    payload: { email, password: "correct horse battery staple" },
+    body: { email, password: "correct horse battery staple" },
   });
-  const cookies = parseCookie(cookieFrom(signup.headers["set-cookie"]));
+  const cookie = cookieFrom(signup);
 
-  const org = await app.inject({
-    method: "POST",
-    url: "/api/organizations",
-    cookies,
-    payload: { name: orgName },
-  });
-  return { cookies, organizationId: org.json().organization.id };
+  const org = await req(app, "/api/organizations", { method: "POST", cookie, body: { name: orgName } });
+  const orgBody = (await org.json()) as { organization: { id: string } };
+  return { cookie, organizationId: orgBody.organization.id };
 }

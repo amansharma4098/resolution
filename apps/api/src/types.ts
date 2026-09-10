@@ -1,13 +1,15 @@
-import "fastify";
 import type { Role } from "@resolution/security";
 
-declare module "fastify" {
-  interface FastifyRequest {
-    /** Set by the `authenticate` preHandler once the session cookie is verified. */
-    userId?: string;
-    /** Set by the `resolveTenantContext` preHandler once membership is confirmed for the
-     *  X-Organization-Id header — never read organizationId from anywhere else. */
-    organizationId?: string;
-    role?: Role;
-  }
+/**
+ * Hono's per-request context variables — the equivalent of the FastifyRequest
+ * decorations from the Fastify version of this app. Set only by middleware
+ * (authenticate/resolveTenantContext), never trusted from anything client-supplied.
+ */
+export interface Variables {
+  requestId: string;
+  userId?: string;
+  organizationId?: string;
+  role?: Role;
 }
+
+export type AppEnv = { Variables: Variables };

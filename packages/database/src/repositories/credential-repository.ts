@@ -1,11 +1,49 @@
-import type { AuthenticationType, Credential, CredentialStatus, PrismaClient } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
+import type { AuthenticationType } from "@resolution/credentials";
 import { TenantScopedRepository } from "../tenant-scoped-repository";
+
+export type CredentialStatus = "VALID" | "INVALID" | "UNVERIFIED" | "EXPIRED";
 
 export interface CreateCredentialInput {
   name: string;
   provider: string;
   authenticationType: AuthenticationType;
   encryptedData: string;
+}
+
+/** D1/SQLite has no native enum type — `authenticationType`/`status` are plain String
+ *  columns at the database level (see schema.prisma). This is the typed shape repository
+ *  callers actually see. */
+export interface Credential {
+  id: string;
+  organizationId: string;
+  name: string;
+  provider: string;
+  authenticationType: AuthenticationType;
+  encryptedData: string;
+  status: CredentialStatus;
+  lastValidatedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+function toPublic(row: {
+  id: string;
+  organizationId: string;
+  name: string;
+  provider: string;
+  authenticationType: string;
+  encryptedData: string;
+  status: string;
+  lastValidatedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}): Credential {
+  return {
+    ...row,
+    authenticationType: row.authenticationType as AuthenticationType,
+    status: row.status as CredentialStatus,
+  };
 }
 
 /**
@@ -25,37 +63,42 @@ export class CredentialRepository extends TenantScopedRepository {
     super(organizationId);
   }
 
-  create(input: CreateCredentialInput): Promise<Credential> {
-    return this.db.credential.create({
+  async create(input: CreateCredentialInput): Promise<Credential> {
+    const row = await this.db.credential.create({
       data: { ...input, organizationId: this.organizationId },
     });
+    return toPublic(row);
   }
 
-  list(): Promise<Credential[]> {
-    return this.db.credential.findMany({
+  async list(): Promise<Credential[]> {
+    const rows = await this.db.credential.findMany({
       where: this.scope(),
       orderBy: { createdAt: "desc" },
     });
+    return rows.map(toPublic);
   }
 
-  findById(id: string): Promise<Credential | null> {
-    return this.db.credential.findFirst({ where: { ...this.scope(), id } });
+  async findById(id: string): Promise<Credential | null> {
+    const row = await this.db.credential.findFirst({ where: { ...this.scope(), id } });
+    return row ? toPublic(row) : null;
   }
 
   async updateEncryptedData(id: string, encryptedData: string): Promise<Credential | null> {
     if (!(await this.findById(id))) return null;
-    return this.db.credential.update({
+    const row = await this.db.credential.update({
       where: { id },
       data: { encryptedData, status: "UNVERIFIED", lastValidatedAt: null },
     });
+    return toPublic(row);
   }
 
   async updateStatus(id: string, status: CredentialStatus): Promise<Credential | null> {
     if (!(await this.findById(id))) return null;
-    return this.db.credential.update({
+    const row = await this.db.credential.update({
       where: { id },
       data: { status, lastValidatedAt: new Date() },
     });
+    return toPublic(row);
   }
 
   /** Returns whether a row was actually deleted (false if it wasn't in this org). */

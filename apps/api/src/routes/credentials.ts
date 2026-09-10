@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import { Hono } from "hono";
 import { z } from "zod";
 import type { Credential, PrismaClient } from "@resolution/database";
 import { CredentialRepository, auditLogWriter } from "@resolution/database";
@@ -9,11 +9,12 @@ import {
   type SecretProvider,
 } from "@resolution/credentials";
 import { writeAuditLog } from "@resolution/security";
+import type { OrganizationRepository } from "@resolution/database";
 import type { Env } from "../env";
 import { authenticate } from "../middleware/authenticate";
 import { requireMinimumRole, resolveTenantContext } from "../middleware/tenant-context";
 import { NotFoundError } from "../lib/errors";
-import type { OrganizationRepository } from "@resolution/database";
+import type { AppEnv } from "../types";
 
 const AUTHENTICATION_TYPES = Object.keys(CredentialPayloadSchemas) as [
   keyof typeof CredentialPayloadSchemas,
@@ -46,39 +47,34 @@ function toPublicCredential(credential: Credential, maskedHint: string) {
   };
 }
 
-export function registerCredentialRoutes(
-  app: FastifyInstance,
-  deps: {
-    db: PrismaClient;
-    env: Env;
-    secretProvider: SecretProvider;
-    organizationRepository: OrganizationRepository;
-  },
-): void {
+export function buildCredentialRoutes(deps: {
+  db: PrismaClient;
+  env: Env;
+  secretProvider: SecretProvider;
+  organizationRepository: OrganizationRepository;
+}): Hono<AppEnv> {
   const { db, env, secretProvider, organizationRepository } = deps;
+  const router = new Hono<AppEnv>();
   const auth = authenticate(env.JWT_SECRET);
   const tenantContext = resolveTenantContext(organizationRepository);
   const requireAdmin = requireMinimumRole("ADMIN");
-  const preHandler = [auth, tenantContext];
 
   // A masked hint is derived from the plaintext payload at write time (create/rotate) and
   // stored nowhere — it's recomputed from the freshly-decrypted payload only when needed.
   // For list/get we can't cheaply recompute it without decrypting every row, so those
   // return a generic mask; the create/rotate response (the one moment the plaintext is in
   // hand) returns the real last-4-chars hint.
-  async function genericMaskedHint(_credential: Credential): Promise<string> {
-    return "••••••••";
-  }
+  const genericMaskedHint = "••••••••";
 
-  app.post("/", { preHandler: [...preHandler, requireAdmin] }, async (request, reply) => {
-    const body = CreateCredentialBody.parse(request.body);
+  router.post("/", auth, tenantContext, requireAdmin, async (c) => {
+    const body = CreateCredentialBody.parse(await c.req.json());
     const payload = validateCredentialPayload(body.authenticationType, body.payload);
 
     const encryptedData = await secretProvider.encrypt(payload, {
-      organizationId: request.organizationId!,
+      organizationId: c.get("organizationId")!,
     });
 
-    const credentials = new CredentialRepository(db, request.organizationId!);
+    const credentials = new CredentialRepository(db, c.get("organizationId")!);
     const credential = await credentials.create({
       name: body.name,
       provider: body.provider,
@@ -87,58 +83,52 @@ export function registerCredentialRoutes(
     });
 
     await writeAuditLog(auditLogWriter(db), {
-      organizationId: request.organizationId,
+      organizationId: c.get("organizationId"),
       actorType: "user",
-      actorId: request.userId,
+      actorId: c.get("userId"),
       action: "credential.created",
       targetType: "Credential",
       targetId: credential.id,
-      requestId: request.id,
+      requestId: c.get("requestId"),
       metadata: { name: credential.name, provider: credential.provider },
     });
 
-    reply
-      .status(201)
-      .send({ credential: toPublicCredential(credential, maskedHintFor(body.authenticationType, payload)) });
-  });
-
-  app.get("/", { preHandler }, async (request, reply) => {
-    const credentials = new CredentialRepository(db, request.organizationId!);
-    const list = await credentials.list();
-    const withHints = await Promise.all(
-      list.map(async (c) => toPublicCredential(c, await genericMaskedHint(c))),
+    return c.json(
+      { credential: toPublicCredential(credential, maskedHintFor(body.authenticationType, payload)) },
+      201,
     );
-    reply.send({ credentials: withHints });
   });
 
-  app.get<{ Params: { id: string } }>("/:id", { preHandler }, async (request, reply) => {
-    const credentials = new CredentialRepository(db, request.organizationId!);
-    const credential = await credentials.findById(request.params.id);
+  router.get("/", auth, tenantContext, async (c) => {
+    const credentials = new CredentialRepository(db, c.get("organizationId")!);
+    const list = await credentials.list();
+    return c.json({ credentials: list.map((cred) => toPublicCredential(cred, genericMaskedHint)) });
+  });
+
+  router.get("/:id", auth, tenantContext, async (c) => {
+    const credentials = new CredentialRepository(db, c.get("organizationId")!);
+    const credential = await credentials.findById(c.req.param("id"));
     if (!credential) throw new NotFoundError("Credential not found");
-    reply.send({ credential: toPublicCredential(credential, await genericMaskedHint(credential)) });
+    return c.json({ credential: toPublicCredential(credential, genericMaskedHint) });
   });
 
-  app.delete<{ Params: { id: string } }>(
-    "/:id",
-    { preHandler: [...preHandler, requireAdmin] },
-    async (request, reply) => {
-      const credentials = new CredentialRepository(db, request.organizationId!);
-      const deleted = await credentials.delete(request.params.id);
-      if (!deleted) throw new NotFoundError("Credential not found");
+  router.delete("/:id", auth, tenantContext, requireAdmin, async (c) => {
+    const credentials = new CredentialRepository(db, c.get("organizationId")!);
+    const deleted = await credentials.delete(c.req.param("id"));
+    if (!deleted) throw new NotFoundError("Credential not found");
 
-      await writeAuditLog(auditLogWriter(db), {
-        organizationId: request.organizationId,
-        actorType: "user",
-        actorId: request.userId,
-        action: "credential.deleted",
-        targetType: "Credential",
-        targetId: request.params.id,
-        requestId: request.id,
-      });
+    await writeAuditLog(auditLogWriter(db), {
+      organizationId: c.get("organizationId"),
+      actorType: "user",
+      actorId: c.get("userId"),
+      action: "credential.deleted",
+      targetType: "Credential",
+      targetId: c.req.param("id"),
+      requestId: c.get("requestId"),
+    });
 
-      reply.status(204).send();
-    },
-  );
+    return c.body(null, 204);
+  });
 
   // Full live connectivity testing happens through a Map Server's own authAdapter once one
   // references this credential (see packages/map-servers) — a credential is provider-
@@ -146,85 +136,76 @@ export function registerCredentialRoutes(
   // its own to test yet. What we CAN verify here, honestly, is that the stored payload
   // still decrypts and still matches its own shape — that's what this does and all it
   // claims to do.
-  app.post<{ Params: { id: string } }>(
-    "/:id/test",
-    { preHandler: [...preHandler, requireAdmin] },
-    async (request, reply) => {
-      const credentials = new CredentialRepository(db, request.organizationId!);
-      const credential = await credentials.findById(request.params.id);
-      if (!credential) throw new NotFoundError("Credential not found");
+  router.post("/:id/test", auth, tenantContext, requireAdmin, async (c) => {
+    const credentials = new CredentialRepository(db, c.get("organizationId")!);
+    const credential = await credentials.findById(c.req.param("id"));
+    if (!credential) throw new NotFoundError("Credential not found");
 
-      let valid = true;
-      let detail = "Credential payload decrypts and matches its expected shape";
-      try {
-        const decrypted = await secretProvider.decrypt(credential.encryptedData, {
-          organizationId: request.organizationId!,
-        });
-        validateCredentialPayload(
-          credential.authenticationType as keyof typeof CredentialPayloadSchemas,
-          decrypted,
-        );
-      } catch (err) {
-        valid = false;
-        detail = err instanceof Error ? err.message : "Credential failed validation";
-      }
-
-      const updated = await credentials.updateStatus(credential.id, valid ? "VALID" : "INVALID");
-
-      await writeAuditLog(auditLogWriter(db), {
-        organizationId: request.organizationId,
-        actorType: "user",
-        actorId: request.userId,
-        action: "credential.tested",
-        targetType: "Credential",
-        targetId: credential.id,
-        requestId: request.id,
-        metadata: { valid },
+    let valid = true;
+    let detail = "Credential payload decrypts and matches its expected shape";
+    try {
+      const decrypted = await secretProvider.decrypt(credential.encryptedData, {
+        organizationId: c.get("organizationId")!,
       });
-
-      reply.send({
-        credential: toPublicCredential(updated!, await genericMaskedHint(updated!)),
-        detail,
-      });
-    },
-  );
-
-  app.post<{ Params: { id: string } }>(
-    "/:id/rotate",
-    { preHandler: [...preHandler, requireAdmin] },
-    async (request, reply) => {
-      const credentials = new CredentialRepository(db, request.organizationId!);
-      const existing = await credentials.findById(request.params.id);
-      if (!existing) throw new NotFoundError("Credential not found");
-
-      const body = RotateCredentialBody.parse(request.body);
-      const payload = validateCredentialPayload(
-        existing.authenticationType as keyof typeof CredentialPayloadSchemas,
-        body.payload,
+      validateCredentialPayload(
+        credential.authenticationType as keyof typeof CredentialPayloadSchemas,
+        decrypted,
       );
-      const encryptedData = await secretProvider.encrypt(payload, {
-        organizationId: request.organizationId!,
-      });
+    } catch (err) {
+      valid = false;
+      detail = err instanceof Error ? err.message : "Credential failed validation";
+    }
 
-      const updated = await credentials.updateEncryptedData(existing.id, encryptedData);
-      if (!updated) throw new NotFoundError("Credential not found");
+    const updated = await credentials.updateStatus(credential.id, valid ? "VALID" : "INVALID");
 
-      await writeAuditLog(auditLogWriter(db), {
-        organizationId: request.organizationId,
-        actorType: "user",
-        actorId: request.userId,
-        action: "credential.rotated",
-        targetType: "Credential",
-        targetId: updated.id,
-        requestId: request.id,
-      });
+    await writeAuditLog(auditLogWriter(db), {
+      organizationId: c.get("organizationId"),
+      actorType: "user",
+      actorId: c.get("userId"),
+      action: "credential.tested",
+      targetType: "Credential",
+      targetId: credential.id,
+      requestId: c.get("requestId"),
+      metadata: { valid },
+    });
 
-      reply.send({
-        credential: toPublicCredential(
-          updated,
-          maskedHintFor(existing.authenticationType as keyof typeof CredentialPayloadSchemas, payload),
-        ),
-      });
-    },
-  );
+    return c.json({ credential: toPublicCredential(updated!, genericMaskedHint), detail });
+  });
+
+  router.post("/:id/rotate", auth, tenantContext, requireAdmin, async (c) => {
+    const credentials = new CredentialRepository(db, c.get("organizationId")!);
+    const existing = await credentials.findById(c.req.param("id"));
+    if (!existing) throw new NotFoundError("Credential not found");
+
+    const body = RotateCredentialBody.parse(await c.req.json());
+    const payload = validateCredentialPayload(
+      existing.authenticationType as keyof typeof CredentialPayloadSchemas,
+      body.payload,
+    );
+    const encryptedData = await secretProvider.encrypt(payload, {
+      organizationId: c.get("organizationId")!,
+    });
+
+    const updated = await credentials.updateEncryptedData(existing.id, encryptedData);
+    if (!updated) throw new NotFoundError("Credential not found");
+
+    await writeAuditLog(auditLogWriter(db), {
+      organizationId: c.get("organizationId"),
+      actorType: "user",
+      actorId: c.get("userId"),
+      action: "credential.rotated",
+      targetType: "Credential",
+      targetId: updated.id,
+      requestId: c.get("requestId"),
+    });
+
+    return c.json({
+      credential: toPublicCredential(
+        updated,
+        maskedHintFor(existing.authenticationType as keyof typeof CredentialPayloadSchemas, payload),
+      ),
+    });
+  });
+
+  return router;
 }

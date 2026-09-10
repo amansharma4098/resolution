@@ -14,9 +14,7 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "db:generate": "npm run generate --workspace=@resolution/database",
-    "db:migrate": "npm run migrate:dev --workspace=@resolution/database",
-    "docker:up": "docker compose up -d",
-    "docker:down": "docker compose down"
+    "db:migrate": "npm run migrate:dev --workspace=@resolution/database"
   },
   "devDependencies": {
     "turbo": "^2.1.3",

@@ -1,60 +1,50 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import type { FastifyInstance } from "fastify";
-import { buildTestApp, signupWithOrg } from "./test-helpers";
+import type { Hono } from "hono";
+import { buildTestApp, jsonOf, req, signupWithOrg } from "./test-helpers";
+import type { AppEnv } from "../types";
 
 describe("credential routes", () => {
-  let app: FastifyInstance;
-  let cookies: Record<string, string>;
+  let app: Hono<AppEnv>;
+  let cookie: string;
   let organizationId: string;
 
   beforeEach(async () => {
-    ({ app } = await buildTestApp());
-    ({ cookies, organizationId } = await signupWithOrg(app, "owner@example.com", "Acme"));
+    ({ app } = buildTestApp());
+    ({ cookie, organizationId } = await signupWithOrg(app, "owner@example.com", "Acme"));
   });
 
   it("creates a credential and never returns the secret or encryptedData", async () => {
-    const res = await app.inject({
+    const res = await req(app, "/api/credentials", {
       method: "POST",
-      url: "/api/credentials",
-      cookies,
-      headers: { "x-organization-id": organizationId },
-      payload: {
+      cookie,
+      organizationId,
+      body: {
         name: "Fabric service principal",
         provider: "microsoft-fabric",
         authenticationType: "SERVICE_PRINCIPAL",
         payload: { tenantId: "t1", clientId: "c1", clientSecret: "super-secret-value-9999" },
       },
     });
-    expect(res.statusCode).toBe(201);
-    const body = res.json();
+    expect(res.status).toBe(201);
+    const body = await jsonOf(res);
     expect(body.credential.maskedHint).toBe("••••9999");
     expect(body.credential.encryptedData).toBeUndefined();
     expect(JSON.stringify(body)).not.toContain("super-secret-value-9999");
   });
 
   it("rejects a payload that doesn't match its authenticationType's shape", async () => {
-    const res = await app.inject({
+    const res = await req(app, "/api/credentials", {
       method: "POST",
-      url: "/api/credentials",
-      cookies,
-      headers: { "x-organization-id": organizationId },
-      payload: {
-        name: "Bad",
-        provider: "aws",
-        authenticationType: "API_KEY",
-        payload: { wrongField: "x" },
-      },
+      cookie,
+      organizationId,
+      body: { name: "Bad", provider: "aws", authenticationType: "API_KEY", payload: { wrongField: "x" } },
     });
-    expect(res.statusCode).toBe(400);
+    expect(res.status).toBe(400);
   });
 
   it("requires the X-Organization-Id header", async () => {
-    const res = await app.inject({
-      method: "GET",
-      url: "/api/credentials",
-      cookies,
-    });
-    expect(res.statusCode).toBe(404);
+    const res = await req(app, "/api/credentials", { cookie });
+    expect(res.status).toBe(404);
   });
 
   it("a MEMBER cannot create a credential (ADMIN+ required)", async () => {
@@ -64,123 +54,86 @@ describe("credential routes", () => {
     // level (packages/security). Here we confirm the preHandler is actually wired by
     // checking a non-member is 404, already covered above; this test documents the
     // ADMIN-gated routes explicitly.
-    const res = await app.inject({
+    const res = await req(app, "/api/credentials/00000000-0000-0000-0000-000000000000", {
       method: "DELETE",
-      url: "/api/credentials/00000000-0000-0000-0000-000000000000",
-      cookies,
-      headers: { "x-organization-id": organizationId },
+      cookie,
+      organizationId,
     });
     // Owner has ADMIN+ so this reaches the handler and 404s on the nonexistent id —
     // proving the role gate passed through rather than blocking the owner.
-    expect(res.statusCode).toBe(404);
+    expect(res.status).toBe(404);
   });
 
   it("test endpoint validates the credential round-trips through decryption", async () => {
-    const created = await app.inject({
+    const created = await req(app, "/api/credentials", {
       method: "POST",
-      url: "/api/credentials",
-      cookies,
-      headers: { "x-organization-id": organizationId },
-      payload: {
-        name: "Datadog key",
-        provider: "datadog",
-        authenticationType: "API_KEY",
-        payload: { apiKey: "dd-key-123" },
-      },
+      cookie,
+      organizationId,
+      body: { name: "Datadog key", provider: "datadog", authenticationType: "API_KEY", payload: { apiKey: "dd-key-123" } },
     });
-    const id = created.json().credential.id;
+    const id = (await jsonOf(created)).credential.id;
 
-    const tested = await app.inject({
-      method: "POST",
-      url: `/api/credentials/${id}/test`,
-      cookies,
-      headers: { "x-organization-id": organizationId },
-    });
-    expect(tested.statusCode).toBe(200);
-    expect(tested.json().credential.status).toBe("VALID");
+    const tested = await req(app, `/api/credentials/${id}/test`, { method: "POST", cookie, organizationId });
+    expect(tested.status).toBe(200);
+    expect((await jsonOf(tested)).credential.status).toBe("VALID");
   });
 
   it("rotate replaces the secret and resets status to UNVERIFIED", async () => {
-    const created = await app.inject({
+    const created = await req(app, "/api/credentials", {
       method: "POST",
-      url: "/api/credentials",
-      cookies,
-      headers: { "x-organization-id": organizationId },
-      payload: {
+      cookie,
+      organizationId,
+      body: {
         name: "Datadog key",
         provider: "datadog",
         authenticationType: "API_KEY",
         payload: { apiKey: "dd-key-old0000" },
       },
     });
-    const id = created.json().credential.id;
+    const id = (await jsonOf(created)).credential.id;
 
-    const rotated = await app.inject({
+    const rotated = await req(app, `/api/credentials/${id}/rotate`, {
       method: "POST",
-      url: `/api/credentials/${id}/rotate`,
-      cookies,
-      headers: { "x-organization-id": organizationId },
-      payload: { payload: { apiKey: "dd-key-newvalue" } },
+      cookie,
+      organizationId,
+      body: { payload: { apiKey: "dd-key-newvalue" } },
     });
-    expect(rotated.statusCode).toBe(200);
-    expect(rotated.json().credential.status).toBe("UNVERIFIED");
-    expect(rotated.json().credential.maskedHint).toBe("••••alue");
+    expect(rotated.status).toBe(200);
+    const rotatedBody = await jsonOf(rotated);
+    expect(rotatedBody.credential.status).toBe("UNVERIFIED");
+    expect(rotatedBody.credential.maskedHint).toBe("••••alue");
   });
 
   it("a credential created in one org is invisible to another org (tenant isolation)", async () => {
-    const created = await app.inject({
+    const created = await req(app, "/api/credentials", {
       method: "POST",
-      url: "/api/credentials",
-      cookies,
-      headers: { "x-organization-id": organizationId },
-      payload: {
-        name: "Secret",
-        provider: "aws",
-        authenticationType: "API_KEY",
-        payload: { apiKey: "aws-key-0000" },
-      },
+      cookie,
+      organizationId,
+      body: { name: "Secret", provider: "aws", authenticationType: "API_KEY", payload: { apiKey: "aws-key-0000" } },
     });
-    const id = created.json().credential.id;
+    const id = (await jsonOf(created)).credential.id;
 
     const other = await signupWithOrg(app, "other@example.com", "Other Org");
-    const res = await app.inject({
-      method: "GET",
-      url: `/api/credentials/${id}`,
-      cookies: other.cookies,
-      headers: { "x-organization-id": other.organizationId },
+    const res = await req(app, `/api/credentials/${id}`, {
+      cookie: other.cookie,
+      organizationId: other.organizationId,
     });
-    expect(res.statusCode).toBe(404);
+    expect(res.status).toBe(404);
   });
 
   it("deletes a credential", async () => {
-    const created = await app.inject({
+    const created = await req(app, "/api/credentials", {
       method: "POST",
-      url: "/api/credentials",
-      cookies,
-      headers: { "x-organization-id": organizationId },
-      payload: {
-        name: "To delete",
-        provider: "aws",
-        authenticationType: "API_KEY",
-        payload: { apiKey: "aws-key-1111" },
-      },
+      cookie,
+      organizationId,
+      body: { name: "To delete", provider: "aws", authenticationType: "API_KEY", payload: { apiKey: "aws-key-1111" } },
     });
-    const id = created.json().credential.id;
+    const id = (await jsonOf(created)).credential.id;
 
-    const del = await app.inject({
-      method: "DELETE",
-      url: `/api/credentials/${id}`,
-      cookies,
-      headers: { "x-organization-id": organizationId },
-    });
-    expect(del.statusCode).toBe(204);
+    const del = await req(app, `/api/credentials/${id}`, { method: "DELETE", cookie, organizationId });
+    expect(del.status).toBe(204);
 
-    const get = await app.inject({
-      method: "GET",
-      url: `/api/credentials/${id}`,
-      cookies,
-      headers: { "x-organization-id": organizationId },
-    });
-    expect(get.statusCode).toBe(404);
+    const get = await req(app, `/api/credentials/${id}`, { cookie, organizationId });
+    expect(get.status).toBe(404);
   });
 });

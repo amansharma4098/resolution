@@ -23,36 +23,55 @@ Incident Orchestrator ── Investigation Agent ── Map Servers (typed capab
         → Incident Update Agent (writes back to source)
 ```
 
-## 2. Hosting topology (hybrid Cloudflare)
+## 2. Hosting topology (Cloudflare-only)
 
-The spec requires Postgres+pgvector and Redis+BullMQ, which Cloudflare's native primitives
-(D1/SQLite, Queues, Workers) don't support directly (no long-running Node processes, no
-pgvector). Decision: **hybrid**.
+Everything runs on Cloudflare's own products — no Neon/Upstash/Railway/Render. This is a
+deliberate pivot from an earlier "hybrid" decision (Postgres/Redis on a Node host): the
+spec's literal Postgres+pgvector+Redis+BullMQ stack doesn't run on Cloudflare, so instead
+of hosting *that* stack elsewhere, the stack itself was ported onto Cloudflare's native
+primitives — D1 instead of Postgres, Web Crypto instead of Node's `node:crypto`, Cloudflare
+Queues instead of BullMQ+Redis (Phase 6, not yet built), Vectorize instead of pgvector
+(Phase 7, not yet built).
 
 | Concern | Provider | Why |
 |---|---|---|
-| Frontend (`apps/web`, Next.js) | Cloudflare Pages | CDN, TLS, DNS already at Cloudflare |
+| Frontend (`apps/web`, Next.js static export) | Cloudflare Pages | Git-connected — auto-deploys on every push to `main` |
+| API (`apps/api`, Hono) | Cloudflare Workers | request/response `fetch` model, no persistent process needed |
+| Primary DB | Cloudflare D1 (SQLite) | Workers' native DB binding; no native enum/JSON column types, handled at the schema/repository layer (§8) |
 | Static/blob assets, uploaded docs | Cloudflare R2 | S3-compatible, cheap egress |
+| Background jobs (Phase 6+) | Cloudflare Queues | Workers can't run long-lived BullMQ consumers |
+| Vector search (Phase 7+) | Cloudflare Vectorize | D1/SQLite has no vector column type |
 | DNS / edge routing | Cloudflare | already the registrar/DNS target |
-| API (`apps/api`) | Node-capable host (Railway/Fly/Render) | needs persistent process, Prisma, raw TCP to Postgres/Redis |
-| Worker (`apps/worker`, BullMQ consumers) | same Node-capable host | BullMQ needs a real Redis TCP connection; Workers can't run long-lived consumers |
-| Primary DB | Neon Postgres (+ pgvector extension) | serverless Postgres, pgvector for knowledge embeddings, branching for previews |
-| Queue backend | Upstash Redis (or managed Redis on the same host) | BullMQ-compatible |
-| Secrets (prod) | Cloudflare account holds only the CF API token; app secrets live in the Node host's secret store / AWS Secrets Manager / Azure Key Vault per `SecretProvider` (§6) | keeps blast radius per-provider |
+| Secrets (prod) | `wrangler secret put` — encrypted server-side, never in `wrangler.toml` or committed | `JWT_SECRET`, `ENCRYPTION_MASTER_KEY` |
 
-Local dev: `docker-compose.yml` runs Postgres (pgvector image) + Redis so the whole stack
-runs with zero cloud accounts. See `docs/deployment.md`.
+Local dev: `wrangler dev` emulates the whole Workers + D1 runtime locally (via Miniflare) —
+zero cloud accounts needed to develop. `packages/database`'s Prisma schema also works
+against a plain local `file:` SQLite URL with no adapter for quick Node-side testing (see
+`packages/database/src/d1-client.ts`'s header comment on why the deployed Worker still
+needs the D1 driver adapter and a plain Node process doesn't).
 
 The Cloudflare API token provided is stored only in the untracked `.env` (see
-`.env.example` for the shape) and used to provision the Pages project + R2 bucket via the
-Cloudflare API — never committed, never logged.
+`.env.example` for the shape) and used to provision Pages/R2/D1/Workers via the Cloudflare
+API and `wrangler` — never committed, never logged.
+
+**Known platform gaps, worked around deliberately (not bugs):**
+- Prisma's *interactive* `$transaction(async (tx) => ...)` isn't supported on D1 — only
+  the batch array form (`$transaction([...])`). `OrganizationRepository.createWithOwner`
+  pre-generates the org's UUID client-side so both inserts can go in one batch call.
+- D1/SQLite has no native `enum` or `Json` column type — every enum field in
+  `schema.prisma` is a `String` (see §8), and every JSON field is stored as serialized text
+  via `packages/database/src/json-field.ts`, parsed back on every read.
+- The session cookie's `SameSite` must be `None` (not `Lax`) in production — Pages
+  (`*.pages.dev`) and the Worker (`*.workers.dev`) are different sites, so a `Lax` cookie
+  would never be sent on the frontend's cross-origin `fetch` calls. See
+  `packages/security/src/session.ts`.
 
 ## 3. Monorepo layout
 
 ```
 apps/
   web/       Next.js 14 (App Router), TypeScript, Tailwind, shadcn/ui — deployed to CF Pages
-  api/       Fastify HTTP API — auth, REST endpoints, webhook receivers
+  api/       Hono HTTP API (Cloudflare Worker) — auth, REST endpoints, webhook receivers
   worker/    BullMQ consumers — the actual agent pipeline execution
 packages/
   database/    Prisma schema + generated client + repositories (tenant-scoped access only)
@@ -211,9 +230,22 @@ LLM).
 
 ## 8. Data model
 
-PostgreSQL via Prisma, UUID primary keys, every tenant-owned table carries
+Cloudflare D1 (SQLite) via Prisma, UUID primary keys, every tenant-owned table carries
 `organizationId` with a composite index `(organizationId, createdAt)` or similar per
 access pattern. Full schema: `packages/database/prisma/schema.prisma`. Model list:
+
+SQLite has no native `enum` or `Json` column type, so two things differ from a typical
+Postgres+Prisma schema:
+- Every field that would be a Prisma `enum` (`Role`, `MapServerType`, `IncidentStatus`, …)
+  is a plain `String` column, with the allowed values documented in a comment above the
+  field and enforced by the corresponding Zod union at the application layer
+  (`packages/shared`, `packages/security`, `packages/map-servers`, `packages/credentials`)
+  instead of by the database schema.
+- Every field that would be `Json` (`config`, `metadata`, `payload`, …) is a `String`
+  column storing serialized JSON text, via `packages/database/src/json-field.ts`
+  (`serializeJsonField`/`parseJsonField`). Each repository's `toPublic()` mapper parses it
+  back before returning to a caller — the raw Prisma row (with a JSON-text string field)
+  is never handed to route code directly.
 
 `User, Organization, OrganizationMember, Credential, Integration, MapServer,
 MapServerCapability, Incident, IncidentEvent, IncidentEvidence, Investigation,
@@ -241,7 +273,7 @@ convention alone.
 
 ## 9. API contracts
 
-Base: `/api/*` on `apps/api` (Fastify), JSON, Zod-validated request/response, versioned
+Base: `/api/*` on `apps/api` (Hono, deployed as a Cloudflare Worker), JSON, Zod-validated request/response, versioned
 error shape `{ error: { code, message, requestId } }`. Full contract per route:
 `docs/api.md`. Surface:
 

@@ -1,39 +1,29 @@
-import { randomUUID } from "node:crypto";
-import Fastify, { type FastifyInstance } from "fastify";
-import cookie from "@fastify/cookie";
-import cors from "@fastify/cors";
-import rateLimit from "@fastify/rate-limit";
+import { Hono } from "hono";
+import { cors } from "hono/cors";
 import type { PrismaClient } from "@resolution/database";
 import { OrganizationRepository } from "@resolution/database";
 import { createSecretProvider, type SecretProvider } from "@resolution/credentials";
 import type { Env } from "./env";
-import { registerErrorHandler } from "./plugins/error-handler";
-import { registerAuthRoutes } from "./routes/auth";
-import { registerOrganizationRoutes } from "./routes/organizations";
-import { registerCredentialRoutes } from "./routes/credentials";
-import { registerMapServerRoutes } from "./routes/map-servers";
-import { registerIntegrationRoutes } from "./routes/integrations";
-import "./types";
+import type { AppEnv } from "./types";
+import { handleError } from "./plugins/error-handler";
+import { rateLimit } from "./middleware/rate-limit";
+import { buildAuthRoutes } from "./routes/auth";
+import { buildOrganizationRoutes } from "./routes/organizations";
+import { buildCredentialRoutes } from "./routes/credentials";
+import { buildMapServerRoutes } from "./routes/map-servers";
+import { buildIntegrationRoutes } from "./routes/integrations";
 
 export interface BuildAppOptions {
   db: PrismaClient;
   env: Env;
-  /** Injectable for tests (an in-memory fake) — defaults to the real provider selected by
-   *  env.SECRET_PROVIDER (see packages/credentials/src/factory.ts). */
+  /** Injectable for tests (a fresh-keyed real EncryptedDbSecretProvider, or a fake) —
+   *  defaults to the real provider selected by env.SECRET_PROVIDER
+   *  (see packages/credentials/src/factory.ts). */
   secretProvider?: SecretProvider;
 }
 
-export async function buildApp({ db, env, secretProvider }: BuildAppOptions): Promise<FastifyInstance> {
-  const app = Fastify({
-    genReqId: () => randomUUID(),
-    logger:
-      env.NODE_ENV === "test"
-        ? false
-        : { level: env.NODE_ENV === "production" ? "info" : "debug" },
-    // Never let an unvalidated body crash the process silently — Fastify's default is
-    // already to 400 on malformed JSON, this just keeps it explicit.
-    onProtoPoisoning: "remove",
-  });
+export function buildApp({ db, env, secretProvider }: BuildAppOptions): Hono<AppEnv> {
+  const app = new Hono<AppEnv>();
 
   const resolvedSecretProvider =
     secretProvider ??
@@ -41,63 +31,34 @@ export async function buildApp({ db, env, secretProvider }: BuildAppOptions): Pr
   const organizationRepository = new OrganizationRepository(db);
 
   // Request IDs threaded through logs and returned to the client — ARCHITECTURE.md §11.
-  app.addHook("onSend", async (request, reply, payload) => {
-    reply.header("x-request-id", request.id);
-    return payload;
+  app.use("*", async (c, next) => {
+    c.set("requestId", crypto.randomUUID());
+    await next();
+    c.header("x-request-id", c.get("requestId"));
   });
 
-  registerErrorHandler(app);
+  app.use("*", cors({ origin: env.CORS_ORIGIN, credentials: true }));
 
-  await app.register(cookie);
-  await app.register(cors, { origin: env.CORS_ORIGIN, credentials: true });
-  await app.register(rateLimit, {
-    max: 100,
-    timeWindow: "1 minute",
-    // Rate-limit per-IP by default; per-org limiting for authenticated, high-volume
-    // routes (webhooks, incident ingestion) is added alongside those routes in later
-    // phases rather than globally here.
-  });
+  // Rate-limit per-IP by default; per-org limiting for authenticated, high-volume routes
+  // (webhooks, incident ingestion) is added alongside those routes in later phases rather
+  // than globally here. See middleware/rate-limit.ts for the per-isolate caveat on Workers.
+  app.use("*", rateLimit({ max: 100, windowMs: 60_000 }));
 
-  app.get("/healthz", async () => ({ status: "ok" }));
+  app.onError(handleError);
 
-  await app.register(
-    async (instance) => {
-      registerAuthRoutes(instance, { db, env });
-    },
-    { prefix: "/api/auth" },
+  app.get("/healthz", (c) => c.json({ status: "ok" }));
+
+  app.route("/api/auth", buildAuthRoutes({ db, env }));
+  app.route("/api/organizations", buildOrganizationRoutes({ db, env }));
+  app.route(
+    "/api/credentials",
+    buildCredentialRoutes({ db, env, secretProvider: resolvedSecretProvider, organizationRepository }),
   );
+  app.route("/api/map-servers", buildMapServerRoutes({ db, env, organizationRepository }));
+  app.route("/api/integrations", buildIntegrationRoutes({ db, env, organizationRepository }));
 
-  await app.register(
-    async (instance) => {
-      registerOrganizationRoutes(instance, { db, env });
-    },
-    { prefix: "/api/organizations" },
-  );
-
-  await app.register(
-    async (instance) => {
-      registerCredentialRoutes(instance, {
-        db,
-        env,
-        secretProvider: resolvedSecretProvider,
-        organizationRepository,
-      });
-    },
-    { prefix: "/api/credentials" },
-  );
-
-  await app.register(
-    async (instance) => {
-      registerMapServerRoutes(instance, { db, env, organizationRepository });
-    },
-    { prefix: "/api/map-servers" },
-  );
-
-  await app.register(
-    async (instance) => {
-      registerIntegrationRoutes(instance, { db, env, organizationRepository });
-    },
-    { prefix: "/api/integrations" },
+  app.notFound((c) =>
+    c.json({ error: { code: "NOT_FOUND", message: "Not found", requestId: c.get("requestId") } }, 404),
   );
 
   return app;

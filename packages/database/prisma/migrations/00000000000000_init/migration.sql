@@ -1,379 +1,294 @@
--- CreateEnum
-CREATE TYPE "Role" AS ENUM ('OWNER', 'ADMIN', 'MEMBER', 'VIEWER');
-
--- CreateEnum
-CREATE TYPE "AuthenticationType" AS ENUM ('OAUTH', 'API_KEY', 'CLIENT_SECRET', 'SERVICE_PRINCIPAL', 'BASIC_AUTH', 'TOKEN', 'CUSTOM');
-
--- CreateEnum
-CREATE TYPE "CredentialStatus" AS ENUM ('VALID', 'INVALID', 'UNVERIFIED', 'EXPIRED');
-
--- CreateEnum
-CREATE TYPE "MapServerType" AS ENUM ('FABRIC', 'DATABRICKS', 'SNOWFLAKE', 'AZURE', 'AWS', 'GCP', 'KUBERNETES', 'DATADOG', 'SPLUNK', 'DYNATRACE', 'NEW_RELIC', 'AIRFLOW', 'CUSTOM');
-
--- CreateEnum
-CREATE TYPE "ConnectionStatus" AS ENUM ('CONNECTED', 'DEGRADED', 'DISCONNECTED', 'UNCONFIGURED');
-
--- CreateEnum
-CREATE TYPE "IncidentSourceType" AS ENUM ('JIRA', 'SERVICENOW', 'PAGERDUTY', 'WEBHOOK');
-
--- CreateEnum
-CREATE TYPE "Severity" AS ENUM ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW');
-
--- CreateEnum
-CREATE TYPE "Priority" AS ENUM ('P1', 'P2', 'P3', 'P4');
-
--- CreateEnum
-CREATE TYPE "IncidentStatus" AS ENUM ('NEW', 'INVESTIGATING', 'RCA_COMPLETE', 'PENDING_APPROVAL', 'REMEDIATING', 'VERIFYING', 'RESOLVED', 'ESCALATED', 'CLOSED', 'FAILED');
-
--- CreateEnum
-CREATE TYPE "EvidenceType" AS ENUM ('LOG', 'METRIC', 'CONFIG', 'API_RESPONSE', 'PIPELINE_RUN', 'TRACE', 'OTHER');
-
--- CreateEnum
-CREATE TYPE "ClaimType" AS ENUM ('FACT', 'INFERENCE', 'HYPOTHESIS');
-
--- CreateEnum
-CREATE TYPE "RiskLevel" AS ENUM ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL');
-
--- CreateEnum
-CREATE TYPE "PolicyBehavior" AS ENUM ('AUTO', 'APPROVAL', 'DENY');
-
--- CreateEnum
-CREATE TYPE "ResolutionMode" AS ENUM ('OBSERVE_ONLY', 'RECOMMEND', 'HUMAN_APPROVED', 'AUTONOMOUS');
-
--- CreateEnum
-CREATE TYPE "ApprovalStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED', 'EXPIRED');
-
--- CreateEnum
-CREATE TYPE "VerificationStatus" AS ENUM ('PENDING', 'PASSED', 'FAILED', 'RETRYING');
-
--- CreateEnum
-CREATE TYPE "RemediationStatus" AS ENUM ('PENDING', 'APPROVED', 'EXECUTING', 'SUCCEEDED', 'FAILED', 'ROLLED_BACK');
-
--- CreateEnum
-CREATE TYPE "AgentExecutionStatus" AS ENUM ('RUNNING', 'SUCCEEDED', 'FAILED');
-
--- CreateEnum
-CREATE TYPE "AgentType" AS ENUM ('INVESTIGATION', 'KNOWLEDGE', 'CONTEXT', 'RCA', 'RESOLUTION', 'REMEDIATION', 'VERIFICATION', 'INCIDENT_UPDATE');
-
--- CreateEnum
-CREATE TYPE "NotificationChannel" AS ENUM ('EMAIL', 'SLACK', 'TEAMS', 'IN_APP');
-
--- CreateEnum
-CREATE TYPE "SubscriptionPlan" AS ENUM ('FREE', 'TEAM', 'ENTERPRISE');
-
--- CreateEnum
-CREATE TYPE "SubscriptionStatus" AS ENUM ('ACTIVE', 'TRIALING', 'PAST_DUE', 'CANCELED');
-
 -- CreateTable
 CREATE TABLE "User" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "email" TEXT NOT NULL,
     "name" TEXT,
     "passwordHash" TEXT,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "User_pkey" PRIMARY KEY ("id")
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
 );
 
 -- CreateTable
 CREATE TABLE "Organization" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "name" TEXT NOT NULL,
     "slug" TEXT NOT NULL,
-    "resolutionMode" "ResolutionMode" NOT NULL DEFAULT 'OBSERVE_ONLY',
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "Organization_pkey" PRIMARY KEY ("id")
+    "resolutionMode" TEXT NOT NULL DEFAULT 'OBSERVE_ONLY',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
 );
 
 -- CreateTable
 CREATE TABLE "OrganizationMember" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "organizationId" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
-    "role" "Role" NOT NULL DEFAULT 'MEMBER',
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "OrganizationMember_pkey" PRIMARY KEY ("id")
+    "role" TEXT NOT NULL DEFAULT 'MEMBER',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "OrganizationMember_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "OrganizationMember_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateTable
 CREATE TABLE "Credential" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "organizationId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "provider" TEXT NOT NULL,
-    "authenticationType" "AuthenticationType" NOT NULL,
+    "authenticationType" TEXT NOT NULL,
     "encryptedData" TEXT NOT NULL,
-    "status" "CredentialStatus" NOT NULL DEFAULT 'UNVERIFIED',
-    "lastValidatedAt" TIMESTAMP(3),
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "Credential_pkey" PRIMARY KEY ("id")
+    "status" TEXT NOT NULL DEFAULT 'UNVERIFIED',
+    "lastValidatedAt" DATETIME,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "Credential_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateTable
 CREATE TABLE "Integration" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "organizationId" TEXT NOT NULL,
-    "type" "IncidentSourceType" NOT NULL,
+    "type" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "credentialId" TEXT,
-    "config" JSONB NOT NULL DEFAULT '{}',
-    "status" "ConnectionStatus" NOT NULL DEFAULT 'UNCONFIGURED',
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "Integration_pkey" PRIMARY KEY ("id")
+    "config" TEXT NOT NULL DEFAULT '{}',
+    "status" TEXT NOT NULL DEFAULT 'UNCONFIGURED',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "Integration_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateTable
 CREATE TABLE "MapServer" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "organizationId" TEXT NOT NULL,
-    "type" "MapServerType" NOT NULL,
+    "type" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "credentialId" TEXT,
-    "environments" JSONB NOT NULL DEFAULT '[]',
-    "config" JSONB NOT NULL DEFAULT '{}',
+    "environments" TEXT NOT NULL DEFAULT '[]',
+    "config" TEXT NOT NULL DEFAULT '{}',
     "isMock" BOOLEAN NOT NULL DEFAULT false,
-    "status" "ConnectionStatus" NOT NULL DEFAULT 'UNCONFIGURED',
-    "lastHealthCheckAt" TIMESTAMP(3),
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "MapServer_pkey" PRIMARY KEY ("id")
+    "status" TEXT NOT NULL DEFAULT 'UNCONFIGURED',
+    "lastHealthCheckAt" DATETIME,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "MapServer_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "MapServer_credentialId_fkey" FOREIGN KEY ("credentialId") REFERENCES "Credential" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
 -- CreateTable
 CREATE TABLE "MapServerCapability" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "mapServerId" TEXT NOT NULL,
     "key" TEXT NOT NULL,
     "enabled" BOOLEAN NOT NULL DEFAULT false,
-    "riskLevel" "RiskLevel" NOT NULL,
+    "riskLevel" TEXT NOT NULL,
     "mutating" BOOLEAN NOT NULL DEFAULT false,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "MapServerCapability_pkey" PRIMARY KEY ("id")
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "MapServerCapability_mapServerId_fkey" FOREIGN KEY ("mapServerId") REFERENCES "MapServer" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateTable
 CREATE TABLE "Incident" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "organizationId" TEXT NOT NULL,
     "integrationId" TEXT,
     "externalId" TEXT NOT NULL,
-    "source" "IncidentSourceType" NOT NULL,
+    "source" TEXT NOT NULL,
     "title" TEXT NOT NULL,
     "description" TEXT NOT NULL,
-    "severity" "Severity" NOT NULL,
-    "priority" "Priority" NOT NULL,
-    "status" "IncidentStatus" NOT NULL DEFAULT 'NEW',
+    "severity" TEXT NOT NULL,
+    "priority" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'NEW',
     "service" TEXT,
     "environment" TEXT,
     "resource" TEXT,
-    "affectedSystem" "MapServerType",
-    "metadata" JSONB NOT NULL DEFAULT '{}',
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-    "resolvedAt" TIMESTAMP(3),
-
-    CONSTRAINT "Incident_pkey" PRIMARY KEY ("id")
+    "affectedSystem" TEXT,
+    "metadata" TEXT NOT NULL DEFAULT '{}',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    "resolvedAt" DATETIME,
+    CONSTRAINT "Incident_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "Incident_integrationId_fkey" FOREIGN KEY ("integrationId") REFERENCES "Integration" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
 -- CreateTable
 CREATE TABLE "IncidentEvent" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "incidentId" TEXT NOT NULL,
     "type" TEXT NOT NULL,
     "actor" TEXT NOT NULL,
-    "detail" JSONB NOT NULL DEFAULT '{}',
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "IncidentEvent_pkey" PRIMARY KEY ("id")
+    "detail" TEXT NOT NULL DEFAULT '{}',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "IncidentEvent_incidentId_fkey" FOREIGN KEY ("incidentId") REFERENCES "Incident" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateTable
 CREATE TABLE "IncidentEvidence" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "incidentId" TEXT NOT NULL,
-    "type" "EvidenceType" NOT NULL,
+    "type" TEXT NOT NULL,
     "source" TEXT NOT NULL,
     "capabilityKey" TEXT,
     "summary" TEXT NOT NULL,
-    "payload" JSONB NOT NULL DEFAULT '{}',
-    "collectedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "IncidentEvidence_pkey" PRIMARY KEY ("id")
+    "payload" TEXT NOT NULL DEFAULT '{}',
+    "collectedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "IncidentEvidence_incidentId_fkey" FOREIGN KEY ("incidentId") REFERENCES "Incident" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateTable
 CREATE TABLE "Investigation" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "incidentId" TEXT NOT NULL,
-    "status" "AgentExecutionStatus" NOT NULL DEFAULT 'RUNNING',
-    "startedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "completedAt" TIMESTAMP(3),
+    "status" TEXT NOT NULL DEFAULT 'RUNNING',
+    "startedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "completedAt" DATETIME,
     "summary" TEXT,
-
-    CONSTRAINT "Investigation_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "Investigation_incidentId_fkey" FOREIGN KEY ("incidentId") REFERENCES "Incident" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateTable
 CREATE TABLE "InvestigationStep" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "investigationId" TEXT NOT NULL,
     "mapServerId" TEXT,
     "capabilityKey" TEXT,
-    "input" JSONB NOT NULL DEFAULT '{}',
-    "output" JSONB NOT NULL DEFAULT '{}',
+    "input" TEXT NOT NULL DEFAULT '{}',
+    "output" TEXT NOT NULL DEFAULT '{}',
     "evidenceCreatedId" TEXT,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "InvestigationStep_pkey" PRIMARY KEY ("id")
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "InvestigationStep_investigationId_fkey" FOREIGN KEY ("investigationId") REFERENCES "Investigation" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateTable
 CREATE TABLE "RootCauseAnalysis" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "incidentId" TEXT NOT NULL,
     "summary" TEXT NOT NULL,
-    "claims" JSONB NOT NULL,
-    "confidence" DOUBLE PRECISION NOT NULL,
-    "alternativeHypotheses" JSONB NOT NULL DEFAULT '[]',
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "RootCauseAnalysis_pkey" PRIMARY KEY ("id")
+    "claims" TEXT NOT NULL,
+    "confidence" REAL NOT NULL,
+    "alternativeHypotheses" TEXT NOT NULL DEFAULT '[]',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "RootCauseAnalysis_incidentId_fkey" FOREIGN KEY ("incidentId") REFERENCES "Incident" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateTable
 CREATE TABLE "Resolution" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "incidentId" TEXT NOT NULL,
     "rcaId" TEXT NOT NULL,
     "proposedAction" TEXT NOT NULL,
     "mapServerId" TEXT,
     "capabilityKey" TEXT,
-    "input" JSONB NOT NULL DEFAULT '{}',
-    "riskLevel" "RiskLevel" NOT NULL,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "Resolution_pkey" PRIMARY KEY ("id")
+    "input" TEXT NOT NULL DEFAULT '{}',
+    "riskLevel" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "Resolution_incidentId_fkey" FOREIGN KEY ("incidentId") REFERENCES "Incident" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "Resolution_rcaId_fkey" FOREIGN KEY ("rcaId") REFERENCES "RootCauseAnalysis" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
 -- CreateTable
 CREATE TABLE "RemediationAction" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "resolutionId" TEXT NOT NULL,
-    "status" "RemediationStatus" NOT NULL DEFAULT 'PENDING',
+    "status" TEXT NOT NULL DEFAULT 'PENDING',
     "idempotencyKey" TEXT NOT NULL,
-    "executedAt" TIMESTAMP(3),
-    "result" JSONB NOT NULL DEFAULT '{}',
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "RemediationAction_pkey" PRIMARY KEY ("id")
+    "executedAt" DATETIME,
+    "result" TEXT NOT NULL DEFAULT '{}',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "RemediationAction_resolutionId_fkey" FOREIGN KEY ("resolutionId") REFERENCES "Resolution" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateTable
 CREATE TABLE "Approval" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "remediationActionId" TEXT NOT NULL,
-    "status" "ApprovalStatus" NOT NULL DEFAULT 'PENDING',
-    "requestedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "decidedAt" TIMESTAMP(3),
+    "status" TEXT NOT NULL DEFAULT 'PENDING',
+    "requestedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "decidedAt" DATETIME,
     "decidedByUserId" TEXT,
     "reason" TEXT,
-
-    CONSTRAINT "Approval_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "Approval_remediationActionId_fkey" FOREIGN KEY ("remediationActionId") REFERENCES "RemediationAction" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "Approval_decidedByUserId_fkey" FOREIGN KEY ("decidedByUserId") REFERENCES "User" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
 -- CreateTable
 CREATE TABLE "Verification" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "remediationActionId" TEXT NOT NULL,
-    "status" "VerificationStatus" NOT NULL DEFAULT 'PENDING',
-    "expectedState" JSONB NOT NULL DEFAULT '{}',
-    "actualState" JSONB NOT NULL DEFAULT '{}',
+    "status" TEXT NOT NULL DEFAULT 'PENDING',
+    "expectedState" TEXT NOT NULL DEFAULT '{}',
+    "actualState" TEXT NOT NULL DEFAULT '{}',
     "attempt" INTEGER NOT NULL DEFAULT 1,
-    "checkedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "Verification_pkey" PRIMARY KEY ("id")
+    "checkedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "Verification_remediationActionId_fkey" FOREIGN KEY ("remediationActionId") REFERENCES "RemediationAction" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateTable
 CREATE TABLE "KnowledgeDocument" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "organizationId" TEXT NOT NULL,
     "title" TEXT NOT NULL,
     "sourceType" TEXT NOT NULL,
     "sourceId" TEXT,
     "content" TEXT NOT NULL,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "KnowledgeDocument_pkey" PRIMARY KEY ("id")
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "KnowledgeDocument_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateTable
 CREATE TABLE "KnowledgeEmbedding" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "organizationId" TEXT NOT NULL,
     "knowledgeDocumentId" TEXT NOT NULL,
     "chunkIndex" INTEGER NOT NULL,
     "chunkText" TEXT NOT NULL,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "KnowledgeEmbedding_pkey" PRIMARY KEY ("id")
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "KnowledgeEmbedding_knowledgeDocumentId_fkey" FOREIGN KEY ("knowledgeDocumentId") REFERENCES "KnowledgeDocument" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateTable
 CREATE TABLE "Runbook" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "organizationId" TEXT NOT NULL,
     "title" TEXT NOT NULL,
     "description" TEXT,
     "service" TEXT,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "Runbook_pkey" PRIMARY KEY ("id")
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "Runbook_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateTable
 CREATE TABLE "RunbookStep" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "runbookId" TEXT NOT NULL,
     "order" INTEGER NOT NULL,
     "title" TEXT NOT NULL,
     "detail" TEXT NOT NULL,
-
-    CONSTRAINT "RunbookStep_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "RunbookStep_runbookId_fkey" FOREIGN KEY ("runbookId") REFERENCES "Runbook" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateTable
 CREATE TABLE "AutomationPolicy" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "organizationId" TEXT NOT NULL,
-    "mapServerType" "MapServerType" NOT NULL,
+    "mapServerType" TEXT NOT NULL,
     "capabilityKey" TEXT NOT NULL,
-    "riskLevel" "RiskLevel" NOT NULL,
-    "behavior" "PolicyBehavior" NOT NULL,
-    "resolutionModeFloor" "ResolutionMode" NOT NULL DEFAULT 'OBSERVE_ONLY',
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "AutomationPolicy_pkey" PRIMARY KEY ("id")
+    "riskLevel" TEXT NOT NULL,
+    "behavior" TEXT NOT NULL,
+    "resolutionModeFloor" TEXT NOT NULL DEFAULT 'OBSERVE_ONLY',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "AutomationPolicy_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateTable
 CREATE TABLE "AuditLog" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "organizationId" TEXT,
     "actorType" TEXT NOT NULL,
     "actorId" TEXT,
@@ -381,81 +296,77 @@ CREATE TABLE "AuditLog" (
     "targetType" TEXT,
     "targetId" TEXT,
     "requestId" TEXT,
-    "metadata" JSONB NOT NULL DEFAULT '{}',
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "AuditLog_pkey" PRIMARY KEY ("id")
+    "metadata" TEXT NOT NULL DEFAULT '{}',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "AuditLog_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "AuditLog_actorId_fkey" FOREIGN KEY ("actorId") REFERENCES "User" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
 -- CreateTable
 CREATE TABLE "AgentExecution" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "incidentId" TEXT NOT NULL,
-    "agentType" "AgentType" NOT NULL,
-    "status" "AgentExecutionStatus" NOT NULL DEFAULT 'RUNNING',
-    "input" JSONB NOT NULL DEFAULT '{}',
-    "output" JSONB NOT NULL DEFAULT '{}',
+    "agentType" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'RUNNING',
+    "input" TEXT NOT NULL DEFAULT '{}',
+    "output" TEXT NOT NULL DEFAULT '{}',
     "error" TEXT,
-    "startedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "completedAt" TIMESTAMP(3),
-
-    CONSTRAINT "AgentExecution_pkey" PRIMARY KEY ("id")
+    "startedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "completedAt" DATETIME,
+    CONSTRAINT "AgentExecution_incidentId_fkey" FOREIGN KEY ("incidentId") REFERENCES "Incident" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateTable
 CREATE TABLE "WebhookEvent" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "organizationId" TEXT,
-    "source" "IncidentSourceType" NOT NULL,
+    "source" TEXT NOT NULL,
     "externalId" TEXT NOT NULL,
     "eventHash" TEXT NOT NULL,
-    "processedAt" TIMESTAMP(3),
-    "payload" JSONB NOT NULL,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "WebhookEvent_pkey" PRIMARY KEY ("id")
+    "processedAt" DATETIME,
+    "payload" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "WebhookEvent_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateTable
 CREATE TABLE "Notification" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "organizationId" TEXT NOT NULL,
     "userId" TEXT,
-    "channel" "NotificationChannel" NOT NULL,
+    "channel" TEXT NOT NULL,
     "title" TEXT NOT NULL,
     "body" TEXT NOT NULL,
     "read" BOOLEAN NOT NULL DEFAULT false,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "Notification_pkey" PRIMARY KEY ("id")
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "Notification_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "Notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
 -- CreateTable
 CREATE TABLE "UsageMetric" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "organizationId" TEXT NOT NULL,
     "metric" TEXT NOT NULL,
-    "value" DOUBLE PRECISION NOT NULL,
-    "periodStart" TIMESTAMP(3) NOT NULL,
-    "periodEnd" TIMESTAMP(3) NOT NULL,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "UsageMetric_pkey" PRIMARY KEY ("id")
+    "value" REAL NOT NULL,
+    "periodStart" DATETIME NOT NULL,
+    "periodEnd" DATETIME NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "UsageMetric_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateTable
 CREATE TABLE "Subscription" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "organizationId" TEXT NOT NULL,
-    "plan" "SubscriptionPlan" NOT NULL DEFAULT 'FREE',
-    "status" "SubscriptionStatus" NOT NULL DEFAULT 'TRIALING',
+    "plan" TEXT NOT NULL DEFAULT 'FREE',
+    "status" TEXT NOT NULL DEFAULT 'TRIALING',
     "billingProviderCustomerId" TEXT,
     "billingProviderSubscriptionId" TEXT,
-    "currentPeriodEnd" TIMESTAMP(3),
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "Subscription_pkey" PRIMARY KEY ("id")
+    "currentPeriodEnd" DATETIME,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "Subscription_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateIndex
@@ -586,103 +497,4 @@ CREATE INDEX "UsageMetric_organizationId_metric_periodStart_idx" ON "UsageMetric
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Subscription_organizationId_key" ON "Subscription"("organizationId");
-
--- AddForeignKey
-ALTER TABLE "OrganizationMember" ADD CONSTRAINT "OrganizationMember_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "OrganizationMember" ADD CONSTRAINT "OrganizationMember_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Credential" ADD CONSTRAINT "Credential_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Integration" ADD CONSTRAINT "Integration_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "MapServer" ADD CONSTRAINT "MapServer_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "MapServer" ADD CONSTRAINT "MapServer_credentialId_fkey" FOREIGN KEY ("credentialId") REFERENCES "Credential"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "MapServerCapability" ADD CONSTRAINT "MapServerCapability_mapServerId_fkey" FOREIGN KEY ("mapServerId") REFERENCES "MapServer"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Incident" ADD CONSTRAINT "Incident_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Incident" ADD CONSTRAINT "Incident_integrationId_fkey" FOREIGN KEY ("integrationId") REFERENCES "Integration"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "IncidentEvent" ADD CONSTRAINT "IncidentEvent_incidentId_fkey" FOREIGN KEY ("incidentId") REFERENCES "Incident"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "IncidentEvidence" ADD CONSTRAINT "IncidentEvidence_incidentId_fkey" FOREIGN KEY ("incidentId") REFERENCES "Incident"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Investigation" ADD CONSTRAINT "Investigation_incidentId_fkey" FOREIGN KEY ("incidentId") REFERENCES "Incident"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "InvestigationStep" ADD CONSTRAINT "InvestigationStep_investigationId_fkey" FOREIGN KEY ("investigationId") REFERENCES "Investigation"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "RootCauseAnalysis" ADD CONSTRAINT "RootCauseAnalysis_incidentId_fkey" FOREIGN KEY ("incidentId") REFERENCES "Incident"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Resolution" ADD CONSTRAINT "Resolution_incidentId_fkey" FOREIGN KEY ("incidentId") REFERENCES "Incident"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Resolution" ADD CONSTRAINT "Resolution_rcaId_fkey" FOREIGN KEY ("rcaId") REFERENCES "RootCauseAnalysis"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "RemediationAction" ADD CONSTRAINT "RemediationAction_resolutionId_fkey" FOREIGN KEY ("resolutionId") REFERENCES "Resolution"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Approval" ADD CONSTRAINT "Approval_remediationActionId_fkey" FOREIGN KEY ("remediationActionId") REFERENCES "RemediationAction"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Approval" ADD CONSTRAINT "Approval_decidedByUserId_fkey" FOREIGN KEY ("decidedByUserId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Verification" ADD CONSTRAINT "Verification_remediationActionId_fkey" FOREIGN KEY ("remediationActionId") REFERENCES "RemediationAction"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "KnowledgeDocument" ADD CONSTRAINT "KnowledgeDocument_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "KnowledgeEmbedding" ADD CONSTRAINT "KnowledgeEmbedding_knowledgeDocumentId_fkey" FOREIGN KEY ("knowledgeDocumentId") REFERENCES "KnowledgeDocument"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Runbook" ADD CONSTRAINT "Runbook_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "RunbookStep" ADD CONSTRAINT "RunbookStep_runbookId_fkey" FOREIGN KEY ("runbookId") REFERENCES "Runbook"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "AutomationPolicy" ADD CONSTRAINT "AutomationPolicy_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_actorId_fkey" FOREIGN KEY ("actorId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "AgentExecution" ADD CONSTRAINT "AgentExecution_incidentId_fkey" FOREIGN KEY ("incidentId") REFERENCES "Incident"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "WebhookEvent" ADD CONSTRAINT "WebhookEvent_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Notification" ADD CONSTRAINT "Notification_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Notification" ADD CONSTRAINT "Notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "UsageMetric" ADD CONSTRAINT "UsageMetric_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Subscription" ADD CONSTRAINT "Subscription_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 

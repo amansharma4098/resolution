@@ -3,193 +3,22 @@
 // carries organizationId, and it is only ever set server-side from the authenticated
 // session — repositories in packages/database/repositories/* enforce this, never trust
 // a client-supplied organizationId.
+//
+// Datasource: Cloudflare D1 (SQLite dialect) — see ARCHITECTURE.md §2. SQLite has no
+// native enum type, so every field that would be a Prisma `enum` on Postgres is a `String`
+// here instead, with the allowed values documented in a comment and enforced by the
+// corresponding Zod union at the application layer (packages/shared, packages/security,
+// packages/map-servers, packages/credentials) rather than by the database schema.
+// Application code must never write a value outside that list.
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
-}
-
-// ─────────────────────────── Enums ───────────────────────────
-
-enum Role {
-  OWNER
-  ADMIN
-  MEMBER
-  VIEWER
-}
-
-enum AuthenticationType {
-  OAUTH
-  API_KEY
-  CLIENT_SECRET
-  SERVICE_PRINCIPAL
-  BASIC_AUTH
-  TOKEN
-  CUSTOM
-}
-
-enum CredentialStatus {
-  VALID
-  INVALID
-  UNVERIFIED
-  EXPIRED
-}
-
-enum MapServerType {
-  FABRIC
-  DATABRICKS
-  SNOWFLAKE
-  AZURE
-  AWS
-  GCP
-  KUBERNETES
-  DATADOG
-  SPLUNK
-  DYNATRACE
-  NEW_RELIC
-  AIRFLOW
-  CUSTOM
-}
-
-enum ConnectionStatus {
-  CONNECTED
-  DEGRADED
-  DISCONNECTED
-  UNCONFIGURED
-}
-
-enum IncidentSourceType {
-  JIRA
-  SERVICENOW
-  PAGERDUTY
-  WEBHOOK
-}
-
-enum Severity {
-  CRITICAL
-  HIGH
-  MEDIUM
-  LOW
-}
-
-enum Priority {
-  P1
-  P2
-  P3
-  P4
-}
-
-enum IncidentStatus {
-  NEW
-  INVESTIGATING
-  RCA_COMPLETE
-  PENDING_APPROVAL
-  REMEDIATING
-  VERIFYING
-  RESOLVED
-  ESCALATED
-  CLOSED
-  FAILED
-}
-
-enum EvidenceType {
-  LOG
-  METRIC
-  CONFIG
-  API_RESPONSE
-  PIPELINE_RUN
-  TRACE
-  OTHER
-}
-
-enum ClaimType {
-  FACT
-  INFERENCE
-  HYPOTHESIS
-}
-
-enum RiskLevel {
-  LOW
-  MEDIUM
-  HIGH
-  CRITICAL
-}
-
-enum PolicyBehavior {
-  AUTO
-  APPROVAL
-  DENY
-}
-
-enum ResolutionMode {
-  OBSERVE_ONLY
-  RECOMMEND
-  HUMAN_APPROVED
-  AUTONOMOUS
-}
-
-enum ApprovalStatus {
-  PENDING
-  APPROVED
-  REJECTED
-  EXPIRED
-}
-
-enum VerificationStatus {
-  PENDING
-  PASSED
-  FAILED
-  RETRYING
-}
-
-enum RemediationStatus {
-  PENDING
-  APPROVED
-  EXECUTING
-  SUCCEEDED
-  FAILED
-  ROLLED_BACK
-}
-
-enum AgentExecutionStatus {
-  RUNNING
-  SUCCEEDED
-  FAILED
-}
-
-enum AgentType {
-  INVESTIGATION
-  KNOWLEDGE
-  CONTEXT
-  RCA
-  RESOLUTION
-  REMEDIATION
-  VERIFICATION
-  INCIDENT_UPDATE
-}
-
-enum NotificationChannel {
-  EMAIL
-  SLACK
-  TEAMS
-  IN_APP
-}
-
-enum SubscriptionPlan {
-  FREE
-  TEAM
-  ENTERPRISE
-}
-
-enum SubscriptionStatus {
-  ACTIVE
-  TRIALING
-  PAST_DUE
-  CANCELED
 }
 
 // ─────────────────────────── Identity & tenancy ───────────────────────────
@@ -211,26 +40,27 @@ model User {
 }
 
 model Organization {
-  id             String         @id @default(uuid())
+  id             String   @id @default(uuid())
   name           String
-  slug           String         @unique
-  resolutionMode ResolutionMode @default(OBSERVE_ONLY)
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  slug           String   @unique
+  // ResolutionMode: OBSERVE_ONLY | RECOMMEND | HUMAN_APPROVED | AUTONOMOUS — see ARCHITECTURE.md §7
+  resolutionMode String   @default("OBSERVE_ONLY")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  members             OrganizationMember[]
-  credentials          Credential[]
-  integrations         Integration[]
-  mapServers            MapServer[]
-  incidents             Incident[]
-  knowledgeDocuments    KnowledgeDocument[]
-  runbooks              Runbook[]
-  automationPolicies    AutomationPolicy[]
-  auditLogs             AuditLog[]
-  webhookEvents         WebhookEvent[]
-  notifications         Notification[]
-  usageMetrics          UsageMetric[]
-  subscription          Subscription?
+  members            OrganizationMember[]
+  credentials        Credential[]
+  integrations       Integration[]
+  mapServers         MapServer[]
+  incidents          Incident[]
+  knowledgeDocuments KnowledgeDocument[]
+  runbooks           Runbook[]
+  automationPolicies AutomationPolicy[]
+  auditLogs          AuditLog[]
+  webhookEvents      WebhookEvent[]
+  notifications      Notification[]
+  usageMetrics       UsageMetric[]
+  subscription       Subscription?
 
   @@index([slug])
 }
@@ -239,7 +69,8 @@ model OrganizationMember {
   id             String   @id @default(uuid())
   organizationId String
   userId         String
-  role           Role     @default(MEMBER)
+  // Role: OWNER | ADMIN | MEMBER | VIEWER — see packages/security/src/rbac.ts
+  role           String   @default("MEMBER")
   createdAt      DateTime @default(now())
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -252,16 +83,19 @@ model OrganizationMember {
 // ─────────────────────────── Credentials ───────────────────────────
 
 model Credential {
-  id                 String             @id @default(uuid())
-  organizationId     String
-  name               String
-  provider           String // e.g. "microsoft-fabric", "jira", "aws" — free-form, validated by the map-server/integration registry
-  authenticationType AuthenticationType
-  encryptedData       String            // envelope-encrypted blob; see packages/credentials/secret-provider.ts — never selected into API responses
-  status              CredentialStatus  @default(UNVERIFIED)
-  lastValidatedAt     DateTime?
-  createdAt           DateTime          @default(now())
-  updatedAt           DateTime          @updatedAt
+  id   String @id @default(uuid())
+  organizationId String
+  name           String
+  provider       String // e.g. "microsoft-fabric", "jira", "aws" — free-form, validated by the map-server/integration registry
+  // AuthenticationType: OAUTH | API_KEY | CLIENT_SECRET | SERVICE_PRINCIPAL | BASIC_AUTH |
+  // TOKEN | CUSTOM — see packages/credentials/src/credential-payload.ts
+  authenticationType String
+  encryptedData      String // envelope-encrypted blob; see packages/credentials/src/secret-provider.ts — never selected into API responses
+  // CredentialStatus: VALID | INVALID | UNVERIFIED | EXPIRED
+  status          String    @default("UNVERIFIED")
+  lastValidatedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   mapServers   MapServer[]
@@ -273,15 +107,17 @@ model Credential {
 // ─────────────────────────── Integrations (incident sources) ───────────────────────────
 
 model Integration {
-  id             String             @id @default(uuid())
+  id             String @id @default(uuid())
   organizationId String
-  type           IncidentSourceType
-  name           String
-  credentialId   String?
-  config         Json               @default("{}") // e.g. Jira project key, ServiceNow instance URL
-  status         ConnectionStatus   @default(UNCONFIGURED)
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
+  // IncidentSourceType: JIRA | SERVICENOW | PAGERDUTY | WEBHOOK
+  type         String
+  name         String
+  credentialId String?
+  config       String     @default("{}") // e.g. Jira project key, ServiceNow instance URL
+  // ConnectionStatus: CONNECTED | DEGRADED | DISCONNECTED | UNCONFIGURED
+  status    String   @default("UNCONFIGURED")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   incidents    Incident[]
@@ -293,21 +129,24 @@ model Integration {
 // ─────────────────────────── Map Servers ───────────────────────────
 
 model MapServer {
-  id             String           @id @default(uuid())
+  id             String @id @default(uuid())
   organizationId String
-  type           MapServerType
-  name           String
-  credentialId   String?
-  environments   Json             @default("[]") // string[] e.g. ["prod","staging"]
-  config         Json             @default("{}") // provider-specific config (workspace id, region, cluster, ...)
-  isMock         Boolean          @default(false)
-  status         ConnectionStatus @default(UNCONFIGURED)
+  // MapServerType: FABRIC | DATABRICKS | SNOWFLAKE | AZURE | AWS | GCP | KUBERNETES |
+  // DATADOG | SPLUNK | DYNATRACE | NEW_RELIC | AIRFLOW | CUSTOM — see packages/shared
+  type         String
+  name         String
+  credentialId String?
+  environments String    @default("[]") // string[] e.g. ["prod","staging"]
+  config       String    @default("{}") // provider-specific config (workspace id, region, cluster, ...)
+  isMock       Boolean @default(false)
+  // ConnectionStatus: CONNECTED | DEGRADED | DISCONNECTED | UNCONFIGURED
+  status            String    @default("UNCONFIGURED")
   lastHealthCheckAt DateTime?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
-  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  credential   Credential?          @relation(fields: [credentialId], references: [id])
+  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  credential   Credential?           @relation(fields: [credentialId], references: [id])
   capabilities MapServerCapability[]
 
   @@index([organizationId])
@@ -315,14 +154,15 @@ model MapServer {
 }
 
 model MapServerCapability {
-  id           String    @id @default(uuid())
-  mapServerId  String
-  key          String // e.g. "get_pipeline_run", "retry_pipeline" — matches Capability.key in code
-  enabled      Boolean   @default(false)
-  riskLevel    RiskLevel
-  mutating     Boolean   @default(false)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id          String  @id @default(uuid())
+  mapServerId String
+  key         String // e.g. "get_pipeline_run", "retry_pipeline" — matches Capability.key in code
+  enabled     Boolean @default(false)
+  // RiskLevel: LOW | MEDIUM | HIGH | CRITICAL
+  riskLevel String
+  mutating  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   mapServer MapServer @relation(fields: [mapServerId], references: [id], onDelete: Cascade)
 
@@ -333,32 +173,38 @@ model MapServerCapability {
 // ─────────────────────────── Incidents ───────────────────────────
 
 model Incident {
-  id             String         @id @default(uuid())
+  id             String  @id @default(uuid())
   organizationId String
   integrationId  String?
   externalId     String // ID in the source system
-  source         IncidentSourceType
-  title          String
-  description    String         @db.Text
-  severity       Severity
-  priority       Priority
-  status         IncidentStatus @default(NEW)
-  service        String?
-  environment    String?
-  resource       String?
-  affectedSystem MapServerType?
-  metadata       Json           @default("{}")
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  // IncidentSourceType: JIRA | SERVICENOW | PAGERDUTY | WEBHOOK
+  source      String
+  title       String
+  description String
+  // Severity: CRITICAL | HIGH | MEDIUM | LOW
+  severity String
+  // Priority: P1 | P2 | P3 | P4
+  priority String
+  // IncidentStatus: NEW | INVESTIGATING | RCA_COMPLETE | PENDING_APPROVAL | REMEDIATING |
+  // VERIFYING | RESOLVED | ESCALATED | CLOSED | FAILED
+  status String @default("NEW")
+  service     String?
+  environment String?
+  resource    String?
+  // MapServerType, nullable
+  affectedSystem String?
+  metadata       String      @default("{}")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
   resolvedAt     DateTime?
 
-  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  integration  Integration?         @relation(fields: [integrationId], references: [id])
-  events        IncidentEvent[]
-  evidence      IncidentEvidence[]
-  investigations Investigation[]
-  rcas          RootCauseAnalysis[]
-  resolutions   Resolution[]
+  organization    Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  integration     Integration?        @relation(fields: [integrationId], references: [id])
+  events          IncidentEvent[]
+  evidence        IncidentEvidence[]
+  investigations  Investigation[]
+  rcas            RootCauseAnalysis[]
+  resolutions     Resolution[]
   agentExecutions AgentExecution[]
 
   @@unique([organizationId, source, externalId])
@@ -371,7 +217,7 @@ model IncidentEvent {
   incidentId String
   type       String // e.g. "status_changed", "comment_added", "assigned"
   actor      String // "system" | "agent" | userId
-  detail     Json     @default("{}")
+  detail     String     @default("{}")
   createdAt  DateTime @default(now())
 
   incident Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
@@ -380,14 +226,15 @@ model IncidentEvent {
 }
 
 model IncidentEvidence {
-  id           String       @id @default(uuid())
-  incidentId   String
-  type         EvidenceType
-  source       String // Map Server id or "manual"
+  id         String @id @default(uuid())
+  incidentId String
+  // EvidenceType: LOG | METRIC | CONFIG | API_RESPONSE | PIPELINE_RUN | TRACE | OTHER
+  type          String
+  source        String // Map Server id or "manual"
   capabilityKey String?
-  summary      String
-  payload      Json         @default("{}")
-  collectedAt  DateTime     @default(now())
+  summary       String
+  payload       String     @default("{}")
+  collectedAt   DateTime @default(now())
 
   incident Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
 
@@ -397,28 +244,29 @@ model IncidentEvidence {
 // ─────────────────────────── Investigation & RCA ───────────────────────────
 
 model Investigation {
-  id         String   @id @default(uuid())
+  id         String @id @default(uuid())
   incidentId String
-  status     AgentExecutionStatus @default(RUNNING)
-  startedAt  DateTime @default(now())
+  // AgentExecutionStatus: RUNNING | SUCCEEDED | FAILED
+  status      String    @default("RUNNING")
+  startedAt   DateTime  @default(now())
   completedAt DateTime?
-  summary    String?
+  summary     String?
 
-  incident Incident           @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  incident Incident            @relation(fields: [incidentId], references: [id], onDelete: Cascade)
   steps    InvestigationStep[]
 
   @@index([incidentId])
 }
 
 model InvestigationStep {
-  id               String   @id @default(uuid())
-  investigationId  String
-  mapServerId      String?
-  capabilityKey    String?
-  input            Json     @default("{}")
-  output           Json     @default("{}")
+  id                String   @id @default(uuid())
+  investigationId   String
+  mapServerId       String?
+  capabilityKey     String?
+  input             String     @default("{}")
+  output            String     @default("{}")
   evidenceCreatedId String?
-  createdAt        DateTime @default(now())
+  createdAt         DateTime @default(now())
 
   investigation Investigation @relation(fields: [investigationId], references: [id], onDelete: Cascade)
 
@@ -426,15 +274,15 @@ model InvestigationStep {
 }
 
 model RootCauseAnalysis {
-  id               String   @id @default(uuid())
-  incidentId       String
-  summary          String   @db.Text
-  claims           Json // Claim[] — { text, claimType: FACT|INFERENCE|HYPOTHESIS, evidenceIds: string[], confidence: number }
-  confidence       Float
-  alternativeHypotheses Json @default("[]")
-  createdAt        DateTime @default(now())
+  id         String @id @default(uuid())
+  incidentId String
+  summary    String
+  claims     String // Claim[] — { text, claimType: FACT|INFERENCE|HYPOTHESIS, evidenceIds: string[], confidence: number } — see packages/shared/src/rca.ts
+  confidence            Float
+  alternativeHypotheses String     @default("[]")
+  createdAt             DateTime @default(now())
 
-  incident   Incident     @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  incident    Incident     @relation(fields: [incidentId], references: [id], onDelete: Cascade)
   resolutions Resolution[]
 
   @@index([incidentId])
@@ -443,15 +291,16 @@ model RootCauseAnalysis {
 // ─────────────────────────── Resolution & remediation ───────────────────────────
 
 model Resolution {
-  id           String   @id @default(uuid())
-  incidentId   String
-  rcaId        String
-  proposedAction String @db.Text
+  id             String @id @default(uuid())
+  incidentId     String
+  rcaId          String
+  proposedAction String
   mapServerId    String?
   capabilityKey  String?
-  input          Json    @default("{}")
-  riskLevel      RiskLevel
-  createdAt      DateTime @default(now())
+  input          String    @default("{}")
+  // RiskLevel: LOW | MEDIUM | HIGH | CRITICAL
+  riskLevel String
+  createdAt DateTime @default(now())
 
   incident Incident            @relation(fields: [incidentId], references: [id], onDelete: Cascade)
   rca      RootCauseAnalysis   @relation(fields: [rcaId], references: [id])
@@ -461,30 +310,32 @@ model Resolution {
 }
 
 model RemediationAction {
-  id           String             @id @default(uuid())
+  id           String @id @default(uuid())
   resolutionId String
-  status       RemediationStatus  @default(PENDING)
-  idempotencyKey String           @unique // (incidentId, capabilityKey, runId)
-  executedAt   DateTime?
-  result       Json               @default("{}")
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
+  // RemediationStatus: PENDING | APPROVED | EXECUTING | SUCCEEDED | FAILED | ROLLED_BACK
+  status         String    @default("PENDING")
+  idempotencyKey String    @unique // (incidentId, capabilityKey, runId)
+  executedAt     DateTime?
+  result         String      @default("{}")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  resolution   Resolution     @relation(fields: [resolutionId], references: [id], onDelete: Cascade)
-  approval     Approval?
+  resolution    Resolution     @relation(fields: [resolutionId], references: [id], onDelete: Cascade)
+  approval      Approval?
   verifications Verification[]
 
   @@index([resolutionId])
 }
 
 model Approval {
-  id                  String         @id @default(uuid())
-  remediationActionId String         @unique
-  status              ApprovalStatus @default(PENDING)
-  requestedAt         DateTime       @default(now())
-  decidedAt           DateTime?
-  decidedByUserId     String?
-  reason              String?
+  id                  String @id @default(uuid())
+  remediationActionId String @unique
+  // ApprovalStatus: PENDING | APPROVED | REJECTED | EXPIRED
+  status          String    @default("PENDING")
+  requestedAt     DateTime  @default(now())
+  decidedAt       DateTime?
+  decidedByUserId String?
+  reason          String?
 
   remediationAction RemediationAction @relation(fields: [remediationActionId], references: [id], onDelete: Cascade)
   decidedBy         User?             @relation(fields: [decidedByUserId], references: [id])
@@ -493,13 +344,14 @@ model Approval {
 }
 
 model Verification {
-  id                  String              @id @default(uuid())
+  id                  String @id @default(uuid())
   remediationActionId String
-  status              VerificationStatus  @default(PENDING)
-  expectedState       Json                @default("{}")
-  actualState         Json                @default("{}")
-  attempt              Int                @default(1)
-  checkedAt            DateTime           @default(now())
+  // VerificationStatus: PENDING | PASSED | FAILED | RETRYING
+  status        String   @default("PENDING")
+  expectedState String     @default("{}")
+  actualState   String     @default("{}")
+  attempt       Int      @default(1)
+  checkedAt     DateTime @default(now())
 
   remediationAction RemediationAction @relation(fields: [remediationActionId], references: [id], onDelete: Cascade)
 
@@ -507,6 +359,9 @@ model Verification {
 }
 
 // ─────────────────────────── Knowledge ───────────────────────────
+// Vector search runs on Cloudflare Vectorize, not in D1 (SQLite has no vector type) — a
+// KnowledgeEmbedding row's `id` is also its Vectorize vector id, so the two stay joinable.
+// See docs/deployment.md and IMPLEMENTATION_PLAN.md Phase 7.
 
 model KnowledgeDocument {
   id             String   @id @default(uuid())
@@ -514,26 +369,23 @@ model KnowledgeDocument {
   title          String
   sourceType     String // "incident" | "runbook" | "upload" | "manual"
   sourceId       String? // e.g. incidentId when auto-derived
-  content        String   @db.Text
+  content        String
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   embeddings   KnowledgeEmbedding[]
 
   @@index([organizationId])
 }
 
 model KnowledgeEmbedding {
-  id                  String @id @default(uuid())
-  organizationId      String // duplicated onto the embedding row so every similarity query filters on it directly
+  id                  String   @id @default(uuid())
+  organizationId      String // duplicated onto the row so ownership is checkable without a join; the actual vector lives in Vectorize under this same id
   knowledgeDocumentId String
-  chunkIndex          Int
-  chunkText           String @db.Text
-  // pgvector column, added via raw-SQL migration (Prisma has no native vector type):
-  //   ALTER TABLE "KnowledgeEmbedding" ADD COLUMN embedding vector(1536);
-  //   CREATE INDEX ON "KnowledgeEmbedding" USING ivfflat (embedding vector_cosine_ops);
-  createdAt DateTime @default(now())
+  chunkIndex           Int
+  chunkText            String
+  createdAt            DateTime @default(now())
 
   document KnowledgeDocument @relation(fields: [knowledgeDocumentId], references: [id], onDelete: Cascade)
 
@@ -561,7 +413,7 @@ model RunbookStep {
   runbookId String
   order     Int
   title     String
-  detail    String @db.Text
+  detail    String
 
   runbook Runbook @relation(fields: [runbookId], references: [id], onDelete: Cascade)
 
@@ -571,15 +423,19 @@ model RunbookStep {
 // ─────────────────────────── Policy & governance ───────────────────────────
 
 model AutomationPolicy {
-  id                  String         @id @default(uuid())
-  organizationId      String
-  mapServerType       MapServerType
-  capabilityKey       String
-  riskLevel           RiskLevel
-  behavior            PolicyBehavior
-  resolutionModeFloor ResolutionMode @default(OBSERVE_ONLY)
-  createdAt           DateTime       @default(now())
-  updatedAt           DateTime       @updatedAt
+  id             String @id @default(uuid())
+  organizationId String
+  // MapServerType — see packages/shared
+  mapServerType String
+  capabilityKey String
+  // RiskLevel: LOW | MEDIUM | HIGH | CRITICAL
+  riskLevel String
+  // PolicyBehavior: AUTO | APPROVAL | DENY
+  behavior String
+  // ResolutionMode: OBSERVE_ONLY | RECOMMEND | HUMAN_APPROVED | AUTONOMOUS
+  resolutionModeFloor String   @default("OBSERVE_ONLY")
+  createdAt           DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
@@ -588,7 +444,7 @@ model AutomationPolicy {
 }
 
 model AuditLog {
-  id             String   @id @default(uuid())
+  id String @id @default(uuid())
   // Nullable: most audit entries are org-scoped (credential created, remediation
   // executed), but account-level events (signup, login) have no organization yet —
   // see apps/api/src/routes/auth.ts. Every org-scoped write path still always sets it.
@@ -599,7 +455,7 @@ model AuditLog {
   targetType     String?
   targetId       String?
   requestId      String?
-  metadata       Json     @default("{}")
+  metadata       String     @default("{}")
   createdAt      DateTime @default(now())
 
   organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -610,14 +466,17 @@ model AuditLog {
 }
 
 model AgentExecution {
-  id         String                @id @default(uuid())
+  id         String @id @default(uuid())
   incidentId String
-  agentType  AgentType
-  status     AgentExecutionStatus  @default(RUNNING)
-  input      Json                  @default("{}")
-  output     Json                  @default("{}")
-  error      String?
-  startedAt  DateTime              @default(now())
+  // AgentType: INVESTIGATION | KNOWLEDGE | CONTEXT | RCA | RESOLUTION | REMEDIATION |
+  // VERIFICATION | INCIDENT_UPDATE
+  agentType String
+  // AgentExecutionStatus: RUNNING | SUCCEEDED | FAILED
+  status      String    @default("RUNNING")
+  input       String      @default("{}")
+  output      String      @default("{}")
+  error       String?
+  startedAt   DateTime  @default(now())
   completedAt DateTime?
 
   incident Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
@@ -628,14 +487,15 @@ model AgentExecution {
 // ─────────────────────────── Webhooks, notifications, usage ───────────────────────────
 
 model WebhookEvent {
-  id             String   @id @default(uuid())
+  id             String @id @default(uuid())
   organizationId String?
-  source         IncidentSourceType
-  externalId     String
-  eventHash      String // idempotency: hash of the raw payload
-  processedAt    DateTime?
-  payload        Json
-  createdAt      DateTime @default(now())
+  // IncidentSourceType: JIRA | SERVICENOW | PAGERDUTY | WEBHOOK
+  source      String
+  externalId  String
+  eventHash   String // idempotency: hash of the raw payload
+  processedAt DateTime?
+  payload     String
+  createdAt   DateTime @default(now())
 
   organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
@@ -644,14 +504,15 @@ model WebhookEvent {
 }
 
 model Notification {
-  id             String              @id @default(uuid())
+  id             String @id @default(uuid())
   organizationId String
   userId         String?
-  channel        NotificationChannel
-  title          String
-  body           String
-  read           Boolean             @default(false)
-  createdAt      DateTime            @default(now())
+  // NotificationChannel: EMAIL | SLACK | TEAMS | IN_APP
+  channel   String
+  title     String
+  body      String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user         User?        @relation(fields: [userId], references: [id])
@@ -674,15 +535,17 @@ model UsageMetric {
 }
 
 model Subscription {
-  id             String             @id @default(uuid())
-  organizationId String             @unique
-  plan           SubscriptionPlan   @default(FREE)
-  status         SubscriptionStatus @default(TRIALING)
-  billingProviderCustomerId String?
-  billingProviderSubscriptionId String?
-  currentPeriodEnd DateTime?
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
+  id             String @id @default(uuid())
+  organizationId String @unique
+  // SubscriptionPlan: FREE | TEAM | ENTERPRISE
+  plan String @default("FREE")
+  // SubscriptionStatus: ACTIVE | TRIALING | PAST_DUE | CANCELED
+  status                         String    @default("TRIALING")
+  billingProviderCustomerId      String?
+  billingProviderSubscriptionId  String?
+  currentPeriodEnd               DateTime?
+  createdAt                      DateTime  @default(now())
+  updatedAt                      DateTime  @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 }

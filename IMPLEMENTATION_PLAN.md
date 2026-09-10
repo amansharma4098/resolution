@@ -72,6 +72,47 @@ invite/management UI.
       through the real HTTP layer); `turbo run typecheck|lint|test|build` all green; real
       server smoke-tested with the new routes wired
 
+## Interlude — migration to Cloudflare-only ✅ complete
+
+Not a numbered phase — a mid-course architecture pivot requested after Phase 2, replacing
+the "hybrid" hosting decision from Phase 0 (Postgres/Redis on a Node host) with everything
+running on Cloudflare's own products. Rewrote what Phases 1–2 had already built rather than
+adding new features:
+
+- [x] `packages/database`: Prisma schema ported from Postgres to **D1** (SQLite) — every
+      `enum` became a documented `String`, every `Json` field became a `String` column with
+      manual serialize/parse (`json-field.ts`); migrations regenerated and applied to a real
+      D1 database (`resolution-db`, 28 tables, verified via direct SQL query)
+- [x] `packages/credentials`: envelope encryption rewritten from Node's `node:crypto` to the
+      **Web Crypto API** (`crypto.subtle`) — native in Workers, no compat flag; same
+      envelope-encryption design (random data key wrapped by a root key, AAD-bound to
+      `organizationId`), same 16 tests passing unmodified in behavior
+- [x] `packages/security`: session JWT switched from `jsonwebtoken` to **jose** (Web
+      Crypto-based); session cookie `SameSite` fixed to `None` in production (Pages and the
+      Worker are different sites — `Lax` would have silently dropped the cookie on every
+      cross-origin fetch)
+- [x] `apps/api`: rewritten from **Fastify to Hono**, deployable as a Cloudflare Worker —
+      every route, all middleware (auth, tenant-context, rate-limit, error handling), and
+      the full test suite (32 tests) ported and passing
+- [x] Deployed for real: Worker at `resolution-api.amansharma4098.workers.dev`, D1 database
+      migrated, secrets set via `wrangler secret put`. Verified against the live deployment,
+      not just tests: signup, login, org creation, and credential encryption all exercised
+      directly against production
+- [x] Found and fixed a real D1 platform gap along the way: Prisma's interactive
+      `$transaction(async (tx) => ...)` isn't supported on D1 (confirmed via a live error
+      from the deployed Worker), only the batch array form —
+      `OrganizationRepository.createWithOwner` now pre-generates the org UUID client-side so
+      both inserts go in one batch call
+- [x] `apps/web`: Cloudflare Pages project recreated as Git-connected (the original was
+      Direct Upload, which Cloudflare doesn't allow converting after the fact), switched to
+      Next.js static export, `NEXT_PUBLIC_API_URL` wired to the live Worker
+- [x] ARCHITECTURE.md §2/§8 rewritten to describe the Cloudflare-only topology and the
+      platform gaps worked around
+
+**Deferred, not needed yet:** Cloudflare Queues (nothing in Phases 1–2 uses background
+jobs — this lands with Phase 6) and Vectorize (Phase 7). `apps/worker` stays an empty
+placeholder until then.
+
 ## Phase 3 — Jira integration (real)
 - [ ] OAuth app + connection flow
 - [ ] Webhook receiver (`/api/webhooks/jira`, signature verify, idempotent, enqueues)

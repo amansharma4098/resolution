@@ -1,5 +1,6 @@
-import type { Prisma, PrismaClient } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
 import type { AuditLogEntry, AuditLogWriter } from "@resolution/security";
+import { serializeJsonField } from "./json-field";
 
 /**
  * Adapts a real PrismaClient to the structural AuditLogWriter interface that
@@ -24,7 +25,7 @@ export function auditLogWriter(db: PrismaClient): AuditLogWriter {
             targetType: data.targetType ?? undefined,
             targetId: data.targetId ?? undefined,
             requestId: data.requestId ?? undefined,
-            metadata: (data.metadata ?? {}) as Prisma.InputJsonValue,
+            metadata: serializeJsonField(data.metadata),
           },
         });
       },

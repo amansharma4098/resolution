@@ -1,61 +1,48 @@
-import type { FastifyInstance } from "fastify";
+import type { Context } from "hono";
 import { ZodError } from "zod";
 import { ForbiddenError } from "@resolution/security";
 import { AppError } from "../lib/errors";
+import type { AppEnv } from "../types";
 
 /**
  * The one place that turns a thrown error into the `{ error: { code, message, requestId } }`
  * shape from ARCHITECTURE.md §9. A 500 never leaks the underlying error message to the
- * client (only logged server-side) — everything else does, since AppError subclasses are
- * deliberately written to be safe to show a user.
+ * client (only logged server-side via console.error, which Wrangler/Cloudflare surfaces in
+ * `wrangler tail`) — everything else does, since AppError subclasses are deliberately
+ * written to be safe to show a user. Registered as `app.onError(handleError)`.
  */
-export function registerErrorHandler(app: FastifyInstance): void {
-  app.setErrorHandler((error, request, reply) => {
-    const requestId = request.id;
+export function handleError(err: Error, c: Context<AppEnv>): Response {
+  const requestId = c.get("requestId");
 
-    if (error instanceof AppError) {
-      reply.status(error.statusCode).send({
-        error: { code: error.code, message: error.message, requestId },
-      });
-      return;
-    }
+  if (err instanceof AppError) {
+    return c.json(
+      { error: { code: err.code, message: err.message, requestId } },
+      err.statusCode as 400 | 401 | 403 | 404 | 409,
+    );
+  }
 
-    if (error instanceof ForbiddenError) {
-      reply.status(403).send({
-        error: { code: "FORBIDDEN", message: error.message, requestId },
-      });
-      return;
-    }
+  if (err instanceof ForbiddenError) {
+    return c.json({ error: { code: "FORBIDDEN", message: err.message, requestId } }, 403);
+  }
 
-    if (error instanceof ZodError) {
-      reply.status(400).send({
+  if (err instanceof ZodError) {
+    return c.json(
+      {
         error: {
           code: "VALIDATION_ERROR",
           message: "Request failed validation",
           requestId,
-          details: error.flatten(),
+          details: err.flatten(),
         },
-      });
-      return;
-    }
+      },
+      400,
+    );
+  }
 
-    // Fastify's own schema-validation errors carry a `validation` array.
-    if ("validation" in error && error.validation) {
-      reply.status(400).send({
-        error: { code: "VALIDATION_ERROR", message: error.message, requestId },
-      });
-      return;
-    }
-
-    request.log.error({ err: error, requestId }, "Unhandled error");
-    reply.status(500).send({
-      error: { code: "INTERNAL_ERROR", message: "Internal server error", requestId },
-    });
-  });
-
-  app.setNotFoundHandler((request, reply) => {
-    reply.status(404).send({
-      error: { code: "NOT_FOUND", message: "Not found", requestId: request.id },
-    });
-  });
+  // eslint-disable-next-line no-console
+  console.error(`[${requestId}] Unhandled error:`, err);
+  return c.json(
+    { error: { code: "INTERNAL_ERROR", message: "Internal server error", requestId } },
+    500,
+  );
 }

@@ -1,0 +1,20 @@
+name = "resolution-api"
+main = "src/worker.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# D1 database — see docs/deployment.md. Migrations live in
+# packages/database/prisma/migrations and are applied via:
+#   npx wrangler d1 execute resolution-db --remote --file=<migration>.sql
+[[d1_databases]]
+binding = "DB"
+database_name = "resolution-db"
+database_id = "2c18552b-e3e5-4852-8d50-c71c79465890"
+
+# Plain (non-secret) config — safe to commit. JWT_SECRET and ENCRYPTION_MASTER_KEY are set
+# via `wrangler secret put` instead (encrypted server-side, never written to this file).
+[vars]
+NODE_ENV = "production"
+CORS_ORIGIN = "https://resolution-a7j.pages.dev"
+SECRET_PROVIDER = "ENCRYPTED_DB"
+MOCK_MODE = "true"

@@ -145,7 +145,7 @@ export interface FakeDb {
   auditLog: {
     create(args: { data: unknown }): Promise<unknown>;
   };
-  $transaction<T>(fn: (tx: FakeDb) => Promise<T>): Promise<T>;
+  $transaction<T extends readonly unknown[]>(ops: readonly [...T]): Promise<T>;
   $disconnect(): Promise<void>;
   _debug: {
     users: FakeUser[];
@@ -190,7 +190,7 @@ export function createFakeDb(): FakeDb {
     organization: {
       async create({ data }: { data: Partial<FakeOrganization> }) {
         const org: FakeOrganization = {
-          id: randomUUID(),
+          id: data.id ?? randomUUID(),
           name: data.name!,
           slug: data.slug!,
           resolutionMode: "OBSERVE_ONLY",
@@ -302,8 +302,13 @@ export function createFakeDb(): FakeDb {
         return data;
       },
     },
-    async $transaction<T>(fn: (tx: typeof db) => Promise<T>): Promise<T> {
-      return fn(db);
+    // Batch form only — matches real Prisma-on-D1, which doesn't support interactive
+    // transactions (see OrganizationRepository.createWithOwner's comment). Each array
+    // element is already a running Promise by the time it reaches here (our fake's
+    // create/update methods are plain async functions, not deferred query builders the
+    // way Prisma's real client's are), so this is just Promise.all under the hood.
+    async $transaction<T extends readonly unknown[]>(ops: readonly [...T]): Promise<T> {
+      return Promise.all(ops) as Promise<T>;
     },
     async $disconnect() {},
     _debug: { users, organizations, memberships, credentials, mapServers, integrations, auditLogs },

@@ -15,10 +15,14 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@prisma/adapter-d1": "^5.22.0",
     "@prisma/client": "^5.22.0",
+    "@resolution/credentials": "*",
+    "@resolution/map-servers": "*",
     "@resolution/security": "*"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260910.1",
     "@types/node": "^20.16.10",
     "prisma": "^5.22.0",
     "typescript": "^5.6.3",
