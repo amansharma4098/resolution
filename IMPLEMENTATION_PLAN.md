@@ -157,10 +157,26 @@ possible but never exposed.
       inviting admin, who is responsible for relaying it out-of-band. An email provider is
       a reasonable Phase 12 (or sooner, on request) addition
 
-## Phase 4 — ServiceNow integration (real)
-- [ ] Auth (basic/OAuth per instance config)
-- [ ] Incident ingestion (table API polling or webhook)
-- [ ] Write-back updates
+## Phase 4 — ServiceNow integration (real) ✅ mostly complete
+- [x] Auth: HTTP Basic (ServiceNow username + password) via the existing Credential
+      system — same reasoning as Jira's Basic Auth choice over OAuth2
+      (`packages/integrations/src/servicenow/client.ts`)
+- [x] Incident ingestion: webhook, not polling — `POST
+      /api/webhooks/servicenow/:integrationId`, sharing the exact same secret-header
+      auth, idempotency (WebhookEvent + Incident unique constraints), and inline-
+      processing pattern as Jira's webhook (both now go through one shared
+      `ingestWebhook` helper in `apps/api/src/routes/webhooks.ts`). ServiceNow has no
+      single standard outbound-webhook payload the way Jira does, so this defines and
+      documents the exact JSON shape a customer's Business Rule / Flow Designer action
+      should POST (mirrors the incident table's own field names)
+- [x] Real connectivity test: `POST /api/integrations/:id/test` calls the actual
+      ServiceNow Table API (`GET /api/now/table/incident?sysparm_limit=1`) with the
+      attached, decrypted credential
+- [x] Write-back capability built (`ServiceNowClient.addWorkNote`/`updateState`) — not
+      yet triggered by anything, same as Jira's write-back (needs Phase 6/8)
+- [ ] Not tested against a real ServiceNow instance (no test account available) — same
+      caveat as Jira: matches ServiceNow's published Table API docs, stated plainly
+      rather than claimed as integration-tested
 
 ## Phase 5 — Fabric Map Server (real)
 - [ ] Service-principal auth adapter

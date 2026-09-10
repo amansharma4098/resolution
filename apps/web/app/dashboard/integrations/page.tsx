@@ -92,9 +92,9 @@ export default function IntegrationsPage() {
           <span className="kicker">Configuration</span>
           <h1 className="mt-1 font-display text-2xl font-semibold text-ink">Integrations</h1>
           <p className="mt-1 text-sm text-subink">
-            Where incidents originate. Jira is real, end to end: connectivity test hits the
-            real Jira API, and its webhook receiver creates real incidents. ServiceNow lands
-            in Phase 4.
+            Where incidents originate. Jira and ServiceNow are both real, end to end:
+            connectivity test hits the real API, and each webhook receiver creates real
+            incidents. PagerDuty and a generic webhook source are next.
           </p>
         </div>
         <Button onClick={() => setShowForm((s) => !s)}>{showForm ? "Cancel" : "New integration"}</Button>
@@ -191,7 +191,7 @@ function CreateIntegrationForm({
     setSubmitting(true);
     try {
       const config: Record<string, unknown> = {};
-      if (type === "JIRA" && baseUrl) config.baseUrl = baseUrl;
+      if ((type === "JIRA" || type === "SERVICENOW") && baseUrl) config.baseUrl = baseUrl;
 
       const res = await apiRequest<{
         integration: IntegrationSummary;
@@ -242,12 +242,14 @@ function CreateIntegrationForm({
               <Input id="int-name" required value={name} onChange={(e) => setName(e.target.value)} />
             </div>
           </div>
-          {type === "JIRA" && (
+          {(type === "JIRA" || type === "SERVICENOW") && (
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="int-base-url">Jira site URL</Label>
+              <Label htmlFor="int-base-url">{type === "JIRA" ? "Jira site URL" : "ServiceNow instance URL"}</Label>
               <Input
                 id="int-base-url"
-                placeholder="https://your-domain.atlassian.net"
+                placeholder={
+                  type === "JIRA" ? "https://your-domain.atlassian.net" : "https://your-instance.service-now.com"
+                }
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
               />
@@ -267,6 +269,12 @@ function CreateIntegrationForm({
               <p className="text-xs text-subink">
                 Use a BASIC_AUTH credential — username is your Atlassian account email,
                 password is an API token from id.atlassian.com/manage-profile/security/api-tokens.
+              </p>
+            )}
+            {type === "SERVICENOW" && (
+              <p className="text-xs text-subink">
+                Use a BASIC_AUTH credential with a ServiceNow username and password that
+                has Table API access.
               </p>
             )}
           </div>

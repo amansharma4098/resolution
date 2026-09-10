@@ -3,7 +3,13 @@ import { z } from "zod";
 import { IncidentSourceType } from "@resolution/shared";
 import type { Integration, PrismaClient } from "@resolution/database";
 import { CredentialRepository, IntegrationRepository, auditLogWriter } from "@resolution/database";
-import { generateWebhookSecret, JiraApiError, JiraClient } from "@resolution/integrations";
+import {
+  generateWebhookSecret,
+  JiraApiError,
+  JiraClient,
+  ServiceNowApiError,
+  ServiceNowClient,
+} from "@resolution/integrations";
 import type { SecretProvider } from "@resolution/credentials";
 import { writeAuditLog } from "@resolution/security";
 import type { OrganizationRepository } from "@resolution/database";
@@ -135,12 +141,15 @@ export function buildIntegrationRoutes(deps: {
     let status: "CONNECTED" | "DISCONNECTED" = "DISCONNECTED";
     let detail: string;
 
-    if (integration.type !== "JIRA") {
+    if (integration.type !== "JIRA" && integration.type !== "SERVICENOW") {
       detail = `No real adapter for ${integration.type} yet in this deployment`;
     } else if (!integration.credentialId) {
       detail = "No credential attached to this integration";
     } else if (typeof integration.config.baseUrl !== "string" || !integration.config.baseUrl) {
-      detail = "Missing config.baseUrl (your Jira Cloud site URL)";
+      detail =
+        integration.type === "JIRA"
+          ? "Missing config.baseUrl (your Jira Cloud site URL)"
+          : "Missing config.baseUrl (your ServiceNow instance URL)";
     } else {
       const credentials = new CredentialRepository(db, c.get("organizationId")!);
       const credential = await credentials.findById(integration.credentialId);
@@ -151,20 +160,32 @@ export function buildIntegrationRoutes(deps: {
           const decrypted = await secretProvider.decrypt(credential.encryptedData, {
             organizationId: c.get("organizationId")!,
           });
-          const client = new JiraClient(integration.config.baseUrl, {
-            email: String(decrypted.username ?? decrypted.email ?? ""),
-            apiToken: String(decrypted.password ?? decrypted.apiToken ?? ""),
-          });
-          const me = await client.getMyself();
-          status = "CONNECTED";
-          detail = `Authenticated as ${me.displayName}`;
+          if (integration.type === "JIRA") {
+            const client = new JiraClient(integration.config.baseUrl, {
+              email: String(decrypted.username ?? decrypted.email ?? ""),
+              apiToken: String(decrypted.password ?? decrypted.apiToken ?? ""),
+            });
+            const me = await client.getMyself();
+            status = "CONNECTED";
+            detail = `Authenticated as ${me.displayName}`;
+          } else {
+            const client = new ServiceNowClient(integration.config.baseUrl, {
+              username: String(decrypted.username ?? ""),
+              password: String(decrypted.password ?? ""),
+            });
+            await client.testConnection();
+            status = "CONNECTED";
+            detail = "Authenticated successfully";
+          }
         } catch (err) {
           detail =
             err instanceof JiraApiError
               ? `Jira returned ${err.status}: ${err.message}`
-              : err instanceof Error
-                ? err.message
-                : "Connection failed";
+              : err instanceof ServiceNowApiError
+                ? `ServiceNow returned ${err.status}: ${err.message}`
+                : err instanceof Error
+                  ? err.message
+                  : "Connection failed";
         }
       }
     }
