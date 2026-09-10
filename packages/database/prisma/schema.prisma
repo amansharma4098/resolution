@@ -1,0 +1,685 @@
+// AI Incident Resolution Platform — core schema.
+// See ARCHITECTURE.md §8 for the tenant-isolation contract: every tenant-owned model
+// carries organizationId, and it is only ever set server-side from the authenticated
+// session — repositories in packages/database/repositories/* enforce this, never trust
+// a client-supplied organizationId.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────── Enums ───────────────────────────
+
+enum Role {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum AuthenticationType {
+  OAUTH
+  API_KEY
+  CLIENT_SECRET
+  SERVICE_PRINCIPAL
+  BASIC_AUTH
+  TOKEN
+  CUSTOM
+}
+
+enum CredentialStatus {
+  VALID
+  INVALID
+  UNVERIFIED
+  EXPIRED
+}
+
+enum MapServerType {
+  FABRIC
+  DATABRICKS
+  SNOWFLAKE
+  AZURE
+  AWS
+  GCP
+  KUBERNETES
+  DATADOG
+  SPLUNK
+  DYNATRACE
+  NEW_RELIC
+  AIRFLOW
+  CUSTOM
+}
+
+enum ConnectionStatus {
+  CONNECTED
+  DEGRADED
+  DISCONNECTED
+  UNCONFIGURED
+}
+
+enum IncidentSourceType {
+  JIRA
+  SERVICENOW
+  PAGERDUTY
+  WEBHOOK
+}
+
+enum Severity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum Priority {
+  P1
+  P2
+  P3
+  P4
+}
+
+enum IncidentStatus {
+  NEW
+  INVESTIGATING
+  RCA_COMPLETE
+  PENDING_APPROVAL
+  REMEDIATING
+  VERIFYING
+  RESOLVED
+  ESCALATED
+  CLOSED
+  FAILED
+}
+
+enum EvidenceType {
+  LOG
+  METRIC
+  CONFIG
+  API_RESPONSE
+  PIPELINE_RUN
+  TRACE
+  OTHER
+}
+
+enum ClaimType {
+  FACT
+  INFERENCE
+  HYPOTHESIS
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum PolicyBehavior {
+  AUTO
+  APPROVAL
+  DENY
+}
+
+enum ResolutionMode {
+  OBSERVE_ONLY
+  RECOMMEND
+  HUMAN_APPROVED
+  AUTONOMOUS
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+enum VerificationStatus {
+  PENDING
+  PASSED
+  FAILED
+  RETRYING
+}
+
+enum RemediationStatus {
+  PENDING
+  APPROVED
+  EXECUTING
+  SUCCEEDED
+  FAILED
+  ROLLED_BACK
+}
+
+enum AgentExecutionStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+enum AgentType {
+  INVESTIGATION
+  KNOWLEDGE
+  CONTEXT
+  RCA
+  RESOLUTION
+  REMEDIATION
+  VERIFICATION
+  INCIDENT_UPDATE
+}
+
+enum NotificationChannel {
+  EMAIL
+  SLACK
+  TEAMS
+  IN_APP
+}
+
+enum SubscriptionPlan {
+  FREE
+  TEAM
+  ENTERPRISE
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  TRIALING
+  PAST_DUE
+  CANCELED
+}
+
+// ─────────────────────────── Identity & tenancy ───────────────────────────
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  name         String?
+  passwordHash String? // null when the user only ever authenticates via SSO
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  memberships   OrganizationMember[]
+  auditLogs     AuditLog[]
+  approvals     Approval[]
+  notifications Notification[]
+
+  @@index([email])
+}
+
+model Organization {
+  id             String         @id @default(uuid())
+  name           String
+  slug           String         @unique
+  resolutionMode ResolutionMode @default(OBSERVE_ONLY)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  members             OrganizationMember[]
+  credentials          Credential[]
+  integrations         Integration[]
+  mapServers            MapServer[]
+  incidents             Incident[]
+  knowledgeDocuments    KnowledgeDocument[]
+  runbooks              Runbook[]
+  automationPolicies    AutomationPolicy[]
+  auditLogs             AuditLog[]
+  webhookEvents         WebhookEvent[]
+  notifications         Notification[]
+  usageMetrics          UsageMetric[]
+  subscription          Subscription?
+
+  @@index([slug])
+}
+
+model OrganizationMember {
+  id             String   @id @default(uuid())
+  organizationId String
+  userId         String
+  role           Role     @default(MEMBER)
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+}
+
+// ─────────────────────────── Credentials ───────────────────────────
+
+model Credential {
+  id                 String             @id @default(uuid())
+  organizationId     String
+  name               String
+  provider           String // e.g. "microsoft-fabric", "jira", "aws" — free-form, validated by the map-server/integration registry
+  authenticationType AuthenticationType
+  encryptedData       String            // envelope-encrypted blob; see packages/credentials/secret-provider.ts — never selected into API responses
+  status              CredentialStatus  @default(UNVERIFIED)
+  lastValidatedAt     DateTime?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  mapServers   MapServer[]
+
+  @@index([organizationId])
+  @@index([organizationId, provider])
+}
+
+// ─────────────────────────── Integrations (incident sources) ───────────────────────────
+
+model Integration {
+  id             String             @id @default(uuid())
+  organizationId String
+  type           IncidentSourceType
+  name           String
+  credentialId   String?
+  config         Json               @default("{}") // e.g. Jira project key, ServiceNow instance URL
+  status         ConnectionStatus   @default(UNCONFIGURED)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  incidents    Incident[]
+
+  @@index([organizationId])
+  @@index([organizationId, type])
+}
+
+// ─────────────────────────── Map Servers ───────────────────────────
+
+model MapServer {
+  id             String           @id @default(uuid())
+  organizationId String
+  type           MapServerType
+  name           String
+  credentialId   String?
+  environments   Json             @default("[]") // string[] e.g. ["prod","staging"]
+  config         Json             @default("{}") // provider-specific config (workspace id, region, cluster, ...)
+  isMock         Boolean          @default(false)
+  status         ConnectionStatus @default(UNCONFIGURED)
+  lastHealthCheckAt DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  credential   Credential?          @relation(fields: [credentialId], references: [id])
+  capabilities MapServerCapability[]
+
+  @@index([organizationId])
+  @@index([organizationId, type])
+}
+
+model MapServerCapability {
+  id           String    @id @default(uuid())
+  mapServerId  String
+  key          String // e.g. "get_pipeline_run", "retry_pipeline" — matches Capability.key in code
+  enabled      Boolean   @default(false)
+  riskLevel    RiskLevel
+  mutating     Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  mapServer MapServer @relation(fields: [mapServerId], references: [id], onDelete: Cascade)
+
+  @@unique([mapServerId, key])
+  @@index([mapServerId])
+}
+
+// ─────────────────────────── Incidents ───────────────────────────
+
+model Incident {
+  id             String         @id @default(uuid())
+  organizationId String
+  integrationId  String?
+  externalId     String // ID in the source system
+  source         IncidentSourceType
+  title          String
+  description    String         @db.Text
+  severity       Severity
+  priority       Priority
+  status         IncidentStatus @default(NEW)
+  service        String?
+  environment    String?
+  resource       String?
+  affectedSystem MapServerType?
+  metadata       Json           @default("{}")
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  resolvedAt     DateTime?
+
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  integration  Integration?         @relation(fields: [integrationId], references: [id])
+  events        IncidentEvent[]
+  evidence      IncidentEvidence[]
+  investigations Investigation[]
+  rcas          RootCauseAnalysis[]
+  resolutions   Resolution[]
+  agentExecutions AgentExecution[]
+
+  @@unique([organizationId, source, externalId])
+  @@index([organizationId, status])
+  @@index([organizationId, createdAt])
+}
+
+model IncidentEvent {
+  id         String   @id @default(uuid())
+  incidentId String
+  type       String // e.g. "status_changed", "comment_added", "assigned"
+  actor      String // "system" | "agent" | userId
+  detail     Json     @default("{}")
+  createdAt  DateTime @default(now())
+
+  incident Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@index([incidentId, createdAt])
+}
+
+model IncidentEvidence {
+  id           String       @id @default(uuid())
+  incidentId   String
+  type         EvidenceType
+  source       String // Map Server id or "manual"
+  capabilityKey String?
+  summary      String
+  payload      Json         @default("{}")
+  collectedAt  DateTime     @default(now())
+
+  incident Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@index([incidentId])
+}
+
+// ─────────────────────────── Investigation & RCA ───────────────────────────
+
+model Investigation {
+  id         String   @id @default(uuid())
+  incidentId String
+  status     AgentExecutionStatus @default(RUNNING)
+  startedAt  DateTime @default(now())
+  completedAt DateTime?
+  summary    String?
+
+  incident Incident           @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  steps    InvestigationStep[]
+
+  @@index([incidentId])
+}
+
+model InvestigationStep {
+  id               String   @id @default(uuid())
+  investigationId  String
+  mapServerId      String?
+  capabilityKey    String?
+  input            Json     @default("{}")
+  output           Json     @default("{}")
+  evidenceCreatedId String?
+  createdAt        DateTime @default(now())
+
+  investigation Investigation @relation(fields: [investigationId], references: [id], onDelete: Cascade)
+
+  @@index([investigationId])
+}
+
+model RootCauseAnalysis {
+  id               String   @id @default(uuid())
+  incidentId       String
+  summary          String   @db.Text
+  claims           Json // Claim[] — { text, claimType: FACT|INFERENCE|HYPOTHESIS, evidenceIds: string[], confidence: number }
+  confidence       Float
+  alternativeHypotheses Json @default("[]")
+  createdAt        DateTime @default(now())
+
+  incident   Incident     @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  resolutions Resolution[]
+
+  @@index([incidentId])
+}
+
+// ─────────────────────────── Resolution & remediation ───────────────────────────
+
+model Resolution {
+  id           String   @id @default(uuid())
+  incidentId   String
+  rcaId        String
+  proposedAction String @db.Text
+  mapServerId    String?
+  capabilityKey  String?
+  input          Json    @default("{}")
+  riskLevel      RiskLevel
+  createdAt      DateTime @default(now())
+
+  incident Incident            @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  rca      RootCauseAnalysis   @relation(fields: [rcaId], references: [id])
+  actions  RemediationAction[]
+
+  @@index([incidentId])
+}
+
+model RemediationAction {
+  id           String             @id @default(uuid())
+  resolutionId String
+  status       RemediationStatus  @default(PENDING)
+  idempotencyKey String           @unique // (incidentId, capabilityKey, runId)
+  executedAt   DateTime?
+  result       Json               @default("{}")
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  resolution   Resolution     @relation(fields: [resolutionId], references: [id], onDelete: Cascade)
+  approval     Approval?
+  verifications Verification[]
+
+  @@index([resolutionId])
+}
+
+model Approval {
+  id                  String         @id @default(uuid())
+  remediationActionId String         @unique
+  status              ApprovalStatus @default(PENDING)
+  requestedAt         DateTime       @default(now())
+  decidedAt           DateTime?
+  decidedByUserId     String?
+  reason              String?
+
+  remediationAction RemediationAction @relation(fields: [remediationActionId], references: [id], onDelete: Cascade)
+  decidedBy         User?             @relation(fields: [decidedByUserId], references: [id])
+
+  @@index([status])
+}
+
+model Verification {
+  id                  String              @id @default(uuid())
+  remediationActionId String
+  status              VerificationStatus  @default(PENDING)
+  expectedState       Json                @default("{}")
+  actualState         Json                @default("{}")
+  attempt              Int                @default(1)
+  checkedAt            DateTime           @default(now())
+
+  remediationAction RemediationAction @relation(fields: [remediationActionId], references: [id], onDelete: Cascade)
+
+  @@index([remediationActionId])
+}
+
+// ─────────────────────────── Knowledge ───────────────────────────
+
+model KnowledgeDocument {
+  id             String   @id @default(uuid())
+  organizationId String
+  title          String
+  sourceType     String // "incident" | "runbook" | "upload" | "manual"
+  sourceId       String? // e.g. incidentId when auto-derived
+  content        String   @db.Text
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  embeddings   KnowledgeEmbedding[]
+
+  @@index([organizationId])
+}
+
+model KnowledgeEmbedding {
+  id                  String @id @default(uuid())
+  organizationId      String // duplicated onto the embedding row so every similarity query filters on it directly
+  knowledgeDocumentId String
+  chunkIndex          Int
+  chunkText           String @db.Text
+  // pgvector column, added via raw-SQL migration (Prisma has no native vector type):
+  //   ALTER TABLE "KnowledgeEmbedding" ADD COLUMN embedding vector(1536);
+  //   CREATE INDEX ON "KnowledgeEmbedding" USING ivfflat (embedding vector_cosine_ops);
+  createdAt DateTime @default(now())
+
+  document KnowledgeDocument @relation(fields: [knowledgeDocumentId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([knowledgeDocumentId])
+}
+
+model Runbook {
+  id             String   @id @default(uuid())
+  organizationId String
+  title          String
+  description    String?
+  service        String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  steps        RunbookStep[]
+
+  @@index([organizationId])
+}
+
+model RunbookStep {
+  id        String @id @default(uuid())
+  runbookId String
+  order     Int
+  title     String
+  detail    String @db.Text
+
+  runbook Runbook @relation(fields: [runbookId], references: [id], onDelete: Cascade)
+
+  @@index([runbookId])
+}
+
+// ─────────────────────────── Policy & governance ───────────────────────────
+
+model AutomationPolicy {
+  id                  String         @id @default(uuid())
+  organizationId      String
+  mapServerType       MapServerType
+  capabilityKey       String
+  riskLevel           RiskLevel
+  behavior            PolicyBehavior
+  resolutionModeFloor ResolutionMode @default(OBSERVE_ONLY)
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, mapServerType, capabilityKey])
+  @@index([organizationId])
+}
+
+model AuditLog {
+  id             String   @id @default(uuid())
+  organizationId String
+  actorType      String // "user" | "agent" | "system"
+  actorId        String? // userId or agent name
+  action         String // e.g. "credential.created", "remediation.executed"
+  targetType     String?
+  targetId       String?
+  requestId      String?
+  metadata       Json     @default("{}")
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [actorId], references: [id])
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, action])
+}
+
+model AgentExecution {
+  id         String                @id @default(uuid())
+  incidentId String
+  agentType  AgentType
+  status     AgentExecutionStatus  @default(RUNNING)
+  input      Json                  @default("{}")
+  output     Json                  @default("{}")
+  error      String?
+  startedAt  DateTime              @default(now())
+  completedAt DateTime?
+
+  incident Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@index([incidentId])
+}
+
+// ─────────────────────────── Webhooks, notifications, usage ───────────────────────────
+
+model WebhookEvent {
+  id             String   @id @default(uuid())
+  organizationId String?
+  source         IncidentSourceType
+  externalId     String
+  eventHash      String // idempotency: hash of the raw payload
+  processedAt    DateTime?
+  payload        Json
+  createdAt      DateTime @default(now())
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([source, externalId, eventHash])
+  @@index([organizationId, createdAt])
+}
+
+model Notification {
+  id             String              @id @default(uuid())
+  organizationId String
+  userId         String?
+  channel        NotificationChannel
+  title          String
+  body           String
+  read           Boolean             @default(false)
+  createdAt      DateTime            @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id])
+
+  @@index([organizationId, createdAt])
+}
+
+model UsageMetric {
+  id             String   @id @default(uuid())
+  organizationId String
+  metric         String // e.g. "incidents.investigated", "remediations.executed"
+  value          Float
+  periodStart    DateTime
+  periodEnd      DateTime
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, metric, periodStart])
+}
+
+model Subscription {
+  id             String             @id @default(uuid())
+  organizationId String             @unique
+  plan           SubscriptionPlan   @default(FREE)
+  status         SubscriptionStatus @default(TRIALING)
+  billingProviderCustomerId String?
+  billingProviderSubscriptionId String?
+  currentPeriodEnd DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
