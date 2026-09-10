@@ -22,26 +22,60 @@ mock Map Servers and a mock Jira — no external credentials needed. See `docs/m
 
 | Resource | Value |
 |---|---|
-| Pages project | `resolution` |
+| Pages project | `resolution` (Git-connected to `github.com/amansharma4098/resolution`, `main` branch) |
 | Pages URL | `https://resolution-a7j.pages.dev` |
 | R2 bucket | `resolution-storage` |
 | Account ID | see `.env` (`CLOUDFLARE_ACCOUNT_ID`), not committed |
 
-Created via the Cloudflare API using the token in `.env` (`CLOUDFLARE_API_TOKEN`, never
-committed — see `.gitignore` and `.env.example` for the shape). To reprovision or extend:
+`apps/web` builds as a **static export** (`output: "export"` in `apps/web/next.config.js`
+— every page is a client component with no SSR/middleware/dynamic routes, so this has no
+behavioral effect) and deploys to Cloudflare Pages on every push to `main`. Build
+configuration on the Pages project:
+
+```
+build command:    npm install && npm run build --workspace=@resolution/web
+destination dir:   apps/web/out
+root dir:          (repo root — required so npm workspaces resolve packages/*)
+```
+
+The project is **Git-connected**, not Direct Upload — that distinction matters because
+Cloudflare does not allow converting one to the other after creation (confirmed via the API:
+`"You cannot update the source object in a Direct Uploads project."`). If you ever need to
+recreate it, create it *with* the `source` block already set, e.g.:
 
 ```bash
 source .env
 curl -s -X POST "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects" \
   -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H "Content-Type: application/json" \
-  --data '{"name":"resolution","production_branch":"main"}'
+  --data '{
+    "name": "resolution",
+    "production_branch": "main",
+    "source": {
+      "type": "github",
+      "config": {
+        "owner": "amansharma4098", "owner_id": "62933546",
+        "repo_name": "resolution", "repo_id": "1364544687",
+        "production_branch": "main", "deployments_enabled": true,
+        "production_deployments_enabled": true, "preview_deployment_setting": "all",
+        "preview_branch_includes": ["*"], "preview_branch_excludes": [],
+        "path_includes": ["*"], "path_excludes": []
+      }
+    },
+    "build_config": {
+      "build_command": "npm install && npm run build --workspace=@resolution/web",
+      "destination_dir": "apps/web/out", "root_dir": ""
+    }
+  }'
 ```
 
-`apps/web` deploys to Cloudflare Pages (Next.js static/edge output). `apps/api` and
-`apps/worker` need a persistent Node process (Prisma connection pool, raw TCP to Redis for
-BullMQ) and are **not** deployed to Cloudflare Pages/Workers — they run on a Node-capable
-host (Railway, Fly.io, or Render are all fine; none is provisioned yet, pending your
-choice and credentials).
+(The GitHub App backing Cloudflare Pages was already installed and authorized for this
+GitHub account from other projects, so no interactive GitHub OAuth step was needed here —
+that won't be true on a fresh account/repo.)
+
+`apps/api` and `apps/worker` need a persistent Node process (Prisma connection pool, raw
+TCP to Redis for BullMQ) and are **not** deployed to Cloudflare Pages/Workers — they run on
+a Node-capable host (Railway, Fly.io, or Render are all fine; none is provisioned yet,
+pending your choice and credentials).
 
 ## Production data stores (not yet provisioned — need your credentials)
 
