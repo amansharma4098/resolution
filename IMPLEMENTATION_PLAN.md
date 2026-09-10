@@ -113,11 +113,49 @@ adding new features:
 jobs — this lands with Phase 6) and Vectorize (Phase 7). `apps/worker` stays an empty
 placeholder until then.
 
-## Phase 3 — Jira integration (real)
-- [ ] OAuth app + connection flow
-- [ ] Webhook receiver (`/api/webhooks/jira`, signature verify, idempotent, enqueues)
-- [ ] Incident ingestion worker: Jira issue → `NormalizedIncident`
-- [ ] Write-back: status/comment updates to Jira issue
+## Phase 3 — Jira integration (real) ✅ mostly complete
+- [x] Auth: HTTP Basic (email + Atlassian API token) via the existing Credential system —
+      chosen over OAuth 2.0 (3LO) because that needs an app registered in the Atlassian
+      developer console with a callback URL, a customer-side setup step this doesn't
+      assume; Basic Auth is what Jira Cloud's REST API actually expects for
+      server-to-server calls and is fully real (`packages/integrations/src/jira/client.ts`)
+- [x] Webhook receiver: `POST /api/webhooks/jira/:integrationId`, authenticated by a
+      constant-time-checked `X-Webhook-Secret` header (Jira Cloud doesn't sign its own
+      webhooks), idempotent via `WebhookEvent`'s unique constraint AND `Incident`'s own
+      (org+source+externalId) constraint. Processes inline rather than enqueueing — no
+      queue exists yet (Phase 6 adds Cloudflare Queues), documented as a known
+      simplification, not a design endpoint
+- [x] Incident ingestion: real Jira webhook payload → `NormalizedIncident`
+      (`normalizeJiraWebhook`), verified against a simulated live webhook hitting the
+      deployed Worker, with the resulting row checked directly in D1
+- [x] Real connectivity test: `POST /api/integrations/:id/test` calls the actual Jira
+      `/rest/api/3/myself` endpoint with the attached, decrypted credential
+- [x] Write-back capability built (`JiraClient.addComment`/`transitionIssue`) — not yet
+      *triggered* by anything, since that requires Phase 6's incident lifecycle /
+      Phase 8's remediation flow to decide when to call it
+- [ ] Not tested against a real Jira tenant (no test Atlassian account available in this
+      environment) — the API calls match Atlassian's published REST v3 docs exactly, but
+      this is stated plainly rather than claimed as integration-tested against the real
+      service. Worth a real-tenant smoke test before calling this fully done.
+
+## Interlude — enterprise tenant/member management ✅ complete
+
+Not originally scoped as its own phase — added after explicit direction that the product
+needs a real "admin creates/invites local users within their own tenant" flow for
+enterprise sales, which Phase 1's RBAC (Organization=tenant, OrganizationMember.role) made
+possible but never exposed.
+
+- [x] `POST/GET/PATCH/DELETE /api/organizations/members` — an OWNER/ADMIN adds a teammate
+      by email (existing users are just added to the org; a brand-new email gets a freshly
+      created local account with a one-time temporary password, same masking discipline as
+      a credential's secret); changes roles; removes members. Refuses to demote or remove
+      the last remaining OWNER. No self-serve path exists for a user to join someone else's
+      org — every membership is either the org creator or explicitly added by an ADMIN+
+- [x] `apps/web` Settings/Team page — also fills a real gap from Phase 1 (the nav listed
+      "Settings" as a live link with no page behind it)
+- [x] No email delivery wired up yet — the temporary password is shown once to the
+      inviting admin, who is responsible for relaying it out-of-band. An email provider is
+      a reasonable Phase 12 (or sooner, on request) addition
 
 ## Phase 4 — ServiceNow integration (real)
 - [ ] Auth (basic/OAuth per instance config)
