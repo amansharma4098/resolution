@@ -37,6 +37,7 @@ Queues instead of BullMQ+Redis (Phase 6, not yet built), Vectorize instead of pg
 |---|---|---|
 | Frontend (`apps/web`, Next.js static export) | Cloudflare Pages | Git-connected — auto-deploys on every push to `main` |
 | API (`apps/api`, Hono) | Cloudflare Workers | request/response `fetch` model, no persistent process needed |
+| API proxy (`functions/api/[[path]].ts`) | Cloudflare Pages Function | forwards every `/api/*` request from the Pages origin to the Worker server-side — see the cross-site cookie note below |
 | Primary DB | Cloudflare D1 (SQLite) | Workers' native DB binding; no native enum/JSON column types, handled at the schema/repository layer (§8) |
 | Static/blob assets, uploaded docs | Cloudflare R2 | S3-compatible, cheap egress |
 | Background jobs (Phase 6+) | Cloudflare Queues | Workers can't run long-lived BullMQ consumers |
@@ -61,10 +62,20 @@ API and `wrangler` — never committed, never logged.
 - D1/SQLite has no native `enum` or `Json` column type — every enum field in
   `schema.prisma` is a `String` (see §8), and every JSON field is stored as serialized text
   via `packages/database/src/json-field.ts`, parsed back on every read.
-- The session cookie's `SameSite` must be `None` (not `Lax`) in production — Pages
-  (`*.pages.dev`) and the Worker (`*.workers.dev`) are different sites, so a `Lax` cookie
-  would never be sent on the frontend's cross-origin `fetch` calls. See
-  `packages/security/src/session.ts`.
+- The session cookie is still set `SameSite=None; Secure` in code
+  (`packages/security/src/session.ts`) — Pages (`*.pages.dev`) and the Worker
+  (`*.workers.dev`) are genuinely different sites, so a `Lax` cookie sent directly
+  cross-origin would never come back on the frontend's `fetch` calls. In practice, though,
+  the browser never sees that cross-origin hop at all: `functions/api/[[path]].ts` (a
+  Cloudflare Pages Function) proxies every `/api/*` request from the Pages origin to the
+  Worker server-side, so from the browser's perspective the cookie is a completely ordinary
+  first-party cookie. This isn't cosmetic — found live, in production, as a real bug: Safari
+  (most aggressively in Private Browsing, but not only there) blocks or strips exactly the
+  `SameSite=None` cross-site cookie this app would otherwise depend on, so login/signup
+  would succeed server-side but the browser would never retain the session, silently
+  bouncing the user straight back to `/login`. The proxy is the actual fix; `SameSite=None`
+  is now just a harmless superset (it still works fine for genuinely same-origin requests
+  too) rather than something the app relies on.
 
 ## 3. Monorepo layout
 

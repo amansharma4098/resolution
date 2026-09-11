@@ -46,8 +46,22 @@ project:
 build command:    npm install && npm run build --workspace=@resolution/web
 destination dir:   apps/web/out
 root dir:          (repo root — required so npm workspaces resolve packages/*)
-env var:            NEXT_PUBLIC_API_URL=https://resolution-api.amansharma4098.workers.dev
+env var:            NEXT_PUBLIC_API_URL=          (empty — see below)
 ```
+
+`NEXT_PUBLIC_API_URL` is deliberately **empty**, not the Worker's URL — `apiRequest`
+(`apps/web/lib/api-client.ts`) then resolves every call as a same-origin relative path
+(`/api/...`), which `functions/api/[[path]].ts` (a Cloudflare Pages Function, at the repo
+root because this project's `root_dir` is the repo root and Functions are discovered
+relative to that, not the build output dir) proxies server-side to the real Worker. This
+isn't just tidiness: without it, the frontend (`*.pages.dev`) and API (`*.workers.dev`) are
+different sites, which forces the session cookie to be cross-site — and Safari's tracking
+prevention blocks or strips exactly that kind of cookie (most aggressively in Private
+Browsing), so login/signup would appear to succeed but the browser would silently never
+retain the session. Found live in production; see ARCHITECTURE.md §2's "Known platform
+gaps" for the full writeup. `_redirects` was tried first but Cloudflare's own docs confirm
+it can only proxy to relative, same-project destinations, not an external domain — hence a
+real Function rather than a redirect rule.
 
 The project is **Git-connected**, not Direct Upload — that distinction matters because
 Cloudflare does not allow converting one to the other after creation (confirmed via the
