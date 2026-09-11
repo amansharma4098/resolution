@@ -14,6 +14,8 @@ import { buildMapServerRoutes } from "./routes/map-servers";
 import { buildIntegrationRoutes } from "./routes/integrations";
 import { buildIncidentRoutes } from "./routes/incidents";
 import { buildWebhookRoutes } from "./routes/webhooks";
+import { createInlineIngestionQueue } from "./queue/inline-queue";
+import type { IncidentIngestionQueue } from "./queue/types";
 
 export interface BuildAppOptions {
   db: PrismaClient;
@@ -22,14 +24,19 @@ export interface BuildAppOptions {
    *  defaults to the real provider selected by env.SECRET_PROVIDER
    *  (see packages/credentials/src/factory.ts). */
   secretProvider?: SecretProvider;
+  /** Injectable for tests/local dev — defaults to a synchronous inline stand-in (see
+   *  queue/inline-queue.ts). apps/api/src/worker.ts passes the real Cloudflare Queue
+   *  binding in production. */
+  incidentIngestionQueue?: IncidentIngestionQueue;
 }
 
-export function buildApp({ db, env, secretProvider }: BuildAppOptions): Hono<AppEnv> {
+export function buildApp({ db, env, secretProvider, incidentIngestionQueue }: BuildAppOptions): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
   const resolvedSecretProvider =
     secretProvider ??
     createSecretProvider(env.SECRET_PROVIDER, { masterKey: env.ENCRYPTION_MASTER_KEY });
+  const resolvedQueue = incidentIngestionQueue ?? createInlineIngestionQueue(db);
   const organizationRepository = new OrganizationRepository(db);
 
   // Request IDs threaded through logs and returned to the client — ARCHITECTURE.md §11.
@@ -65,7 +72,7 @@ export function buildApp({ db, env, secretProvider }: BuildAppOptions): Hono<App
     buildIntegrationRoutes({ db, env, secretProvider: resolvedSecretProvider, organizationRepository }),
   );
   app.route("/api/incidents", buildIncidentRoutes({ db, env, organizationRepository }));
-  app.route("/api/webhooks", buildWebhookRoutes({ db, env }));
+  app.route("/api/webhooks", buildWebhookRoutes({ db, env, queue: resolvedQueue }));
 
   app.notFound((c) =>
     c.json({ error: { code: "NOT_FOUND", message: "Not found", requestId: c.get("requestId") } }, 404),

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { buildTestApp, jsonOf, req, signupWithOrg } from "./test-helpers";
+import type { FakeDb } from "./fake-db";
 import type { AppEnv } from "../types";
 
 function jiraPayload(overrides: Record<string, unknown> = {}) {
@@ -25,13 +26,14 @@ function jiraPayload(overrides: Record<string, unknown> = {}) {
 
 describe("jira webhook", () => {
   let app: Hono<AppEnv>;
+  let db: FakeDb;
   let cookie: string;
   let organizationId: string;
   let integrationId: string;
   let secret: string;
 
   beforeEach(async () => {
-    ({ app } = buildTestApp());
+    ({ app, db } = buildTestApp());
     ({ cookie, organizationId } = await signupWithOrg(app, "owner@example.com", "Acme"));
 
     const created = await req(app, "/api/integrations", {
@@ -54,15 +56,18 @@ describe("jira webhook", () => {
     expect(masked).toMatch(/^••••/);
   });
 
-  it("creates an incident from a valid webhook", async () => {
+  it("accepts the webhook immediately (202) and creates the incident off-queue", async () => {
+    // ARCHITECTURE.md §10: the route only validates + enqueues, so the response never
+    // carries an incidentId — check queue/inline-queue.ts's header comment for why this
+    // test can still assert the incident exists right after (the test queue processes
+    // synchronously; production's real Cloudflare Queue does not).
     const res = await app.request(`/api/webhooks/jira/${integrationId}`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-webhook-secret": secret },
       body: JSON.stringify(jiraPayload()),
     });
-    expect(res.status).toBe(201);
-    const body = await jsonOf(res);
-    expect(body.status).toBe("created");
+    expect(res.status).toBe(202);
+    expect((await jsonOf(res)).status).toBe("accepted");
 
     const list = await req(app, "/api/incidents", { cookie, organizationId });
     const incidents = (await jsonOf(list)).incidents;
@@ -114,7 +119,7 @@ describe("jira webhook", () => {
       headers: { "content-type": "application/json", "x-webhook-secret": secret },
       body: payload,
     });
-    expect((await jsonOf(second)).status).toBe("already_processed");
+    expect(second.status).toBe(202);
 
     const list = await req(app, "/api/incidents", { cookie, organizationId });
     expect((await jsonOf(list)).incidents).toHaveLength(1);
@@ -147,19 +152,37 @@ describe("jira webhook", () => {
         }),
       ),
     });
-    expect((await jsonOf(updated)).status).toBe("already_ingested");
+    expect(updated.status).toBe(202);
 
     const list = await req(app, "/api/incidents", { cookie, organizationId });
     expect((await jsonOf(list)).incidents).toHaveLength(1);
   });
 
-  it("ignores a webhook event it doesn't act on", async () => {
+  it("ignores a webhook event it doesn't act on (no incident created)", async () => {
     const res = await app.request(`/api/webhooks/jira/${integrationId}`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-webhook-secret": secret },
       body: JSON.stringify(jiraPayload({ webhookEvent: "jira:issue_deleted" })),
     });
-    expect((await jsonOf(res)).status).toBe("ignored");
+    expect(res.status).toBe(202);
+
+    const list = await req(app, "/api/incidents", { cookie, organizationId });
+    expect((await jsonOf(list)).incidents).toHaveLength(0);
+  });
+
+  it("writes an IncidentEvent timeline entry on ingestion", async () => {
+    await app.request(`/api/webhooks/jira/${integrationId}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-webhook-secret": secret },
+      body: JSON.stringify(jiraPayload()),
+    });
+    const list = await req(app, "/api/incidents", { cookie, organizationId });
+    const incidentId = (await jsonOf(list)).incidents[0].id;
+
+    const events = db._debug.incidentEvents.filter((e) => e.incidentId === incidentId);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ type: "ingested", actor: "system" });
+    expect(JSON.parse(events[0]!.detail)).toMatchObject({ source: "JIRA", externalId: "OPS-42" });
   });
 
   it("incidents from one org are invisible to another org", async () => {

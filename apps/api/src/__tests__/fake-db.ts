@@ -105,6 +105,15 @@ export interface FakeIncident {
   resolvedAt: Date | null;
 }
 
+export interface FakeIncidentEvent {
+  id: string;
+  incidentId: string;
+  type: string;
+  actor: string;
+  detail: string;
+  createdAt: Date;
+}
+
 export interface FakeWebhookEvent {
   id: string;
   organizationId: string | null;
@@ -218,6 +227,9 @@ export interface FakeDb {
       };
     }): Promise<FakeIncident | null>;
   };
+  incidentEvent: {
+    create(args: { data: Partial<FakeIncidentEvent> }): Promise<FakeIncidentEvent>;
+  };
   webhookEvent: {
     create(args: { data: Partial<FakeWebhookEvent> }): Promise<FakeWebhookEvent>;
     findUnique(args: {
@@ -238,6 +250,7 @@ export interface FakeDb {
     mapServerCapabilities: FakeMapServerCapability[];
     integrations: FakeIntegration[];
     incidents: FakeIncident[];
+    incidentEvents: FakeIncidentEvent[];
     webhookEvents: FakeWebhookEvent[];
     auditLogs: unknown[];
   };
@@ -252,6 +265,7 @@ export function createFakeDb(): FakeDb {
   const mapServerCapabilities: FakeMapServerCapability[] = [];
   const integrations: FakeIntegration[] = [];
   const incidents: FakeIncident[] = [];
+  const incidentEvents: FakeIncidentEvent[] = [];
   const webhookEvents: FakeWebhookEvent[] = [];
   const auditLogs: unknown[] = [];
 
@@ -513,6 +527,20 @@ export function createFakeDb(): FakeDb {
         );
       },
     },
+    incidentEvent: {
+      async create({ data }: { data: Partial<FakeIncidentEvent> }) {
+        const row: FakeIncidentEvent = {
+          id: randomUUID(),
+          incidentId: data.incidentId!,
+          type: data.type!,
+          actor: data.actor!,
+          detail: data.detail ?? "{}",
+          createdAt: new Date(),
+        };
+        incidentEvents.push(row);
+        return row;
+      },
+    },
     webhookEvent: {
       async create({ data }: { data: Partial<FakeWebhookEvent> }) {
         const row: FakeWebhookEvent = {
@@ -565,6 +593,7 @@ export function createFakeDb(): FakeDb {
       mapServerCapabilities,
       integrations,
       incidents,
+      incidentEvents,
       webhookEvents,
       auditLogs,
     },

@@ -11,6 +11,20 @@ binding = "DB"
 database_name = "resolution-db"
 database_id = "2c18552b-e3e5-4852-8d50-c71c79465890"
 
+# Cloudflare Queue — ARCHITECTURE.md §10. Webhook routes (POST /api/webhooks/jira|
+# servicenow) enqueue here and return immediately; apps/api/src/worker.ts's `queue` export
+# is the consumer that does the actual ingestion work. Dead-letter queue catches messages
+# that exhaust max_retries so they're inspectable rather than silently dropped.
+[[queues.producers]]
+queue = "resolution-incident-ingestion"
+binding = "INCIDENT_INGESTION_QUEUE"
+
+[[queues.consumers]]
+queue = "resolution-incident-ingestion"
+max_batch_size = 10
+max_retries = 3
+dead_letter_queue = "resolution-incident-ingestion-dlq"
+
 # Plain (non-secret) config — safe to commit. JWT_SECRET and ENCRYPTION_MASTER_KEY are set
 # via `wrangler secret put` instead (encrypted server-side, never written to this file).
 [vars]

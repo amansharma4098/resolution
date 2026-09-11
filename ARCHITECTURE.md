@@ -71,20 +71,27 @@ API and `wrangler` — never committed, never logged.
 ```
 apps/
   web/       Next.js 14 (App Router), TypeScript, Tailwind, shadcn/ui — deployed to CF Pages
-  api/       Hono HTTP API (Cloudflare Worker) — auth, REST endpoints, webhook receivers
-  worker/    BullMQ consumers — the actual agent pipeline execution
+  api/       Hono HTTP API + Cloudflare Queue consumers, one Worker (see below)
 packages/
   database/    Prisma schema + generated client + repositories (tenant-scoped access only)
   ai/          LLM client, prompt templates, RCA/hypothesis engine, embeddings
-  agents/      Orchestrator + Investigation/Knowledge/Context/RCA/Resolution/Remediation/
-               Verification/IncidentUpdate agents
-  integrations/  Incident-source adapters (Jira, ServiceNow, PagerDuty, webhook)
-  map-servers/   One folder per provider implementing the MapServer interface (§4)
+  agents/      IncidentStatus state machine (Phase 6, real); the orchestrator +
+               Investigation/Knowledge/Context/RCA/Resolution/Remediation/Verification/
+               IncidentUpdate agents land here in Phase 7-8
+  integrations/  Incident-source adapters — jira/, servicenow/ real; pagerduty/, webhook/ later
+  map-servers/   One folder per provider implementing the MapServer interface (§4) —
+                 fabric/ real (Phase 5); others land per IMPLEMENTATION_PLAN.md
   credentials/   SecretProvider abstraction + encryption
   security/      RBAC, tenant-context middleware, audit logging, rate limiting
   shared/        Zod schemas, shared types, normalized Incident shape, constants
   ui/            design-tokens.ts, shared React components (StatusBadge, IntegrationCard, …)
 ```
+
+No separate `apps/worker` — a Cloudflare Worker script can export both a `fetch` handler
+(HTTP) and a `queue` handler (Cloudflare Queue consumer) from the same deployment
+(`apps/api/src/worker.ts`), and Workers are cheap/serverless enough that splitting them
+across two deployments buys nothing the way it would for independently-scaled Node
+processes. Every named queue's consumer lives in `apps/api/src/queue/`.
 
 ## 4. Map Server interface (core architectural principle)
 
@@ -296,14 +303,34 @@ error shape `{ error: { code, message, requestId } }`. Full contract per route:
 
 ## 10. Background processing
 
-Redis + BullMQ, queues: `incident-ingestion, incident-investigation, knowledge-retrieval,
-ai-analysis, remediation, verification, notification, webhook-processing`. Webhook HTTP
-handlers do signature verification + idempotency-key check, enqueue, return `202`
-immediately — all agent work happens in `apps/worker` consumers.
+**Cloudflare Queues**, not Redis+BullMQ — see §2 for why. Named queues:
+`incident-ingestion` (Phase 6, real — see below), `incident-investigation`,
+`knowledge-retrieval`, `ai-analysis`, `remediation`, `verification`, `notification`,
+`webhook-processing`. Each of the remaining seven is created alongside the phase that
+actually consumes it (Phase 7 for the AI ones, Phase 8 for remediation/verification) —
+creating an empty queue resource with no real consumer ahead of that would be exactly the
+kind of placeholder-dressed-as-done this project's own ground rules warn against.
+
+Webhook HTTP handlers (`apps/api/src/routes/webhooks.ts`) do secret verification + shape
+validation only, enqueue via a real Cloudflare Queue producer binding, and return `202`
+immediately — all the actual work (idempotency check, normalization, Incident creation)
+runs in the same Worker's `queue` export (`apps/api/src/worker.ts`), which is Cloudflare's
+consumer entrypoint for that binding (`apps/api/src/queue/consumer.ts`). Cloudflare Queues
+deliver at-least-once and batch messages; each message is acked individually so one bad
+message doesn't retry the whole batch, and a message that exhausts `max_retries`
+(`wrangler.toml`) lands on a dead-letter queue rather than retrying forever or vanishing.
 
 Idempotency: webhook events keyed by `(source, externalId, eventHash)` in `WebhookEvent`;
-remediation actions keyed by `(incidentId, capabilityKey, runId)` — a remediation is never
-re-executed without first re-reading real external-system state.
+`Incident` itself is also keyed by `(organizationId, source, externalId)`, so even a
+duplicate delivery that somehow got past the `WebhookEvent` check can't create a second
+Incident row. Remediation actions (Phase 8) will be keyed by
+`(incidentId, capabilityKey, runId)` — a remediation must never be re-executed without
+first re-reading real external-system state.
+
+Tests use a synchronous inline stand-in for the queue (`apps/api/src/queue/inline-queue.ts`)
+that runs the exact same consumer logic, awaited, instead of a real decoupled Cloudflare
+Queue — documented there as the one behavioral difference from production (timing, not
+logic), since Vitest doesn't run under Miniflare's Queue emulation.
 
 ## 11. Security
 

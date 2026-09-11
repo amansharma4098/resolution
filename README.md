@@ -40,8 +40,8 @@ cd apps/web && npm run dev          # Next.js dev server
 ## Monorepo layout
 
 ```
-apps/       web (Next.js, static export → CF Pages) · api (Hono → CF Worker) ·
-            worker (CF Queues consumers, Phase 6+)
+apps/       web (Next.js, static export → CF Pages) ·
+            api (Hono → CF Worker — HTTP + Cloudflare Queue consumers, one deployment)
 packages/   database (Prisma → D1) · ai · agents · integrations · map-servers ·
             credentials · security · shared · ui
 ```

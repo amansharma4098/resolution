@@ -22,7 +22,7 @@ lands — it's the source of truth for what's actually built vs. spec'd.
 - [x] `packages/ui`: `tokens.ts` design system (exact palette/type scale from spec §13),
       `StatusBadge` component
 - [x] `packages/security` (new — not in original plan list, needed to share RBAC/session/
-      password/audit logic between apps/api and future apps/worker): password hashing,
+      password/audit logic across apps/api's route and queue-consumer code): password hashing,
       session JWT (identity-only claim, role always re-resolved from DB), RBAC role
       ranking, redacting audit-log writer
 - [x] `apps/api`: Fastify bootstrap, cookie-based session auth (signup/login/logout/me),
@@ -109,9 +109,10 @@ adding new features:
 - [x] ARCHITECTURE.md §2/§8 rewritten to describe the Cloudflare-only topology and the
       platform gaps worked around
 
-**Deferred, not needed yet:** Cloudflare Queues (nothing in Phases 1–2 uses background
-jobs — this lands with Phase 6) and Vectorize (Phase 7). `apps/worker` stays an empty
-placeholder until then.
+**Deferred at the time, since landed:** Cloudflare Queues — nothing in Phases 1–2 used
+background jobs yet; wired for real in Phase 6 (see that entry). Vectorize is still
+deferred to Phase 7. There is no separate `apps/worker` — queue consumers live in
+`apps/api/src/queue/`, run by the same Worker as the HTTP API (see ARCHITECTURE.md §3).
 
 ## Phase 3 — Jira integration (real) ✅ mostly complete
 - [x] Auth: HTTP Basic (email + Atlassian API token) via the existing Credential system —
@@ -204,10 +205,37 @@ possible but never exposed.
       extra care here specifically because Fabric's public REST API is newer and less
       standardized than Jira's/ServiceNow's, so the risk of a shape mismatch is higher
 
-## Phase 6 — Incident engine
-- [ ] State machine (`IncidentStatus` transitions) in `packages/agents`
-- [ ] BullMQ queues wired in `apps/worker` (all 8 queues from ARCHITECTURE.md §10)
-- [ ] Incident timeline (`IncidentEvent`) + evidence storage (`IncidentEvidence`)
+## Phase 6 — Incident engine ✅ mostly complete
+- [x] `packages/agents` (new): the `IncidentStatus` state machine — pure code
+      (ARCHITECTURE.md §6: deterministic business logic is never LLM-driven), a documented
+      transition table (`transition()`/`canTransition()`/`isTerminal()`), 9 tests covering
+      the happy path, the AUTO-policy fast path, illegal-transition rejection, and every
+      terminal/re-entrant edge. Not wired into a live code path yet — nothing transitions
+      an incident beyond its initial `NEW` until Phase 7's orchestrator exists to drive it;
+      built and tested now so that orchestrator has a real, correct state machine to call
+- [x] **Cloudflare Queues, not BullMQ** — ARCHITECTURE.md §2's Cloudflare-only pivot means
+      this is a real architecture change from the original plan, not a rename. Created
+      `resolution-incident-ingestion` (+ a dead-letter queue) and wired the first of the
+      spec's 8 named queues for real: `POST /api/webhooks/jira|servicenow/:integrationId`
+      now does only auth + shape validation and enqueues (202 immediately — ARCHITECTURE.md
+      §10), and `apps/api/src/worker.ts`'s `queue` export is the real consumer
+      (`apps/api/src/queue/consumer.ts`) that does the actual idempotency check,
+      normalization, and Incident creation. This closes the "processes inline, no queue
+      yet" simplification called out honestly in Phases 3–4. Verified live: enqueued a real
+      webhook against the deployed Worker and confirmed the resulting Incident in D1.
+      Tests use a synchronous inline stand-in (`queue/inline-queue.ts`) with identical
+      processing logic — documented as the one behavioral difference from production
+      (decoupled timing), not a different code path
+- [x] Incident timeline: `IncidentEvent` rows written on ingestion (`type: "ingested"`)
+- [ ] The other 7 named queues (`incident-investigation`, `knowledge-retrieval`,
+      `ai-analysis`, `remediation`, `verification`, `notification`,
+      `webhook-processing` for other sources) aren't created yet — deliberately: each
+      needs a real consumer, and those consumers are Phase 7/8's agents, which don't exist
+      yet. Creating empty queue resources with no consumer now would be exactly the kind of
+      placeholder-dressed-as-done the project's own ground rules warn against; they'll be
+      created alongside the phase that actually consumes them
+- [ ] `IncidentEvidence` storage: not started — it's how Phase 7's Investigation Agent
+      records what it found, so it lands with that phase rather than speculatively now
 
 ## Phase 7 — AI: investigation, knowledge, RCA
 - [ ] LLM client wrapper (`packages/ai`), tool-calling harness bound to Map Server registry

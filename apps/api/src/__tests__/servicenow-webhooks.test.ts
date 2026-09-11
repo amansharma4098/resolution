@@ -38,13 +38,13 @@ describe("servicenow webhook", () => {
     secret = body.integration.config.webhookSecret;
   });
 
-  it("creates an incident from a valid webhook", async () => {
+  it("accepts the webhook immediately (202) and creates the incident off-queue", async () => {
     const res = await app.request(`/api/webhooks/servicenow/${integrationId}`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-webhook-secret": secret },
       body: JSON.stringify(snowPayload()),
     });
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(202);
 
     const list = await req(app, "/api/incidents", { cookie, organizationId });
     const incidents = (await jsonOf(list)).incidents;
@@ -105,6 +105,9 @@ describe("servicenow webhook", () => {
       headers: { "content-type": "application/json", "x-webhook-secret": secret },
       body: payload,
     });
-    expect((await jsonOf(second)).status).toBe("already_processed");
+    expect(second.status).toBe(202);
+
+    const list = await req(app, "/api/incidents", { cookie, organizationId });
+    expect((await jsonOf(list)).incidents).toHaveLength(1);
   });
 });
