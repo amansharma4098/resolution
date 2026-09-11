@@ -28,6 +28,14 @@ const EnvSchema = z.object({
   // Dev-only default (a fixed, public value — same treatment as JWT_SECRET's default): any
   // real deployment must set its own via `openssl rand -base64 32`. See docs/credentials.md.
   ENCRYPTION_MASTER_KEY: z.string().default("M5MlvZfby1B0D9PY4DHTrTRoFtO3G1wR5oS4pJPnw1g="),
+  // Phase 7 — the Investigation/RCA agent's LLM. No default: an unset key just means the
+  // investigation queue consumer falls back to packages/ai's MOCK_MODE-independent rule
+  // (createLlmClient treats "no key" the same as MOCK_MODE=true) rather than failing boot —
+  // see packages/ai/src/factory.ts. ANTHROPIC_MODEL defaults to the current model this
+  // codebase was built against; override to point at a different current model without a
+  // code change.
+  ANTHROPIC_API_KEY: z.string().optional(),
+  ANTHROPIC_MODEL: z.string().default("claude-opus-5"),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

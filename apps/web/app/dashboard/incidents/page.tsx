@@ -83,7 +83,14 @@ export default function IncidentsPage() {
                     </span>
                   </div>
                   <div className="flex items-center gap-3">
-                    <StatusBadge status="neutral">{i.status}</StatusBadge>
+                    <StatusBadge
+                      status={
+                        domainStatusMap.incidentStatus[i.status as keyof typeof domainStatusMap.incidentStatus] ??
+                        "neutral"
+                      }
+                    >
+                      {i.status}
+                    </StatusBadge>
                     <span className="text-xs text-subink">{new Date(i.createdAt).toLocaleString()}</span>
                   </div>
                 </CardContent>

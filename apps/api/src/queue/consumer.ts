@@ -33,9 +33,20 @@ export interface IngestionResult {
  * dedup via WebhookEvent's unique constraint and Incident's own (org+source+externalId)
  * constraint, not by anything the producer does.
  */
+export interface ProcessIngestionDeps {
+  /** Fired exactly once, right after a genuinely new Incident row is inserted — never on the
+   *  already_processed/already_ingested/ignored branches, so a redelivered webhook (Cloudflare
+   *  Queues are at-least-once) never enqueues a duplicate investigation. Wired in production
+   *  (worker.ts) to enqueue onto the real incident-investigation queue; in tests/local dev
+   *  (inline-queue.ts) to run the investigation inline, synchronously, the same way ingestion
+   *  itself does. */
+  onIncidentCreated?: (evt: { incidentId: string; organizationId: string }) => Promise<void>;
+}
+
 export async function processIngestionMessage(
   db: PrismaClient,
   message: IngestionQueueMessage,
+  deps: ProcessIngestionDeps = {},
 ): Promise<IngestionResult> {
   const integration = await IntegrationRepository.findByIdUnscoped(db, message.integrationId);
   if (!integration || integration.type !== message.source) {
@@ -111,6 +122,8 @@ export async function processIngestionMessage(
     targetId: incident.id,
     metadata: { source: message.source, externalId: incident.externalId },
   });
+
+  await deps.onIncidentCreated?.({ incidentId: incident.id, organizationId: integration.organizationId });
 
   return { status: "created", incidentId: incident.id };
 }

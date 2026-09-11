@@ -234,15 +234,65 @@ possible but never exposed.
       yet. Creating empty queue resources with no consumer now would be exactly the kind of
       placeholder-dressed-as-done the project's own ground rules warn against; they'll be
       created alongside the phase that actually consumes them
-- [ ] `IncidentEvidence` storage: not started — it's how Phase 7's Investigation Agent
-      records what it found, so it lands with that phase rather than speculatively now
+- [x] `IncidentEvidence` storage — landed with Phase 7 below, as planned
 
-## Phase 7 — AI: investigation, knowledge, RCA
-- [ ] LLM client wrapper (`packages/ai`), tool-calling harness bound to Map Server registry
-- [ ] Investigation Agent: dynamic Map Server discovery + evidence collection
-- [ ] Knowledge Agent: pgvector ingestion + org-scoped retrieval
-- [ ] RCA Agent: FACT/INFERENCE/HYPOTHESIS output schema, confidence, cited evidence, alternatives
-- [ ] Evidence-citation enforcement (reject uncited FACT claims)
+## Phase 7 — AI: investigation, RCA ✅ mostly complete
+- [x] `packages/ai` (new): `LlmClient` interface with two implementations — a real Anthropic
+      client (`@anthropic-ai/sdk`, model `claude-opus-5`, adaptive thinking) and a
+      deterministic `MOCK_MODE` client. The mock isn't a canned-response stub: it inspects
+      the real tool catalog and real `tool_result` content it's given (including genuine
+      `evidenceId`s written to `IncidentEvidence`), so the whole pipeline downstream of the
+      LLM call — evidence persistence, citation enforcement, state transitions — runs for
+      real in tests/CI with zero production credentials, per the project's standing MVP
+      requirement. `zodToToolSchema` derives Anthropic tool JSON-schemas directly from a
+      capability's existing Zod `inputSchema` (and from `RootCauseAnalysisOutput` itself for
+      the forced-structured-output tool below) — one schema, not two kept in sync by hand.
+      **Verified against the real Anthropic API**, not just mocked-fetch tests: the user
+      supplied a live `ANTHROPIC_API_KEY` mid-phase, used for a one-off live tool-call smoke
+      test (confirmed request/response shape) and now set as this Worker's real secret —
+      see the honesty note on `MOCK_MODE` below
+- [x] Investigation Agent (`packages/agents/src/investigation`): a hand-written multi-turn
+      tool-calling loop (not the SDK's beta Tool Runner — the tool list is assembled
+      dynamically per-org from the Map Server registry, and each call needs bespoke side
+      effects a generic runner doesn't fit as directly as owning the loop does). Tools are
+      built only from capabilities an org has both enabled *and* whose provider marks
+      `mutating: false` — a mutating capability is invisible to investigation regardless of
+      its enabled state; that's Phase 8 remediation's territory, gated by policy + approval
+- [x] RCA is a forced tool call (`submit_rca`), not `output_config.format` — its JSON schema
+      comes from `packages/shared/src/rca.ts`'s `RootCauseAnalysisOutput`, and the agent
+      re-validates the model's tool input against that *same Zod schema* (not just its
+      JSON-schema shape) before accepting it, so the "a FACT claim must cite at least one
+      evidenceId" `.refine()` rule is actually enforced — an invalid submission is rejected
+      with a specific error and the model gets to retry, not silently coerced or dropped
+- [x] Evidence-citation enforcement: proven by a dedicated test asserting a FACT claim with
+      no evidenceId is rejected server-side even though it matches the tool's JSON schema
+      shape (schema alone can't express the rule)
+- [x] `IncidentEvidence` rows written per successful tool call; `RootCauseAnalysis` persisted
+      on success. Wired into the incident lifecycle for the first time — `INVESTIGATING` →
+      `RCA_COMPLETE` on success, `INVESTIGATING` → `ESCALATED` on refusal or non-convergence
+      (`InvestigationIncompleteError`, bounded by `maxIterations`) — via
+      `incident-state-machine.ts`, which nothing had consumed until now
+- [x] Second Cloudflare Queue wired for real: `resolution-incident-investigation` (+ DLQ).
+      Ingestion's consumer enqueues onto it exactly once, only on the branch that actually
+      inserted a new `Incident` row (never on a redelivered/duplicate webhook). One Worker
+      script still — `worker.ts`'s `queue` export now dispatches on `batch.queue` name
+- [x] `POST /api/incidents/:id/investigate` — manual (re-)trigger for any status the state
+      machine already allows transitioning to `INVESTIGATING` from (`NEW`, `ESCALATED`,
+      `FAILED`), gated through `canTransition()` rather than a hardcoded status list
+- [x] `GET /api/incidents/:id` now returns evidence, the latest RCA, and the full event
+      timeline; the incident detail page renders all three (claims color-coded by
+      FACT/INFERENCE/HYPOTHESIS, citations resolved to the capability that produced them) —
+      27 tests added across `packages/ai`, `packages/agents`, `apps/api`
+- [ ] Knowledge Agent (pgvector → Cloudflare Vectorize ingestion + org-scoped retrieval): not
+      started — genuinely deferred, not silently dropped. The Investigation/RCA loop above
+      doesn't need it (it grounds claims in live tool evidence, not a knowledge base), but a
+      "search past incidents/runbooks" capability is real scope this phase didn't cover
+- **Honesty note on `MOCK_MODE`**: production's `MOCK_MODE` is now `false` — real incidents
+  ingested against the live deployment get a real, billed `claude-opus-5` investigation, not
+  the mock. This is a deliberate, disclosed choice (the user provided a real
+  `ANTHROPIC_API_KEY`, stored only via `wrangler secret put`, never committed) rather than a
+  default the project would have made unprompted; `MOCK_MODE=true` remains the documented
+  zero-credential path for local dev/CI and is still what every automated test runs against
 
 ## Phase 8 — Remediation
 - [ ] Policy engine (pure code) + visual policy builder UI

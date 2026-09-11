@@ -11,13 +11,20 @@ binding = "DB"
 database_name = "resolution-db"
 database_id = "2c18552b-e3e5-4852-8d50-c71c79465890"
 
-# Cloudflare Queue — ARCHITECTURE.md §10. Webhook routes (POST /api/webhooks/jira|
-# servicenow) enqueue here and return immediately; apps/api/src/worker.ts's `queue` export
-# is the consumer that does the actual ingestion work. Dead-letter queue catches messages
-# that exhaust max_retries so they're inspectable rather than silently dropped.
+# Cloudflare Queues — ARCHITECTURE.md §10. Webhook routes (POST /api/webhooks/jira|
+# servicenow) enqueue onto incident-ingestion and return immediately; its consumer
+# (apps/api/src/worker.ts's `queue` export) does the actual ingestion work, then itself
+# enqueues onto incident-investigation for Phase 7's Investigation/RCA agent. One Worker
+# script consumes both — worker.ts dispatches on `batch.queue`, see its header comment.
+# Dead-letter queues catch messages that exhaust max_retries so they're inspectable rather
+# than silently dropped.
 [[queues.producers]]
 queue = "resolution-incident-ingestion"
 binding = "INCIDENT_INGESTION_QUEUE"
+
+[[queues.producers]]
+queue = "resolution-incident-investigation"
+binding = "INCIDENT_INVESTIGATION_QUEUE"
 
 [[queues.consumers]]
 queue = "resolution-incident-ingestion"
@@ -25,10 +32,22 @@ max_batch_size = 10
 max_retries = 3
 dead_letter_queue = "resolution-incident-ingestion-dlq"
 
-# Plain (non-secret) config — safe to commit. JWT_SECRET and ENCRYPTION_MASTER_KEY are set
-# via `wrangler secret put` instead (encrypted server-side, never written to this file).
+[[queues.consumers]]
+queue = "resolution-incident-investigation"
+# Small batches, few retries — each message drives a real (possibly billed) LLM
+# investigation loop; a batch of 10 would mean 10 concurrent investigations per invocation,
+# and 3 retries of a genuinely-failing investigation is enough to catch a transient error
+# without repeatedly re-running an expensive agent loop against a bad message.
+max_batch_size = 3
+max_retries = 2
+dead_letter_queue = "resolution-incident-investigation-dlq"
+
+# Plain (non-secret) config — safe to commit. JWT_SECRET, ENCRYPTION_MASTER_KEY and
+# ANTHROPIC_API_KEY are set via `wrangler secret put` instead (encrypted server-side, never
+# written to this file).
 [vars]
 NODE_ENV = "production"
 CORS_ORIGIN = "https://resolution-a7j.pages.dev"
 SECRET_PROVIDER = "ENCRYPTED_DB"
-MOCK_MODE = "true"
+MOCK_MODE = "false"
+ANTHROPIC_MODEL = "claude-opus-5"

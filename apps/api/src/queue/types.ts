@@ -15,3 +15,18 @@ export interface IngestionQueueMessage {
 export interface IncidentIngestionQueue {
   send(message: IngestionQueueMessage): Promise<void>;
 }
+
+/** Enqueued once, right after a NEW incident is created (see consumer.ts's
+ *  `onIncidentCreated` hook) — never re-enqueued for a redelivered ingestion message, since
+ *  that hook only fires on the branch that actually inserted a new Incident row. */
+export interface InvestigationQueueMessage {
+  incidentId: string;
+  organizationId: string;
+}
+
+/** Same producer/consumer decoupling as IncidentIngestionQueue, for the investigation
+ *  queue — see investigation-consumer.ts (real work) and inline-investigation-queue.ts
+ *  (tests/local dev synchronous stand-in). */
+export interface IncidentInvestigationQueue {
+  send(message: InvestigationQueueMessage): Promise<void>;
+}

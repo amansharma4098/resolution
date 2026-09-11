@@ -1,5 +1,5 @@
 {
-  "name": "@resolution/agents",
+  "name": "@resolution/ai",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,11 +12,11 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.125.0",
-    "@resolution/ai": "*",
-    "@resolution/map-servers": "*",
-    "@resolution/shared": "*"
+    "zod": "^3.23.8",
+    "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
+    "@resolution/shared": "*",
     "typescript": "^5.6.3",
     "vitest": "^2.1.3"
   }

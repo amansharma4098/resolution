@@ -114,6 +114,27 @@ export interface FakeIncidentEvent {
   createdAt: Date;
 }
 
+export interface FakeIncidentEvidence {
+  id: string;
+  incidentId: string;
+  type: string;
+  source: string;
+  capabilityKey: string | null;
+  summary: string;
+  payload: string;
+  collectedAt: Date;
+}
+
+export interface FakeRootCauseAnalysis {
+  id: string;
+  incidentId: string;
+  summary: string;
+  claims: string;
+  confidence: number;
+  alternativeHypotheses: string;
+  createdAt: Date;
+}
+
 export interface FakeWebhookEvent {
   id: string;
   organizationId: string | null;
@@ -226,9 +247,28 @@ export interface FakeDb {
         organizationId_source_externalId: { organizationId: string; source: string; externalId: string };
       };
     }): Promise<FakeIncident | null>;
+    update(args: { where: { id: string }; data: Partial<FakeIncident> }): Promise<FakeIncident>;
   };
   incidentEvent: {
     create(args: { data: Partial<FakeIncidentEvent> }): Promise<FakeIncidentEvent>;
+    findMany(args: {
+      where: { incidentId: string };
+      orderBy?: { createdAt: "asc" | "desc" };
+    }): Promise<FakeIncidentEvent[]>;
+  };
+  incidentEvidence: {
+    create(args: { data: Partial<FakeIncidentEvidence> }): Promise<FakeIncidentEvidence>;
+    findMany(args: {
+      where: { incidentId: string };
+      orderBy?: { collectedAt: "asc" | "desc" };
+    }): Promise<FakeIncidentEvidence[]>;
+  };
+  rootCauseAnalysis: {
+    create(args: { data: Partial<FakeRootCauseAnalysis> }): Promise<FakeRootCauseAnalysis>;
+    findFirst(args: {
+      where: { incidentId: string };
+      orderBy?: { createdAt: "asc" | "desc" };
+    }): Promise<FakeRootCauseAnalysis | null>;
   };
   webhookEvent: {
     create(args: { data: Partial<FakeWebhookEvent> }): Promise<FakeWebhookEvent>;
@@ -251,6 +291,8 @@ export interface FakeDb {
     integrations: FakeIntegration[];
     incidents: FakeIncident[];
     incidentEvents: FakeIncidentEvent[];
+    incidentEvidence: FakeIncidentEvidence[];
+    rootCauseAnalyses: FakeRootCauseAnalysis[];
     webhookEvents: FakeWebhookEvent[];
     auditLogs: unknown[];
   };
@@ -266,6 +308,8 @@ export function createFakeDb(): FakeDb {
   const integrations: FakeIntegration[] = [];
   const incidents: FakeIncident[] = [];
   const incidentEvents: FakeIncidentEvent[] = [];
+  const incidentEvidence: FakeIncidentEvidence[] = [];
+  const rootCauseAnalyses: FakeRootCauseAnalysis[] = [];
   const webhookEvents: FakeWebhookEvent[] = [];
   const auditLogs: unknown[] = [];
 
@@ -526,6 +570,12 @@ export function createFakeDb(): FakeDb {
           ) ?? null
         );
       },
+      async update({ where, data }: { where: { id: string }; data: Partial<FakeIncident> }) {
+        const row = incidents.find((i) => i.id === where.id);
+        if (!row) throw new Error(`fake incident ${where.id} not found`);
+        Object.assign(row, data, { updatedAt: new Date() });
+        return row;
+      },
     },
     incidentEvent: {
       async create({ data }: { data: Partial<FakeIncidentEvent> }) {
@@ -539,6 +589,76 @@ export function createFakeDb(): FakeDb {
         };
         incidentEvents.push(row);
         return row;
+      },
+      async findMany({
+        where,
+        orderBy,
+      }: {
+        where: { incidentId: string };
+        orderBy?: { createdAt: "asc" | "desc" };
+      }) {
+        const rows = incidentEvents.filter((e) => e.incidentId === where.incidentId);
+        if (orderBy?.createdAt === "desc") rows.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        else rows.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+        return rows;
+      },
+    },
+    incidentEvidence: {
+      async create({ data }: { data: Partial<FakeIncidentEvidence> }) {
+        const row: FakeIncidentEvidence = {
+          id: randomUUID(),
+          incidentId: data.incidentId!,
+          type: data.type!,
+          source: data.source!,
+          capabilityKey: data.capabilityKey ?? null,
+          summary: data.summary!,
+          payload: data.payload ?? "{}",
+          collectedAt: new Date(),
+        };
+        incidentEvidence.push(row);
+        return row;
+      },
+      async findMany({
+        where,
+        orderBy,
+      }: {
+        where: { incidentId: string };
+        orderBy?: { collectedAt: "asc" | "desc" };
+      }) {
+        const rows = incidentEvidence.filter((e) => e.incidentId === where.incidentId);
+        if (orderBy?.collectedAt === "desc") rows.sort((a, b) => b.collectedAt.getTime() - a.collectedAt.getTime());
+        else rows.sort((a, b) => a.collectedAt.getTime() - b.collectedAt.getTime());
+        return rows;
+      },
+    },
+    rootCauseAnalysis: {
+      async create({ data }: { data: Partial<FakeRootCauseAnalysis> }) {
+        const row: FakeRootCauseAnalysis = {
+          id: randomUUID(),
+          incidentId: data.incidentId!,
+          summary: data.summary!,
+          claims: data.claims ?? "[]",
+          confidence: data.confidence!,
+          alternativeHypotheses: data.alternativeHypotheses ?? "[]",
+          createdAt: new Date(),
+        };
+        rootCauseAnalyses.push(row);
+        return row;
+      },
+      async findFirst({
+        where,
+        orderBy,
+      }: {
+        where: { incidentId: string };
+        orderBy?: { createdAt: "asc" | "desc" };
+      }) {
+        const rows = rootCauseAnalyses.filter((r) => r.incidentId === where.incidentId);
+        rows.sort((a, b) =>
+          orderBy?.createdAt === "asc"
+            ? a.createdAt.getTime() - b.createdAt.getTime()
+            : b.createdAt.getTime() - a.createdAt.getTime(),
+        );
+        return rows[0] ?? null;
       },
     },
     webhookEvent: {
@@ -594,6 +714,8 @@ export function createFakeDb(): FakeDb {
       integrations,
       incidents,
       incidentEvents,
+      incidentEvidence,
+      rootCauseAnalyses,
       webhookEvents,
       auditLogs,
     },

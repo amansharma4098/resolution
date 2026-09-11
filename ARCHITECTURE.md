@@ -221,6 +221,19 @@ Hard rules enforced in code, not by prompting:
 - Resolution is marked `RESOLVED` only after a `Verification` row shows the real system
   state matches the expected post-remediation state.
 
+**Phase 7 reality vs. the table above**: the Investigation Agent and RCA Agent are real and
+live (`packages/agents/src/investigation`, `packages/ai`) — a hand-written multi-turn
+tool-calling loop against `claude-opus-5` (or a genuine `MOCK_MODE` client, never a stub —
+see IMPLEMENTATION_PLAN.md's Phase 7 entry), tools built only from an org's enabled,
+non-mutating capabilities, RCA forced through a `submit_rca` tool call whose input is
+re-validated against `RootCauseAnalysisOutput`'s own Zod schema (so the "FACT claims must
+cite evidence" rule is actually enforced, not just documented in a tool description).
+There is no separate orchestrator/Context Agent/Knowledge Agent/Resolution Agent yet — the
+Investigation Agent's loop *is* the orchestration for this phase (it decides when to stop
+gathering evidence and hands off directly to RCA in the same run), and the Policy
+Engine/Remediation/Verification/Incident Update rows below remain Phase 8+ as originally
+planned.
+
 ## 7. Automation policy
 
 ```
@@ -304,21 +317,32 @@ error shape `{ error: { code, message, requestId } }`. Full contract per route:
 ## 10. Background processing
 
 **Cloudflare Queues**, not Redis+BullMQ — see §2 for why. Named queues:
-`incident-ingestion` (Phase 6, real — see below), `incident-investigation`,
-`knowledge-retrieval`, `ai-analysis`, `remediation`, `verification`, `notification`,
-`webhook-processing`. Each of the remaining seven is created alongside the phase that
-actually consumes it (Phase 7 for the AI ones, Phase 8 for remediation/verification) —
-creating an empty queue resource with no real consumer ahead of that would be exactly the
-kind of placeholder-dressed-as-done this project's own ground rules warn against.
+`incident-ingestion` and `incident-investigation` are real (Phases 6–7 — see below);
+`knowledge-retrieval`, `ai-analysis` (folded into `incident-investigation`'s consumer
+rather than split out — one agent run does discovery through RCA in one pass, so a separate
+queue hop between them would add latency without adding real decoupling), `remediation`,
+`verification`, `notification`, `webhook-processing` (for sources beyond Jira/ServiceNow)
+remain unbuilt. Each lands alongside the phase that actually consumes it (Phase 8 for
+remediation/verification) — creating an empty queue resource with no real consumer ahead of
+that would be exactly the kind of placeholder-dressed-as-done this project's own ground
+rules warn against.
 
 Webhook HTTP handlers (`apps/api/src/routes/webhooks.ts`) do secret verification + shape
 validation only, enqueue via a real Cloudflare Queue producer binding, and return `202`
 immediately — all the actual work (idempotency check, normalization, Incident creation)
 runs in the same Worker's `queue` export (`apps/api/src/worker.ts`), which is Cloudflare's
-consumer entrypoint for that binding (`apps/api/src/queue/consumer.ts`). Cloudflare Queues
-deliver at-least-once and batch messages; each message is acked individually so one bad
-message doesn't retry the whole batch, and a message that exhausts `max_retries`
-(`wrangler.toml`) lands on a dead-letter queue rather than retrying forever or vanishing.
+consumer entrypoint for that binding (`apps/api/src/queue/consumer.ts`). That same consumer,
+on the branch that actually inserts a new `Incident` row, enqueues once onto
+`incident-investigation`; its consumer (`apps/api/src/queue/investigation-consumer.ts`) runs
+the Investigation/RCA agent (§6) and drives the incident's status through the state machine.
+One Worker script still exports a single `queue` handler for both bindings — it dispatches
+on `batch.queue`, since Cloudflare invokes the same export for every consumer binding a
+Worker has. Cloudflare Queues deliver at-least-once and batch messages; each message is
+acked individually so one bad message doesn't retry the whole batch, and a message that
+exhausts `max_retries` (`wrangler.toml`) lands on a dead-letter queue rather than retrying
+forever or vanishing. `incident-investigation`'s batch size is deliberately small (3, vs.
+ingestion's 10) and its retries fewer (2, vs. 3) — each message drives a real, possibly
+billed LLM run, not a cheap idempotent insert.
 
 Idempotency: webhook events keyed by `(source, externalId, eventHash)` in `WebhookEvent`;
 `Incident` itself is also keyed by `(organizationId, source, externalId)`, so even a
@@ -327,10 +351,15 @@ Incident row. Remediation actions (Phase 8) will be keyed by
 `(incidentId, capabilityKey, runId)` — a remediation must never be re-executed without
 first re-reading real external-system state.
 
-Tests use a synchronous inline stand-in for the queue (`apps/api/src/queue/inline-queue.ts`)
-that runs the exact same consumer logic, awaited, instead of a real decoupled Cloudflare
-Queue — documented there as the one behavioral difference from production (timing, not
-logic), since Vitest doesn't run under Miniflare's Queue emulation.
+Tests use synchronous inline stand-ins for both queues (`apps/api/src/queue/inline-queue.ts`,
+`inline-investigation-queue.ts`) that run the exact same consumer logic, awaited, instead of
+real decoupled Cloudflare Queues — documented there as the one behavioral difference from
+production (timing, not logic), since Vitest doesn't run under Miniflare's Queue emulation.
+The two are *not* auto-chained by default even in the inline stand-ins (an ingestion test's
+webhook response reflects ingestion only) — chaining them into one call is itself a further
+simplification beyond "runs synchronously", so it's opt-in per test
+(`buildTestApp({ chainInvestigation: true })`) rather than baked into every ingestion test
+that never asked for it.
 
 ## 11. Security
 

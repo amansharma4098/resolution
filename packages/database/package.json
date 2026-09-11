@@ -19,7 +19,8 @@
     "@prisma/client": "^5.22.0",
     "@resolution/credentials": "*",
     "@resolution/map-servers": "*",
-    "@resolution/security": "*"
+    "@resolution/security": "*",
+    "@resolution/shared": "*"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260910.1",

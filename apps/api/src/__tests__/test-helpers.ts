@@ -5,6 +5,8 @@ import { EncryptedDbSecretProvider } from "@resolution/credentials";
 import { buildApp } from "../app";
 import { loadEnv } from "../env";
 import { createFakeDb } from "./fake-db";
+import { createInlineIngestionQueue } from "../queue/inline-queue";
+import { createInlineInvestigationQueue } from "../queue/inline-investigation-queue";
 import type { AppEnv } from "../types";
 
 export const testEnv = loadEnv({
@@ -16,11 +18,31 @@ export const testEnv = loadEnv({
 
 /** Real envelope encryption (not a fake) with a fresh random key per test app instance —
  *  exercises packages/credentials end to end through the HTTP layer, not just its own
- *  unit tests. */
-export function buildTestApp(): { app: Hono<AppEnv>; db: ReturnType<typeof createFakeDb> } {
+ *  unit tests.
+ *
+ * `chainInvestigation: true` wires the inline ingestion queue to also run the (mock)
+ * investigation agent synchronously right after ingestion, the same way production's real
+ * Cloudflare Queues eventually do, just collapsed into one tick — see app.ts's comment on
+ * why this isn't the default. Existing Phase 3-6 tests rely on a webhook's HTTP response
+ * reflecting only ingestion (status "NEW", exactly one IncidentEvent); only opt in for tests
+ * that actually exercise Phase 7. */
+export function buildTestApp(
+  options: { chainInvestigation?: boolean } = {},
+): { app: Hono<AppEnv>; db: ReturnType<typeof createFakeDb> } {
   const db = createFakeDb();
+  const prismaDb = db as unknown as PrismaClient;
   const secretProvider = new EncryptedDbSecretProvider(randomBytes(32).toString("base64"));
-  const app = buildApp({ db: db as unknown as PrismaClient, env: testEnv, secretProvider });
+  const investigationQueue = createInlineInvestigationQueue(prismaDb, { mockMode: true, secretProvider });
+  const incidentIngestionQueue = options.chainInvestigation
+    ? createInlineIngestionQueue(prismaDb, investigationQueue)
+    : undefined;
+  const app = buildApp({
+    db: prismaDb,
+    env: testEnv,
+    secretProvider,
+    incidentInvestigationQueue: investigationQueue,
+    incidentIngestionQueue,
+  });
   return { app, db };
 }
 

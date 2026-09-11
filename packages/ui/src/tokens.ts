@@ -107,4 +107,23 @@ export const domainStatusMap = {
     INVALID: "error",
     EXPIRED: "warning",
   },
+  incidentStatus: {
+    NEW: "neutral",
+    INVESTIGATING: "info",
+    RCA_COMPLETE: "info",
+    PENDING_APPROVAL: "warning",
+    REMEDIATING: "info",
+    VERIFYING: "info",
+    RESOLVED: "success",
+    ESCALATED: "critical",
+    FAILED: "critical",
+    CLOSED: "neutral",
+  },
+  // RCA claim type (packages/shared/src/rca.ts) — FACT/INFERENCE/HYPOTHESIS, ordered from
+  // most to least certain; the color scale reflects that ordering, not correctness/error.
+  rcaClaimType: {
+    FACT: "success",
+    INFERENCE: "info",
+    HYPOTHESIS: "warning",
+  },
 } as const satisfies Record<string, Record<string, SemanticStatus>>;

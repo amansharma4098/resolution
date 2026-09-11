@@ -64,15 +64,24 @@ npx wrangler d1 create resolution-db          # one-time
 npx wrangler d1 execute resolution-db --remote --file=../../packages/database/prisma/migrations/00000000000000_init/migration.sql
 echo -n "<strong random value>" | npx wrangler secret put JWT_SECRET
 echo -n "<openssl rand -base64 32>" | npx wrangler secret put ENCRYPTION_MASTER_KEY
+echo -n "<sk-ant-...>" | npx wrangler secret put ANTHROPIC_API_KEY   # optional — omit to run this deployment on MOCK_MODE's LLM client
 npx wrangler deploy
 ```
 
-`wrangler.toml` holds the D1 binding (`DB`) and non-secret vars (`CORS_ORIGIN`,
-`SECRET_PROVIDER`, `MOCK_MODE`, `NODE_ENV`) — safe to commit. `JWT_SECRET` and
-`ENCRYPTION_MASTER_KEY` are set via `wrangler secret put` (encrypted server-side) and never
+`wrangler.toml` holds the D1 binding (`DB`), the two Cloudflare Queue bindings
+(`INCIDENT_INGESTION_QUEUE`, `INCIDENT_INVESTIGATION_QUEUE` — see ARCHITECTURE.md §10), and
+non-secret vars (`CORS_ORIGIN`, `SECRET_PROVIDER`, `MOCK_MODE`, `NODE_ENV`,
+`ANTHROPIC_MODEL`) — safe to commit. `JWT_SECRET`, `ENCRYPTION_MASTER_KEY` and
+`ANTHROPIC_API_KEY` are set via `wrangler secret put` (encrypted server-side) and never
 appear in `wrangler.toml` or any committed file. `CORS_ORIGIN` must match the Pages URL
 exactly, and the session cookie is set with `SameSite=None; Secure` in production since
 Pages and the Worker are different sites (see ARCHITECTURE.md §2).
+
+`MOCK_MODE` in this deployment's `[vars]` is `"false"` — an `ANTHROPIC_API_KEY` secret is
+set, so real incidents get a real, billed `claude-opus-5` investigation (packages/ai). Flip
+`MOCK_MODE` back to `"true"` in `wrangler.toml` (and redeploy) to run this deployment on the
+zero-cost mock client instead; local dev/CI always use `MOCK_MODE=true` regardless of this
+deployment's setting, since they read their own `.env`/test env, not `wrangler.toml`.
 
 Redeploying after a schema change: regenerate the migration
 (`npx prisma migrate diff --from-empty --to-schema-datamodel=prisma/schema.prisma --script`

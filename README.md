@@ -24,9 +24,13 @@ Phases 0–2 complete (foundation, auth/orgs/RBAC/tenant isolation, configuratio
 encrypted credentials, Map Server registry, Map Server + Integration config), followed by a
 full migration off the original hybrid (Postgres/Redis-on-a-Node-host) hosting decision
 onto Cloudflare-only (D1, Workers, Web Crypto) — see `IMPLEMENTATION_PLAN.md`'s "Interlude"
-entry. Everything else in `IMPLEMENTATION_PLAN.md` is in progress — this is a large system
-being built incrementally, phase by phase; nothing is marked done until it's real, tested,
-and (where genuinely mocked) labeled `MOCK` in the UI.
+entry. Phases 3–7 also complete: real Jira/ServiceNow/Fabric integrations, incident
+ingestion via real Cloudflare Queues, and a real AI Investigation/RCA agent
+(`claude-opus-5`, tool-calling, evidence-cited root cause analysis) with a genuine
+`MOCK_MODE` fallback that needs zero credentials. Everything else in
+`IMPLEMENTATION_PLAN.md` is in progress — this is a large system being built incrementally,
+phase by phase; nothing is marked done until it's real, tested, and (where genuinely
+mocked) labeled `MOCK` in the UI.
 
 ## Quick start (local, zero cloud accounts)
 

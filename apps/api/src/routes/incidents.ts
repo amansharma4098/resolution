@@ -1,25 +1,29 @@
 import { Hono } from "hono";
 import type { PrismaClient } from "@resolution/database";
-import { IncidentRepository } from "@resolution/database";
+import { IncidentRepository, IncidentEvidenceRepository, RootCauseAnalysisRepository, parseJsonField } from "@resolution/database";
 import type { OrganizationRepository } from "@resolution/database";
+import { canTransition } from "@resolution/agents";
 import type { Env } from "../env";
 import { authenticate } from "../middleware/authenticate";
 import { resolveTenantContext } from "../middleware/tenant-context";
-import { NotFoundError } from "../lib/errors";
+import { NotFoundError, ConflictError } from "../lib/errors";
 import type { AppEnv } from "../types";
+import type { IncidentInvestigationQueue } from "../queue/types";
 
 /**
- * Read-only for now — incidents are created by webhook ingestion (routes/webhooks.ts).
- * The full lifecycle (/investigate, /remediate, /approve, /reject from the spec's API
- * surface) lands with Phase 6 (state machine) through Phase 8 (remediation); this exists
- * now because Phase 3 already produces real Incident rows worth being able to see.
+ * `/investigate` is a manual trigger for Phase 7's agent — the primary path is automatic
+ * (webhook ingestion enqueues it, see queue/consumer.ts's `onIncidentCreated`); this exists
+ * for re-running investigation after an ESCALATED/FAILED outcome, which the state machine
+ * already allows (incident-state-machine.ts) but nothing auto-retries. `/approve`, `/reject`,
+ * `/remediate` land with Phase 8.
  */
 export function buildIncidentRoutes(deps: {
   db: PrismaClient;
   env: Env;
   organizationRepository: OrganizationRepository;
+  investigationQueue: IncidentInvestigationQueue;
 }): Hono<AppEnv> {
-  const { db, env, organizationRepository } = deps;
+  const { db, env, organizationRepository, investigationQueue } = deps;
   const router = new Hono<AppEnv>();
   const auth = authenticate(env.JWT_SECRET);
   const tenantContext = resolveTenantContext(organizationRepository);
@@ -34,7 +38,30 @@ export function buildIncidentRoutes(deps: {
     const incidents = new IncidentRepository(db, c.get("organizationId")!);
     const incident = await incidents.findById(c.req.param("id"));
     if (!incident) throw new NotFoundError("Incident not found");
-    return c.json({ incident });
+
+    const evidence = await new IncidentEvidenceRepository(db).listByIncident(incident.id);
+    const rca = await new RootCauseAnalysisRepository(db).findLatestByIncident(incident.id);
+    const eventRows = await db.incidentEvent.findMany({
+      where: { incidentId: incident.id },
+      orderBy: { createdAt: "asc" },
+    });
+    const events = eventRows.map((e) => ({ ...e, detail: parseJsonField(e.detail, {}) }));
+
+    return c.json({ incident, evidence, rca, events });
+  });
+
+  router.post("/:id/investigate", auth, tenantContext, async (c) => {
+    const organizationId = c.get("organizationId")!;
+    const incidents = new IncidentRepository(db, organizationId);
+    const incident = await incidents.findById(c.req.param("id"));
+    if (!incident) throw new NotFoundError("Incident not found");
+
+    if (!canTransition(incident.status, "INVESTIGATING")) {
+      throw new ConflictError(`Cannot start an investigation from status ${incident.status}`);
+    }
+
+    await investigationQueue.send({ incidentId: incident.id, organizationId });
+    return c.json({ status: "investigating" }, 202);
   });
 
   return router;
