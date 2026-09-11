@@ -9,15 +9,17 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/dashboard" },
+  // AI investigation (evidence, RCA) lives inline on each incident's detail page, not a
+  // separate list — every incident is investigated, so a dedicated "AI Investigations" nav
+  // item would just be a second, redundant path to the same Incidents list.
   { label: "Incidents", href: "/dashboard/incidents" },
-  { label: "AI Investigations", href: "/dashboard/investigations", builtInPhase: 7 },
   { label: "Map Servers", href: "/dashboard/map-servers" },
   { label: "Credentials", href: "/dashboard/credentials" },
   { label: "Knowledge", href: "/dashboard/knowledge", builtInPhase: 7 },
   { label: "Runbooks", href: "/dashboard/runbooks", builtInPhase: 8 },
   { label: "Automation Policies", href: "/dashboard/automation-policies" },
   { label: "Approvals", href: "/dashboard/approvals" },
-  { label: "Audit Logs", href: "/dashboard/audit", builtInPhase: 9 },
+  { label: "Audit Logs", href: "/dashboard/audit" },
   { label: "Integrations", href: "/dashboard/integrations" },
   { label: "Analytics", href: "/dashboard/analytics", builtInPhase: 9 },
   { label: "Settings", href: "/dashboard/settings" },

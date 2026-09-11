@@ -361,11 +361,43 @@ possible but never exposed.
       `remediation-consumer` tests and the full HTTP approval-flow test (webhook → ingest →
       investigate → RCA → propose → PENDING_APPROVAL → approve → executed → RESOLVED)
 
-## Phase 9 — Dashboard
-- [ ] Metrics (`UsageMetric` rollups), `MetricCard`
-- [ ] Incidents list/detail, `IncidentTimeline`, `EvidenceCard`, `RCASection`, `RemediationPanel`, `VerificationPanel`
-- [ ] Audit log viewer
-- [ ] Full nav: Dashboard, Incidents, AI Investigations, Map Servers, Credentials, Knowledge, Runbooks, Automation Policies, Approvals, Audit Logs, Integrations, Analytics, Settings, Billing
+## Phase 9 — Dashboard ✅ mostly complete
+- [x] Metrics — `GET /api/metrics`, computed live from Incident/Resolution/RemediationAction/
+      Approval rows on every request, not a precomputed `UsageMetric` rollup table. Deliberate:
+      this project's current data volume doesn't justify a scheduled rollup job yet, and
+      Phase 11's usage-based billing is the point a rollup job earns its keep (it needs one
+      anyway, for metering) — documented in metrics.ts's header comment, not silently
+      dropped. Same O(incidents) round-trip pattern as the approvals inbox. `MetricCard` +
+      a real `/dashboard` (incident counts by status, open/resolved, avg resolution time,
+      remediation funnel: proposed/denied/pending/approved/rejected/succeeded/failed/
+      declined-no-action)
+- [x] Incident list/detail, evidence, RCA section, remediation panel (resolution → action →
+      approval → verification), timeline — all landed inline on the incident detail page in
+      Phases 7–8, not as the spec's separately-named `IncidentTimeline`/`EvidenceCard`/
+      `RCASection`/`RemediationPanel`/`VerificationPanel` components. Functionally complete;
+      a future pass could split them into named components for reuse, but nothing about the
+      feature set is missing
+- [x] Audit log viewer — `GET /api/audit-logs` (cursor-paginated on `createdAt`, any member
+      can view — knowing what happened to your org's incidents isn't ADMIN-gated the way
+      changing policy is) + `/dashboard/audit`, "Load more" pagination
+- [x] Nav: AI Investigations dropped as its own item — investigation results live inline on
+      every incident's detail page (Incidents already covers it 1:1; a separate nav entry
+      would just be a second path to the same list), Automation Policies/Approvals/Audit
+      Logs promoted out of "soon" now that they're real. Knowledge (Phase 7, Vectorize),
+      Runbooks (never built), Analytics (trends/charts beyond the Dashboard's current-state
+      metrics), and Billing (Phase 11) remain honestly tagged "soon"
+- [x] Fixed a real gap this phase surfaced: `Incident.resolvedAt` was never actually being
+      set on the RESOLVED transition (remediation-consumer.ts) — the field existed in the
+      schema since Phase 0 but nothing wrote it, which would have made "average resolution
+      time" silently report null forever. Fixed alongside building the metric that needed it
+- [x] Fixed a real turbo.json bug this phase's build surfaced: `@resolution/web`'s typecheck
+      raced its own `next build` (both could run in parallel; typecheck only depended on
+      upstream packages' builds, not its own) — `tsconfig.json` includes the generated
+      `.next/types/**/*.ts`, so a typecheck that started before build finished failed with a
+      spurious `TS6053 file not found`. Fixed by making `typecheck` depend on `build` (not
+      just `^build`) for every package — costs nothing for packages whose typecheck doesn't
+      depend on generated output, fixes it for the one that does
+- [x] 7 new tests (`metrics`: 3, `audit-logs`: 4), full turbo typecheck/lint/test/build green
 
 ## Phase 10 — Mock providers
 - [ ] Mock Map Servers: Databricks, Snowflake, Airflow, Azure, AWS, GCP, Kubernetes, Datadog, Splunk, Dynatrace, New Relic

@@ -135,6 +135,19 @@ export interface FakeRootCauseAnalysis {
   createdAt: Date;
 }
 
+export interface FakeAuditLog {
+  id: string;
+  organizationId: string | null;
+  actorType: string;
+  actorId: string | null;
+  action: string;
+  targetType: string | null;
+  targetId: string | null;
+  requestId: string | null;
+  metadata: string;
+  createdAt: Date;
+}
+
 export interface FakeAutomationPolicy {
   id: string;
   organizationId: string;
@@ -387,7 +400,12 @@ export interface FakeDb {
     }): Promise<FakeWebhookEvent | null>;
   };
   auditLog: {
-    create(args: { data: unknown }): Promise<unknown>;
+    create(args: { data: Partial<FakeAuditLog> }): Promise<FakeAuditLog>;
+    findMany(args: {
+      where: { organizationId: string; createdAt?: { lt: Date } };
+      orderBy?: { createdAt: "asc" | "desc" };
+      take?: number;
+    }): Promise<FakeAuditLog[]>;
   };
   $transaction<T extends readonly unknown[]>(ops: readonly [...T]): Promise<T>;
   $disconnect(): Promise<void>;
@@ -409,7 +427,7 @@ export interface FakeDb {
     approvals: FakeApproval[];
     verifications: FakeVerification[];
     webhookEvents: FakeWebhookEvent[];
-    auditLogs: unknown[];
+    auditLogs: FakeAuditLog[];
   };
 }
 
@@ -431,7 +449,7 @@ export function createFakeDb(): FakeDb {
   const approvals: FakeApproval[] = [];
   const verifications: FakeVerification[] = [];
   const webhookEvents: FakeWebhookEvent[] = [];
-  const auditLogs: unknown[] = [];
+  const auditLogs: FakeAuditLog[] = [];
 
   const db: FakeDb = {
     user: {
@@ -1007,9 +1025,42 @@ export function createFakeDb(): FakeDb {
       },
     },
     auditLog: {
-      async create({ data }: { data: unknown }) {
-        auditLogs.push(data);
-        return data;
+      async create({ data }: { data: Partial<FakeAuditLog> }) {
+        const row: FakeAuditLog = {
+          id: randomUUID(),
+          organizationId: data.organizationId ?? null,
+          actorType: data.actorType!,
+          actorId: data.actorId ?? null,
+          action: data.action!,
+          targetType: data.targetType ?? null,
+          targetId: data.targetId ?? null,
+          requestId: data.requestId ?? null,
+          metadata: data.metadata ?? "{}",
+          createdAt: new Date(),
+        };
+        auditLogs.push(row);
+        return row;
+      },
+      async findMany({
+        where,
+        orderBy,
+        take,
+      }: {
+        where: { organizationId: string; createdAt?: { lt: Date } };
+        orderBy?: { createdAt: "asc" | "desc" };
+        take?: number;
+      }) {
+        let rows = auditLogs.filter((a) => a.organizationId === where.organizationId);
+        if (where.createdAt?.lt) {
+          const before = where.createdAt.lt;
+          rows = rows.filter((a) => a.createdAt.getTime() < before.getTime());
+        }
+        rows = [...rows].sort((a, b) =>
+          orderBy?.createdAt === "asc"
+            ? a.createdAt.getTime() - b.createdAt.getTime()
+            : b.createdAt.getTime() - a.createdAt.getTime(),
+        );
+        return take !== undefined ? rows.slice(0, take) : rows;
       },
     },
     // Batch form only — matches real Prisma-on-D1, which doesn't support interactive

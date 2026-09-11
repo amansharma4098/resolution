@@ -14,7 +14,13 @@
       "dependsOn": ["^build"]
     },
     "typecheck": {
-      "dependsOn": ["^build"]
+      // "build" (not just "^build") — @resolution/web's tsconfig.json includes
+      // .next/types/**/*.ts, which next build generates; running typecheck in parallel
+      // with this package's own build (turbo's default without this) races against that
+      // directory being (re)generated and fails with a spurious TS6053 "file not found".
+      // Every other package's typecheck is a plain tsc run unaffected by its own build
+      // output, so depending on "build" here costs them nothing but strict ordering.
+      "dependsOn": ["^build", "build"]
     },
     "test": {
       "dependsOn": ["^build"]

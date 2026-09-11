@@ -334,7 +334,7 @@ export async function executeAndVerify(
   if (!params.capability.verification) {
     // Nothing to automatically re-check — honestly resolved on "executed without error"
     // alone, not silently upgraded to a confirmed-verified state.
-    await db.incident.update({ where: { id: params.incidentId }, data: { status: transition("VERIFYING", "RESOLVED") } });
+    await db.incident.update({ where: { id: params.incidentId }, data: { status: transition("VERIFYING", "RESOLVED"), resolvedAt: new Date() } });
     await db.incidentEvent.create({
       data: {
         incidentId: params.incidentId,
@@ -359,7 +359,7 @@ export async function executeAndVerify(
     if (!result) {
       // Declared verification but the runner couldn't actually run it (misconfigured
       // companion capability) — same honest "resolved, unverified" outcome as no-verification.
-      await db.incident.update({ where: { id: params.incidentId }, data: { status: transition("VERIFYING", "RESOLVED") } });
+      await db.incident.update({ where: { id: params.incidentId }, data: { status: transition("VERIFYING", "RESOLVED"), resolvedAt: new Date() } });
       await db.incidentEvent.create({
         data: {
           incidentId: params.incidentId,
@@ -379,7 +379,7 @@ export async function executeAndVerify(
     });
 
     if (result.status === "PASSED") {
-      await db.incident.update({ where: { id: params.incidentId }, data: { status: transition("VERIFYING", "RESOLVED") } });
+      await db.incident.update({ where: { id: params.incidentId }, data: { status: transition("VERIFYING", "RESOLVED"), resolvedAt: new Date() } });
       await db.incidentEvent.create({
         data: { incidentId: params.incidentId, type: "resolved", actor: "system", detail: serializeJsonField({ verified: true }) },
       });
