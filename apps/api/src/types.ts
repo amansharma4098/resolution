@@ -10,6 +10,10 @@ export interface Variables {
   userId?: string;
   organizationId?: string;
   role?: Role;
+  /** Set only by requireSuperAdmin — platform-level, not tenant-scoped. Never set by
+   *  resolveTenantContext, and never inferred from `role` (a tenant's OWNER is not
+   *  automatically a Super Admin — the two are orthogonal). */
+  isSuperAdmin?: boolean;
 }
 
 export type AppEnv = { Variables: Variables };

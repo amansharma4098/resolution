@@ -7,6 +7,10 @@ export interface SessionUser {
   id: string;
   email: string;
   name: string | null;
+  // Platform-level — see apps/api/src/middleware/require-super-admin.ts. Purely a UI hint
+  // for whether to show the /platform section; every platform route re-checks this
+  // server-side regardless, so there's no privilege in trusting this client-side.
+  isSuperAdmin: boolean;
 }
 
 export interface SessionOrganization {

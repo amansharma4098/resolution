@@ -27,9 +27,12 @@ const LoginBody = z.object({
   password: z.string().min(1),
 });
 
-/** Shape returned for a user — never the passwordHash. */
-function toPublicUser(user: { id: string; email: string; name: string | null }) {
-  return { id: user.id, email: user.email, name: user.name };
+/** Shape returned for a user — never the passwordHash. `isSuperAdmin` is safe to expose to
+ *  the user themselves (it's their own flag); the frontend uses it purely to decide whether
+ *  to show the /platform section — every actual platform route re-checks it server-side via
+ *  requireSuperAdmin regardless. */
+function toPublicUser(user: { id: string; email: string; name: string | null; isSuperAdmin: boolean }) {
+  return { id: user.id, email: user.email, name: user.name, isSuperAdmin: user.isSuperAdmin };
 }
 
 export function buildAuthRoutes(deps: { db: PrismaClient; env: Env }): Hono<AppEnv> {

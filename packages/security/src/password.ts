@@ -22,3 +22,16 @@ export async function verifyPassword(plaintext: string, hash: string): Promise<b
 export function isPasswordStrongEnough(plaintext: string): boolean {
   return plaintext.length >= 12;
 }
+
+/** A random, strong temporary password for an admin- or Super-Admin-created local user —
+ *  shown to the creator exactly once in the response (same masking discipline as
+ *  credentials); the new user is expected to change it on first login. No email delivery is
+ *  wired up yet, so relaying it is on the creator for now. Shared by
+ *  apps/api/src/routes/organizations.ts (org admin invites a teammate) and
+ *  apps/api/src/routes/platform.ts (Super Admin provisions a new tenant's admin). */
+export function generateTemporaryPassword(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(18));
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}

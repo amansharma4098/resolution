@@ -399,6 +399,61 @@ possible but never exposed.
       depend on generated output, fixes it for the one that does
 - [x] 7 new tests (`metrics`: 3, `audit-logs`: 4), full turbo typecheck/lint/test/build green
 
+## Interlude — a live production auth bug, found and fixed ✅ complete
+
+Not a planned phase — a real user report ("sign in stuck loading") led to a live debugging
+session (`wrangler tail` against the production Worker + the reporter's own DevTools),
+which found a genuine bug: `apps/web` and `apps/api` are different origins, forcing the
+session cookie to be `SameSite=None`, which Safari's cross-site tracking prevention blocks
+or strips (most aggressively in Private Browsing). Login/signup succeeded server-side every
+time, but the browser never retained the session, silently bouncing the user back to
+`/login`.
+
+- [x] `functions/api/[[path]].ts` — a Cloudflare Pages Function (at the repo root, not
+      `apps/web/functions`, because this project's Pages `root_dir` is the repo root and
+      Functions are discovered relative to that) that proxies every `/api/*` request
+      server-side to the Worker, transparently, including `Set-Cookie`. The browser now
+      only ever talks to its own origin. `_redirects` was tried first (Cloudflare's
+      documented "200 status = proxy" pattern) but its own docs confirm it can't proxy an
+      external domain — only a real Function can `fetch()` anywhere
+- [x] `NEXT_PUBLIC_API_URL` is now empty in Cloudflare Pages' env config (both
+      production/preview), so `apiRequest` resolves same-origin relative paths that the
+      Function intercepts. Verified with a real cookie-jar `curl` test (the cookie now
+      belongs to the Pages domain, not the Worker's) and confirmed by the original reporter
+      in their actual browser after the fix
+
+## Interlude — platform Super Admin / tenant provisioning ✅ complete
+
+Not originally scoped — added on explicit direction to support a sales-assisted enterprise
+onboarding motion alongside self-serve signup (Phase 1/the enterprise tenant/member
+management interlude): a platform-level Super Admin who can provision a brand-new tenant
+and its initial admin user directly, without that admin needing to sign themselves up
+first.
+
+- [x] `User.isSuperAdmin` (new migration, `packages/database/prisma/migrations/
+      00000000000001_add_super_admin`) — platform-level, orthogonal to
+      `OrganizationMember.role`; a Super Admin isn't a member of any particular tenant.
+      Provisioned directly in the database only — no self-serve or API path to grant it,
+      same bootstrap discipline as every other root credential in this project
+- [x] `apps/api/src/middleware/require-super-admin.ts` — a second, separate gate from
+      `resolveTenantContext`/`requireMinimumRole`; runs straight after `authenticate`, no
+      tenant context involved
+- [x] `GET/POST /api/platform/tenants` — list every tenant on the platform (member/incident
+      counts included) and provision a new one in one step: creates the `Organization` and,
+      reusing the exact same auto-create-with-temporary-password pattern as the member-invite
+      flow (now shared via `generateTemporaryPassword()` in `@resolution/security` rather
+      than duplicated), its admin `User` as that org's `OWNER`. An existing email is just
+      added as the new org's owner, no new password
+- [x] **Additive, not a replacement**: `POST /api/organizations` (self-serve "create my own
+      org") is deliberately untouched — the product now supports both a self-serve
+      product-led motion and a sales-assisted one side by side, rather than forcing every
+      tenant through one path
+- [x] `apps/web` `/platform` — a separate layout from `/dashboard` (platform-level, not
+      scoped to "my currently selected organization"), gated client-side on
+      `user.isSuperAdmin` (server-side enforcement is what actually matters; the client gate
+      is just UX), with a linked entry point from the dashboard sidebar for Super Admins
+- [x] 5 new tests (`platform.test.ts`), all 101 prior apps/api tests still passing unchanged
+
 ## Phase 10 — Mock providers
 - [ ] Mock Map Servers: Databricks, Snowflake, Airflow, Azure, AWS, GCP, Kubernetes, Datadog, Splunk, Dynatrace, New Relic
 - [ ] Mock incident source: PagerDuty

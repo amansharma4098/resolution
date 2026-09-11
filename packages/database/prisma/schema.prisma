@@ -28,6 +28,12 @@ model User {
   email        String   @unique
   name         String?
   passwordHash String? // null when the user only ever authenticates via SSO
+  // Platform-level, not tenant-scoped — orthogonal to OrganizationMember.role. A Super
+  // Admin is the product owner/operator, not a member of any particular tenant; see
+  // ARCHITECTURE.md §1 and apps/api/src/middleware/require-super-admin.ts. Provisioned
+  // directly in the database (there is no self-serve path to become one), same bootstrap
+  // discipline as every other root credential in this project.
+  isSuperAdmin Boolean  @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

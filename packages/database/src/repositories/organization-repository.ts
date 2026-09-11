@@ -53,6 +53,22 @@ export class OrganizationRepository {
     return organization;
   }
 
+  /** Platform-wide, not scoped to any one user — only ever called behind
+   *  requireSuperAdmin (apps/api/src/middleware/require-super-admin.ts). Every other method
+   *  on this class derives visibility from OrganizationMember; this is the one deliberate
+   *  exception, for the Super Admin's tenant-management view. */
+  async listAll(): Promise<(Organization & { memberCount: number; incidentCount: number })[]> {
+    const rows = await this.db.organization.findMany({
+      include: { _count: { select: { members: true, incidents: true } } },
+      orderBy: { createdAt: "desc" },
+    });
+    return rows.map(({ _count, ...org }) => ({
+      ...org,
+      memberCount: _count.members,
+      incidentCount: _count.incidents,
+    }));
+  }
+
   async listForUser(userId: string): Promise<OrganizationWithRole[]> {
     const memberships = await this.db.organizationMember.findMany({
       where: { userId },

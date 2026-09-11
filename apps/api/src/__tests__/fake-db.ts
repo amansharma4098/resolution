@@ -12,6 +12,7 @@ export interface FakeUser {
   email: string;
   name: string | null;
   passwordHash: string | null;
+  isSuperAdmin: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -253,6 +254,10 @@ export interface FakeDb {
     create(args: { data: Partial<FakeOrganization> }): Promise<FakeOrganization>;
     findUnique(args: { where: { id?: string; slug?: string } }): Promise<FakeOrganization | null>;
     update(args: { where: { id: string }; data: Partial<FakeOrganization> }): Promise<FakeOrganization>;
+    findMany(args?: {
+      include?: { _count?: { select: { members?: boolean; incidents?: boolean } } };
+      orderBy?: { createdAt: "asc" | "desc" };
+    }): Promise<(FakeOrganization & { _count?: { members: number; incidents: number } })[]>;
   };
   organizationMember: {
     create(args: { data: Partial<FakeMembership> }): Promise<FakeMembership>;
@@ -464,6 +469,7 @@ export function createFakeDb(): FakeDb {
           email: data.email!,
           name: data.name ?? null,
           passwordHash: data.passwordHash ?? null,
+          isSuperAdmin: data.isSuperAdmin ?? false,
           createdAt: new Date(),
           updatedAt: new Date(),
         };
@@ -494,6 +500,24 @@ export function createFakeDb(): FakeDb {
         if (!row) throw new Error(`fake organization ${where.id} not found`);
         Object.assign(row, data, { updatedAt: new Date() });
         return row;
+      },
+      async findMany(args?: {
+        include?: { _count?: { select: { members?: boolean; incidents?: boolean } } };
+        orderBy?: { createdAt: "asc" | "desc" };
+      }) {
+        const rows = [...organizations].sort((a, b) =>
+          args?.orderBy?.createdAt === "asc"
+            ? a.createdAt.getTime() - b.createdAt.getTime()
+            : b.createdAt.getTime() - a.createdAt.getTime(),
+        );
+        if (!args?.include?._count) return rows;
+        return rows.map((o) => ({
+          ...o,
+          _count: {
+            members: memberships.filter((m) => m.organizationId === o.id).length,
+            incidents: incidents.filter((i) => i.organizationId === o.id).length,
+          },
+        }));
       },
     },
     organizationMember: {

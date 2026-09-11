@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { PrismaClient } from "@resolution/database";
 import { OrganizationRepository, UserRepository, auditLogWriter, slugify } from "@resolution/database";
-import { hashPassword, requireRole, writeAuditLog } from "@resolution/security";
+import { generateTemporaryPassword, hashPassword, requireRole, writeAuditLog } from "@resolution/security";
 import { ResolutionMode } from "@resolution/shared";
 import type { Env } from "../env";
 import { authenticate } from "../middleware/authenticate";
@@ -29,17 +29,6 @@ const AddMemberBody = z.object({
 const UpdateMemberRoleBody = z.object({
   role: z.enum(ROLES),
 });
-
-/** A random, strong temporary password for an admin-created local user — shown to the
- *  inviting admin exactly once in the response (same masking discipline as credentials);
- *  the new user is expected to change it on first login. No email delivery is wired up
- *  yet (Phase 3 doesn't add an email provider), so relaying it is on the admin for now. */
-function generateTemporaryPassword(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(18));
-  return Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
 
 export function buildOrganizationRoutes(deps: { db: PrismaClient; env: Env }): Hono<AppEnv> {
   const { db, env } = deps;

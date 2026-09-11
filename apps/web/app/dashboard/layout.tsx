@@ -84,6 +84,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </nav>
         <div className="border-t border-border p-3">
           <p className="truncate text-xs text-subink">{user.email}</p>
+          {user.isSuperAdmin && (
+            <Link href="/platform/tenants" className="mt-1 block text-xs text-navy hover:underline">
+              Platform Admin →
+            </Link>
+          )}
           <Button variant="ghost" size="sm" className="mt-1 w-full justify-start px-0" onClick={() => void logout().then(() => router.push("/login"))}>
             Sign out
           </Button>
