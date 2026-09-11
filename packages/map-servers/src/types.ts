@@ -29,6 +29,28 @@ export interface MapServerContext {
 }
 
 /**
+ * How a mutating capability's real-world effect gets re-checked after execution —
+ * ARCHITECTURE.md §6's Verification Agent ("never trusts an HTTP 200 alone"). Optional and
+ * provider-specific on purpose: what "verified" means for a Fabric pipeline retry (poll the
+ * job instance it started until it's no longer running) is domain knowledge that belongs in
+ * the Fabric provider, not hardcoded generically in packages/agents' verification runner —
+ * that runner only knows how to call whatever `capabilityKey` + `buildInput` + `classify`
+ * says, the same way the investigation/resolution loops only know how to call whatever
+ * capability a Map Server exposes.
+ */
+export interface VerificationSpec<Input = unknown, Output = unknown> {
+  /** A read-only capability (on the same Map Server) that re-reads real state. */
+  capabilityKey: string;
+  /** Builds that capability's input from the mutating call's own input and output — e.g.
+   *  combining the pipeline id it was called with and the run id it started. */
+  buildInput: (mutatingInput: Input, mutatingOutput: Output) => unknown;
+  /** Classifies the read capability's result: PASSED (confirmed successful — done),
+   *  FAILED (confirmed failed — no point retrying), or RETRYING (not resolved yet, check
+   *  again). Never LLM-driven — see this file's header note and ARCHITECTURE.md §6. */
+  classify: (verifyOutput: unknown) => "PASSED" | "FAILED" | "RETRYING";
+}
+
+/**
  * One typed, schema-validated action a Map Server exposes. The agent (and apps/api's
  * test/manual-invoke paths) call `execute` only after validating `input` against
  * `inputSchema` and the result against `outputSchema` — never with a raw/untyped payload.
@@ -43,6 +65,12 @@ export interface Capability<Input = unknown, Output = unknown> {
    *  (mutating: false) always run during investigation regardless of resolution mode. */
   mutating: boolean;
   execute: (ctx: MapServerContext, input: Input) => Promise<Output>;
+  /** Only meaningful when `mutating: true` — how Phase 8's Verification step re-checks this
+   *  action's real-world effect. A mutating capability with no `verification` is executed
+   *  but never automatically verified; its RemediationAction is left PASSED-unconfirmed
+   *  (see packages/agents/src/remediation's verification runner) rather than the platform
+   *  guessing at a check that doesn't exist. */
+  verification?: VerificationSpec<Input, Output>;
 }
 
 export interface ConnectionTestResult {

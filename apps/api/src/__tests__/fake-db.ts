@@ -135,6 +135,61 @@ export interface FakeRootCauseAnalysis {
   createdAt: Date;
 }
 
+export interface FakeAutomationPolicy {
+  id: string;
+  organizationId: string;
+  mapServerType: string;
+  capabilityKey: string;
+  riskLevel: string;
+  behavior: string;
+  resolutionModeFloor: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface FakeResolution {
+  id: string;
+  incidentId: string;
+  rcaId: string;
+  proposedAction: string;
+  mapServerId: string | null;
+  capabilityKey: string | null;
+  input: string;
+  riskLevel: string;
+  createdAt: Date;
+}
+
+export interface FakeRemediationAction {
+  id: string;
+  resolutionId: string;
+  status: string;
+  idempotencyKey: string;
+  executedAt: Date | null;
+  result: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface FakeApproval {
+  id: string;
+  remediationActionId: string;
+  status: string;
+  requestedAt: Date;
+  decidedAt: Date | null;
+  decidedByUserId: string | null;
+  reason: string | null;
+}
+
+export interface FakeVerification {
+  id: string;
+  remediationActionId: string;
+  status: string;
+  expectedState: string;
+  actualState: string;
+  attempt: number;
+  checkedAt: Date;
+}
+
 export interface FakeWebhookEvent {
   id: string;
   organizationId: string | null;
@@ -184,6 +239,7 @@ export interface FakeDb {
   organization: {
     create(args: { data: Partial<FakeOrganization> }): Promise<FakeOrganization>;
     findUnique(args: { where: { id?: string; slug?: string } }): Promise<FakeOrganization | null>;
+    update(args: { where: { id: string }; data: Partial<FakeOrganization> }): Promise<FakeOrganization>;
   };
   organizationMember: {
     create(args: { data: Partial<FakeMembership> }): Promise<FakeMembership>;
@@ -270,6 +326,60 @@ export interface FakeDb {
       orderBy?: { createdAt: "asc" | "desc" };
     }): Promise<FakeRootCauseAnalysis | null>;
   };
+  automationPolicy: {
+    findMany(args: { where: { organizationId: string } }): Promise<FakeAutomationPolicy[]>;
+    findUnique(args: {
+      where: {
+        organizationId_mapServerType_capabilityKey: {
+          organizationId: string;
+          mapServerType: string;
+          capabilityKey: string;
+        };
+      };
+    }): Promise<FakeAutomationPolicy | null>;
+    findFirst(args: { where: OrgScopedWhere }): Promise<FakeAutomationPolicy | null>;
+    upsert(args: {
+      where: {
+        organizationId_mapServerType_capabilityKey: {
+          organizationId: string;
+          mapServerType: string;
+          capabilityKey: string;
+        };
+      };
+      create: Partial<FakeAutomationPolicy>;
+      update: Partial<FakeAutomationPolicy>;
+    }): Promise<FakeAutomationPolicy>;
+    delete(args: { where: { id: string } }): Promise<FakeAutomationPolicy>;
+  };
+  resolution: {
+    create(args: { data: Partial<FakeResolution> }): Promise<FakeResolution>;
+    findUnique(args: { where: { id: string } }): Promise<FakeResolution | null>;
+    findMany(args: {
+      where: { incidentId: string };
+      orderBy?: { createdAt: "asc" | "desc" };
+    }): Promise<FakeResolution[]>;
+  };
+  remediationAction: {
+    create(args: { data: Partial<FakeRemediationAction> }): Promise<FakeRemediationAction>;
+    findUnique(args: { where: { id: string } }): Promise<FakeRemediationAction | null>;
+    findMany(args: { where: { resolutionId: string } }): Promise<FakeRemediationAction[]>;
+    update(args: {
+      where: { id: string };
+      data: Partial<FakeRemediationAction>;
+    }): Promise<FakeRemediationAction>;
+  };
+  approval: {
+    create(args: { data: Partial<FakeApproval> }): Promise<FakeApproval>;
+    findUnique(args: { where: { id?: string; remediationActionId?: string } }): Promise<FakeApproval | null>;
+    update(args: { where: { id: string }; data: Partial<FakeApproval> }): Promise<FakeApproval>;
+  };
+  verification: {
+    create(args: { data: Partial<FakeVerification> }): Promise<FakeVerification>;
+    findMany(args: {
+      where: { remediationActionId: string };
+      orderBy?: { checkedAt: "asc" | "desc" };
+    }): Promise<FakeVerification[]>;
+  };
   webhookEvent: {
     create(args: { data: Partial<FakeWebhookEvent> }): Promise<FakeWebhookEvent>;
     findUnique(args: {
@@ -293,6 +403,11 @@ export interface FakeDb {
     incidentEvents: FakeIncidentEvent[];
     incidentEvidence: FakeIncidentEvidence[];
     rootCauseAnalyses: FakeRootCauseAnalysis[];
+    automationPolicies: FakeAutomationPolicy[];
+    resolutions: FakeResolution[];
+    remediationActions: FakeRemediationAction[];
+    approvals: FakeApproval[];
+    verifications: FakeVerification[];
     webhookEvents: FakeWebhookEvent[];
     auditLogs: unknown[];
   };
@@ -310,6 +425,11 @@ export function createFakeDb(): FakeDb {
   const incidentEvents: FakeIncidentEvent[] = [];
   const incidentEvidence: FakeIncidentEvidence[] = [];
   const rootCauseAnalyses: FakeRootCauseAnalysis[] = [];
+  const automationPolicies: FakeAutomationPolicy[] = [];
+  const resolutions: FakeResolution[] = [];
+  const remediationActions: FakeRemediationAction[] = [];
+  const approvals: FakeApproval[] = [];
+  const verifications: FakeVerification[] = [];
   const webhookEvents: FakeWebhookEvent[] = [];
   const auditLogs: unknown[] = [];
 
@@ -350,6 +470,12 @@ export function createFakeDb(): FakeDb {
         if (where.id) return organizations.find((o) => o.id === where.id) ?? null;
         if (where.slug) return organizations.find((o) => o.slug === where.slug) ?? null;
         return null;
+      },
+      async update({ where, data }: { where: { id: string }; data: Partial<FakeOrganization> }) {
+        const row = organizations.find((o) => o.id === where.id);
+        if (!row) throw new Error(`fake organization ${where.id} not found`);
+        Object.assign(row, data, { updatedAt: new Date() });
+        return row;
       },
     },
     organizationMember: {
@@ -661,6 +787,197 @@ export function createFakeDb(): FakeDb {
         return rows[0] ?? null;
       },
     },
+    automationPolicy: {
+      async findMany({ where }: { where: { organizationId: string } }) {
+        return automationPolicies.filter((p) => p.organizationId === where.organizationId);
+      },
+      async findUnique({
+        where,
+      }: {
+        where: {
+          organizationId_mapServerType_capabilityKey: {
+            organizationId: string;
+            mapServerType: string;
+            capabilityKey: string;
+          };
+        };
+      }) {
+        const { organizationId, mapServerType, capabilityKey } = where.organizationId_mapServerType_capabilityKey;
+        return (
+          automationPolicies.find(
+            (p) =>
+              p.organizationId === organizationId &&
+              p.mapServerType === mapServerType &&
+              p.capabilityKey === capabilityKey,
+          ) ?? null
+        );
+      },
+      async findFirst({ where }: { where: OrgScopedWhere }) {
+        return (
+          automationPolicies.find((p) => p.organizationId === where.organizationId && p.id === where.id) ?? null
+        );
+      },
+      async upsert({
+        where,
+        create,
+        update,
+      }: {
+        where: {
+          organizationId_mapServerType_capabilityKey: {
+            organizationId: string;
+            mapServerType: string;
+            capabilityKey: string;
+          };
+        };
+        create: Partial<FakeAutomationPolicy>;
+        update: Partial<FakeAutomationPolicy>;
+      }) {
+        const { organizationId, mapServerType, capabilityKey } = where.organizationId_mapServerType_capabilityKey;
+        const existing = automationPolicies.find(
+          (p) =>
+            p.organizationId === organizationId &&
+            p.mapServerType === mapServerType &&
+            p.capabilityKey === capabilityKey,
+        );
+        if (existing) {
+          Object.assign(existing, update, { updatedAt: new Date() });
+          return existing;
+        }
+        const row: FakeAutomationPolicy = {
+          id: randomUUID(),
+          organizationId,
+          mapServerType,
+          capabilityKey,
+          riskLevel: create.riskLevel!,
+          behavior: create.behavior!,
+          resolutionModeFloor: create.resolutionModeFloor!,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        automationPolicies.push(row);
+        return row;
+      },
+      async delete({ where }: { where: { id: string } }) {
+        const idx = automationPolicies.findIndex((p) => p.id === where.id);
+        if (idx === -1) throw new Error(`fake automation policy ${where.id} not found`);
+        return automationPolicies.splice(idx, 1)[0]!;
+      },
+    },
+    resolution: {
+      async create({ data }: { data: Partial<FakeResolution> }) {
+        const row: FakeResolution = {
+          id: randomUUID(),
+          incidentId: data.incidentId!,
+          rcaId: data.rcaId!,
+          proposedAction: data.proposedAction!,
+          mapServerId: data.mapServerId ?? null,
+          capabilityKey: data.capabilityKey ?? null,
+          input: data.input ?? "{}",
+          riskLevel: data.riskLevel!,
+          createdAt: new Date(),
+        };
+        resolutions.push(row);
+        return row;
+      },
+      async findUnique({ where }: { where: { id: string } }) {
+        return resolutions.find((r) => r.id === where.id) ?? null;
+      },
+      async findMany({
+        where,
+        orderBy,
+      }: {
+        where: { incidentId: string };
+        orderBy?: { createdAt: "asc" | "desc" };
+      }) {
+        const rows = resolutions.filter((r) => r.incidentId === where.incidentId);
+        if (orderBy?.createdAt === "desc") rows.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        else rows.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+        return rows;
+      },
+    },
+    remediationAction: {
+      async create({ data }: { data: Partial<FakeRemediationAction> }) {
+        const row: FakeRemediationAction = {
+          id: randomUUID(),
+          resolutionId: data.resolutionId!,
+          status: data.status ?? "PENDING",
+          idempotencyKey: data.idempotencyKey!,
+          executedAt: data.executedAt ?? null,
+          result: data.result ?? "{}",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        remediationActions.push(row);
+        return row;
+      },
+      async findUnique({ where }: { where: { id: string } }) {
+        return remediationActions.find((a) => a.id === where.id) ?? null;
+      },
+      async findMany({ where }: { where: { resolutionId: string } }) {
+        return remediationActions.filter((a) => a.resolutionId === where.resolutionId);
+      },
+      async update({ where, data }: { where: { id: string }; data: Partial<FakeRemediationAction> }) {
+        const row = remediationActions.find((a) => a.id === where.id);
+        if (!row) throw new Error(`fake remediation action ${where.id} not found`);
+        Object.assign(row, data, { updatedAt: new Date() });
+        return row;
+      },
+    },
+    approval: {
+      async create({ data }: { data: Partial<FakeApproval> }) {
+        const row: FakeApproval = {
+          id: randomUUID(),
+          remediationActionId: data.remediationActionId!,
+          status: data.status ?? "PENDING",
+          requestedAt: new Date(),
+          decidedAt: data.decidedAt ?? null,
+          decidedByUserId: data.decidedByUserId ?? null,
+          reason: data.reason ?? null,
+        };
+        approvals.push(row);
+        return row;
+      },
+      async findUnique({ where }: { where: { id?: string; remediationActionId?: string } }) {
+        if (where.id) return approvals.find((a) => a.id === where.id) ?? null;
+        if (where.remediationActionId) {
+          return approvals.find((a) => a.remediationActionId === where.remediationActionId) ?? null;
+        }
+        return null;
+      },
+      async update({ where, data }: { where: { id: string }; data: Partial<FakeApproval> }) {
+        const row = approvals.find((a) => a.id === where.id);
+        if (!row) throw new Error(`fake approval ${where.id} not found`);
+        Object.assign(row, data);
+        return row;
+      },
+    },
+    verification: {
+      async create({ data }: { data: Partial<FakeVerification> }) {
+        const row: FakeVerification = {
+          id: randomUUID(),
+          remediationActionId: data.remediationActionId!,
+          status: data.status!,
+          expectedState: data.expectedState ?? "{}",
+          actualState: data.actualState ?? "{}",
+          attempt: data.attempt ?? 1,
+          checkedAt: new Date(),
+        };
+        verifications.push(row);
+        return row;
+      },
+      async findMany({
+        where,
+        orderBy,
+      }: {
+        where: { remediationActionId: string };
+        orderBy?: { checkedAt: "asc" | "desc" };
+      }) {
+        const rows = verifications.filter((v) => v.remediationActionId === where.remediationActionId);
+        if (orderBy?.checkedAt === "desc") rows.sort((a, b) => b.checkedAt.getTime() - a.checkedAt.getTime());
+        else rows.sort((a, b) => a.checkedAt.getTime() - b.checkedAt.getTime());
+        return rows;
+      },
+    },
     webhookEvent: {
       async create({ data }: { data: Partial<FakeWebhookEvent> }) {
         const row: FakeWebhookEvent = {
@@ -716,6 +1033,11 @@ export function createFakeDb(): FakeDb {
       incidentEvents,
       incidentEvidence,
       rootCauseAnalyses,
+      automationPolicies,
+      resolutions,
+      remediationActions,
+      approvals,
+      verifications,
       webhookEvents,
       auditLogs,
     },

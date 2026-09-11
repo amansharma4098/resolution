@@ -158,4 +158,48 @@ describe("organization routes", () => {
     expect((await jsonOf(first)).organization.slug).toBe("acme");
     expect((await jsonOf(second)).organization.slug).toBe("acme-2");
   });
+
+  it("defaults resolutionMode to OBSERVE_ONLY, and an OWNER/ADMIN can change it (Phase 8)", async () => {
+    const cookie = await signupAndGetCookie("resmode@example.com");
+    const created = await req(app, "/api/organizations", { method: "POST", cookie, body: { name: "Acme" } });
+    const createdBody = await jsonOf(created);
+    const orgId = createdBody.organization.id;
+    expect(createdBody.organization.resolutionMode).toBe("OBSERVE_ONLY");
+
+    const updated = await req(app, `/api/organizations/${orgId}`, {
+      method: "PATCH",
+      cookie,
+      body: { resolutionMode: "AUTONOMOUS" },
+    });
+    expect(updated.status).toBe(200);
+    expect((await jsonOf(updated)).organization.resolutionMode).toBe("AUTONOMOUS");
+
+    const refetched = await req(app, `/api/organizations/${orgId}`, { cookie });
+    expect((await jsonOf(refetched)).organization.resolutionMode).toBe("AUTONOMOUS");
+  });
+
+  it("rejects a non-admin changing resolutionMode", async () => {
+    const ownerCookie = await signupAndGetCookie("resmode-owner@example.com");
+    const created = await req(app, "/api/organizations", {
+      method: "POST",
+      cookie: ownerCookie,
+      body: { name: "Acme" },
+    });
+    const orgId = (await jsonOf(created)).organization.id;
+
+    const memberCookie = await signupAndGetCookie("resmode-member@example.com");
+    await req(app, "/api/organizations/members", {
+      method: "POST",
+      cookie: ownerCookie,
+      organizationId: orgId,
+      body: { email: "resmode-member@example.com", role: "MEMBER" },
+    });
+
+    const res = await req(app, `/api/organizations/${orgId}`, {
+      method: "PATCH",
+      cookie: memberCookie,
+      body: { resolutionMode: "AUTONOMOUS" },
+    });
+    expect(res.status).toBe(403);
+  });
 });

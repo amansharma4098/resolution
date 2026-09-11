@@ -7,6 +7,7 @@ import { loadEnv } from "../env";
 import { createFakeDb } from "./fake-db";
 import { createInlineIngestionQueue } from "../queue/inline-queue";
 import { createInlineInvestigationQueue } from "../queue/inline-investigation-queue";
+import { createInlineRemediationQueue } from "../queue/inline-remediation-queue";
 import type { AppEnv } from "../types";
 
 export const testEnv = loadEnv({
@@ -21,18 +22,30 @@ export const testEnv = loadEnv({
  *  unit tests.
  *
  * `chainInvestigation: true` wires the inline ingestion queue to also run the (mock)
- * investigation agent synchronously right after ingestion, the same way production's real
- * Cloudflare Queues eventually do, just collapsed into one tick — see app.ts's comment on
- * why this isn't the default. Existing Phase 3-6 tests rely on a webhook's HTTP response
- * reflecting only ingestion (status "NEW", exactly one IncidentEvent); only opt in for tests
- * that actually exercise Phase 7. */
+ * investigation agent synchronously right after ingestion; `chainRemediation: true` does the
+ * same one stage further (a successful RCA runs the remediation pipeline too) — both the
+ * same way production's real Cloudflare Queues eventually do, just collapsed into one tick.
+ * See app.ts's comment on why this isn't the default. Existing Phase 3-6 tests rely on a
+ * webhook's HTTP response reflecting only ingestion (status "NEW", exactly one
+ * IncidentEvent); only opt in for tests that actually exercise Phase 7/8. The bounded
+ * verification retry loop's `sleep` is always a no-op here — tests never need to wait out
+ * real backoff delays. */
 export function buildTestApp(
-  options: { chainInvestigation?: boolean } = {},
+  options: { chainInvestigation?: boolean; chainRemediation?: boolean } = {},
 ): { app: Hono<AppEnv>; db: ReturnType<typeof createFakeDb> } {
   const db = createFakeDb();
   const prismaDb = db as unknown as PrismaClient;
   const secretProvider = new EncryptedDbSecretProvider(randomBytes(32).toString("base64"));
-  const investigationQueue = createInlineInvestigationQueue(prismaDb, { mockMode: true, secretProvider });
+  const remediationQueue = createInlineRemediationQueue(prismaDb, {
+    mockMode: true,
+    secretProvider,
+    sleep: async () => {},
+  });
+  const investigationQueue = createInlineInvestigationQueue(prismaDb, {
+    mockMode: true,
+    secretProvider,
+    onRcaCompleted: options.chainRemediation ? (evt) => remediationQueue.send(evt) : undefined,
+  });
   const incidentIngestionQueue = options.chainInvestigation
     ? createInlineIngestionQueue(prismaDb, investigationQueue)
     : undefined;
@@ -41,6 +54,7 @@ export function buildTestApp(
     env: testEnv,
     secretProvider,
     incidentInvestigationQueue: investigationQueue,
+    incidentRemediationQueue: remediationQueue,
     incidentIngestionQueue,
   });
   return { app, db };

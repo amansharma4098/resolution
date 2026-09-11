@@ -6,7 +6,8 @@ import { buildApp } from "./app";
 import { loadEnv } from "./env";
 import { processIngestionMessage } from "./queue/consumer";
 import { processInvestigationMessage } from "./queue/investigation-consumer";
-import type { IngestionQueueMessage, InvestigationQueueMessage } from "./queue/types";
+import { processRemediationMessage } from "./queue/remediation-consumer";
+import type { IngestionQueueMessage, InvestigationQueueMessage, RemediationQueueMessage } from "./queue/types";
 
 // Registers real Map Server providers once per Worker isolate (module-level code runs on
 // cold start, then the isolate is reused across requests) — never inside the fetch handler
@@ -20,14 +21,15 @@ if (!isMapServerTypeAvailable("FABRIC")) {
 
 /**
  * The Cloudflare Worker bindings for this app — configured in wrangler.toml. `DB` is the
- * D1 database binding; `INCIDENT_INGESTION_QUEUE` and `INCIDENT_INVESTIGATION_QUEUE` are
- * the producer sides of the two queues this Worker also consumes (see docs/deployment.md);
- * everything else is a plain string var/secret validated by env.ts's schema.
+ * D1 database binding; the three `INCIDENT_*_QUEUE` bindings are the producer sides of the
+ * queues this Worker also consumes (see docs/deployment.md); everything else is a plain
+ * string var/secret validated by env.ts's schema.
  */
 export interface WorkerEnv {
   DB: D1Database;
   INCIDENT_INGESTION_QUEUE: Queue<IngestionQueueMessage>;
   INCIDENT_INVESTIGATION_QUEUE: Queue<InvestigationQueueMessage>;
+  INCIDENT_REMEDIATION_QUEUE: Queue<RemediationQueueMessage>;
   NODE_ENV?: string;
   JWT_SECRET?: string;
   CORS_ORIGIN?: string;
@@ -71,25 +73,54 @@ export default {
           await workerEnv.INCIDENT_INVESTIGATION_QUEUE.send(message);
         },
       },
+      incidentRemediationQueue: {
+        send: async (message) => {
+          await workerEnv.INCIDENT_REMEDIATION_QUEUE.send(message);
+        },
+      },
     });
     return app.fetch(request, workerEnv);
   },
 
   /**
-   * The consumer side of both queues — ARCHITECTURE.md §10's "all heavy work runs async off
-   * the queue". One Worker script, one `queue` export: Cloudflare invokes it for every queue
-   * consumer binding configured in wrangler.toml, distinguishing them via `batch.queue` — so
-   * this dispatches rather than needing a second deployment. Cloudflare Queues deliver
-   * at-least-once and batch messages; each message is acked individually so one bad message
-   * in a batch doesn't cause the whole batch to retry. A message that keeps failing exhausts
-   * `max_retries` (wrangler.toml) and lands on that queue's dead-letter queue rather than
-   * retrying forever.
+   * The consumer side of all three queues — ARCHITECTURE.md §10's "all heavy work runs
+   * async off the queue". One Worker script, one `queue` export: Cloudflare invokes it for
+   * every queue consumer binding configured in wrangler.toml, distinguishing them via
+   * `batch.queue` — so this dispatches rather than needing separate deployments. Cloudflare
+   * Queues deliver at-least-once and batch messages; each message is acked individually so
+   * one bad message in a batch doesn't cause the whole batch to retry. A message that keeps
+   * failing exhausts `max_retries` (wrangler.toml) and lands on that queue's dead-letter
+   * queue rather than retrying forever.
    */
   async queue(
-    batch: MessageBatch<IngestionQueueMessage> | MessageBatch<InvestigationQueueMessage>,
+    batch:
+      | MessageBatch<IngestionQueueMessage>
+      | MessageBatch<InvestigationQueueMessage>
+      | MessageBatch<RemediationQueueMessage>,
     workerEnv: WorkerEnv,
   ): Promise<void> {
     const db = createD1Client(workerEnv.DB);
+
+    if (batch.queue.includes("remediation")) {
+      const env = loadWorkerEnv(workerEnv);
+      const config = {
+        mockMode: env.MOCK_MODE,
+        anthropicApiKey: env.ANTHROPIC_API_KEY,
+        anthropicModel: env.ANTHROPIC_MODEL,
+        secretProvider: createSecretProvider(env.SECRET_PROVIDER, { masterKey: env.ENCRYPTION_MASTER_KEY }),
+      };
+      for (const message of batch.messages as MessageBatch<RemediationQueueMessage>["messages"]) {
+        try {
+          await processRemediationMessage(db, config, message.body);
+          message.ack();
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error("Incident remediation failed, will retry:", err);
+          message.retry();
+        }
+      }
+      return;
+    }
 
     if (batch.queue.includes("investigation")) {
       const env = loadWorkerEnv(workerEnv);
@@ -101,7 +132,12 @@ export default {
       };
       for (const message of batch.messages as MessageBatch<InvestigationQueueMessage>["messages"]) {
         try {
-          await processInvestigationMessage(db, config, message.body);
+          await processInvestigationMessage(db, {
+            ...config,
+            onRcaCompleted: async (evt) => {
+              await workerEnv.INCIDENT_REMEDIATION_QUEUE.send(evt);
+            },
+          }, message.body);
           message.ack();
         } catch (err) {
           // eslint-disable-next-line no-console

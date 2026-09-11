@@ -25,6 +25,11 @@ export interface InvestigationRunnerConfig {
    *  within maxIterations, or a refusal) is hard to provoke naturally through the
    *  deterministic mock client, which always converges within two turns by design. */
   llmClient?: LlmClient;
+  /** Fired exactly once, right after a successful RCA_COMPLETE transition — mirrors
+   *  consumer.ts's onIncidentCreated hook one stage over. Wired in production to enqueue
+   *  onto the remediation queue; never fired on the escalation branch (nothing to
+   *  remediate without a completed RCA). */
+  onRcaCompleted?: (evt: { incidentId: string; organizationId: string }) => Promise<void>;
 }
 
 /**
@@ -166,6 +171,7 @@ export async function processInvestigationMessage(
       targetId: incident.id,
       metadata: { confidence: result.rca.confidence, toolCallCount: result.toolCallCount, mock: llmClient.isMock },
     });
+    await config.onRcaCompleted?.({ incidentId: incident.id, organizationId: message.organizationId });
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     await db.incident.update({

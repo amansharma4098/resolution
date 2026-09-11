@@ -1,5 +1,6 @@
 import type { Organization, OrganizationMember, PrismaClient } from "@prisma/client";
 import type { Role } from "@resolution/security";
+import type { ResolutionMode } from "@resolution/shared";
 
 export interface OrganizationWithRole extends Organization {
   role: Role;
@@ -130,6 +131,13 @@ export class OrganizationRepository {
       data: { role },
     });
     return { ...updated, role: updated.role as Role };
+  }
+
+  /** Phase 8: the org-level dial the policy engine reads (ARCHITECTURE.md §7) —
+   *  OBSERVE_ONLY (default) never remediates automatically, AUTONOMOUS lets an
+   *  AutomationPolicy's own AUTO behavior actually run unattended. */
+  async updateResolutionMode(organizationId: string, resolutionMode: ResolutionMode): Promise<Organization> {
+    return this.db.organization.update({ where: { id: organizationId }, data: { resolutionMode } });
   }
 }
 

@@ -14,6 +14,7 @@ export interface SessionOrganization {
   name: string;
   slug: string;
   role: "OWNER" | "ADMIN" | "MEMBER" | "VIEWER";
+  resolutionMode: "OBSERVE_ONLY" | "RECOMMEND" | "HUMAN_APPROVED" | "AUTONOMOUS";
 }
 
 const CURRENT_ORG_STORAGE_KEY = "resolution.currentOrganizationId";

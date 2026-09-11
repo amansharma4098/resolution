@@ -248,6 +248,17 @@ LOW-risk action configured AUTO still requires approval if the org is in `RECOMM
 Evaluated entirely in `packages/agents/policy-engine.ts` (pure functions, unit-testable, no
 LLM).
 
+**Phase 8 reality**: built exactly as above, plus one stated simplification —
+`resolutionModeCeiling()` caps both RECOMMEND and HUMAN_APPROVED at APPROVAL rather than
+giving HUMAN_APPROVED distinct behavior; see policy-engine.ts's header comment for why. The
+Resolution Agent (packages/agents/src/remediation) proposes at most one remediation per RCA,
+never executes it directly — execution only happens after this policy engine's AUTO
+decision or a human's explicit approval (`POST /api/incidents/:id/approvals/:approvalId
+/decide`). Verification (below the Remediation Agent row in §6's table) is real: a mutating
+`Capability` can declare a `verification` companion (read capability + input-builder +
+PASSED/FAILED/RETRYING classifier), checked via a bounded same-invocation retry loop, not a
+re-queued delayed message — see ARCHITECTURE.md §10 and remediation-consumer.ts.
+
 ## 8. Data model
 
 Cloudflare D1 (SQLite) via Prisma, UUID primary keys, every tenant-owned table carries

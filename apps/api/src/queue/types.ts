@@ -30,3 +30,18 @@ export interface InvestigationQueueMessage {
 export interface IncidentInvestigationQueue {
   send(message: InvestigationQueueMessage): Promise<void>;
 }
+
+/** Enqueued once per successful RCA_COMPLETE (see investigation-consumer.ts's
+ *  `onRcaCompleted` hook). One message drives the whole propose → policy-gate →
+ *  (execute + verify, if AUTO) pipeline in a single consumer invocation — see
+ *  remediation-consumer.ts's header comment for why this isn't split into more queues. */
+export interface RemediationQueueMessage {
+  incidentId: string;
+  organizationId: string;
+}
+
+/** Same producer/consumer decoupling as the other two queues — see remediation-consumer.ts
+ *  (real work) and inline-remediation-queue.ts (tests/local dev synchronous stand-in). */
+export interface IncidentRemediationQueue {
+  send(message: RemediationQueueMessage): Promise<void>;
+}

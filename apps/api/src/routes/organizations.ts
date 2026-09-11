@@ -2,7 +2,8 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { PrismaClient } from "@resolution/database";
 import { OrganizationRepository, UserRepository, auditLogWriter, slugify } from "@resolution/database";
-import { hashPassword, writeAuditLog } from "@resolution/security";
+import { hashPassword, requireRole, writeAuditLog } from "@resolution/security";
+import { ResolutionMode } from "@resolution/shared";
 import type { Env } from "../env";
 import { authenticate } from "../middleware/authenticate";
 import { requireMinimumRole, resolveTenantContext } from "../middleware/tenant-context";
@@ -11,6 +12,10 @@ import type { AppEnv } from "../types";
 
 const CreateOrganizationBody = z.object({
   name: z.string().min(1).max(200),
+});
+
+const UpdateOrganizationBody = z.object({
+  resolutionMode: ResolutionMode,
 });
 
 const ROLES = ["OWNER", "ADMIN", "MEMBER", "VIEWER"] as const;
@@ -207,6 +212,34 @@ export function buildOrganizationRoutes(deps: { db: PrismaClient; env: Env }): H
     if (!organization) throw new NotFoundError("Organization not found");
 
     return c.json({ organization: { ...organization, role: membership.role } });
+  });
+
+  // Same URL-param-identifies-resource pattern as GET /:id above (see its comment) — an
+  // admin-only manual check against the resolved membership, not the tenantContext/
+  // requireMinimumRole middleware pair (which read the X-Organization-Id header, not the
+  // URL param). Phase 8: the only field this currently updates is `resolutionMode`
+  // (ARCHITECTURE.md §7) — the org-level dial the policy engine reads.
+  router.patch("/:id", auth, async (c) => {
+    const id = c.req.param("id");
+    const membership = await organizations.findMembership(c.get("userId")!, id);
+    if (!membership) throw new NotFoundError("Organization not found");
+    requireRole(membership.role, "ADMIN");
+
+    const body = UpdateOrganizationBody.parse(await c.req.json());
+    const updated = await organizations.updateResolutionMode(id, body.resolutionMode);
+
+    await writeAuditLog(auditLogWriter(db), {
+      organizationId: id,
+      actorType: "user",
+      actorId: c.get("userId"),
+      action: "organization.resolution_mode_changed",
+      targetType: "Organization",
+      targetId: id,
+      requestId: c.get("requestId"),
+      metadata: { resolutionMode: body.resolutionMode },
+    });
+
+    return c.json({ organization: { ...updated, role: membership.role } });
   });
 
   return router;

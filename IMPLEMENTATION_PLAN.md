@@ -294,12 +294,72 @@ possible but never exposed.
   default the project would have made unprompted; `MOCK_MODE=true` remains the documented
   zero-credential path for local dev/CI and is still what every automated test runs against
 
-## Phase 8 — Remediation
-- [ ] Policy engine (pure code) + visual policy builder UI
-- [ ] Resolution modes (Observe Only/Recommend/Human Approved/Autonomous) at org level
-- [ ] Approval flow (API + UI: `ApprovalPanel`)
-- [ ] Remediation execution via Map Server mutating capabilities
-- [ ] Verification Agent: real-state re-check, retry/escalate logic
+## Phase 8 — Remediation ✅ complete
+- [x] Policy engine (`packages/agents/src/policy-engine.ts`) — pure code, no LLM
+      (ARCHITECTURE.md §6). Effective behavior = the stricter of an AutomationPolicy row's
+      own `behavior` and the org's `resolutionMode` ceiling; a `resolutionModeFloor` below
+      the org's current mode denies outright rather than falling back to a weaker behavior.
+      Unconfigured capabilities default to APPROVAL once the org is at least in RECOMMEND
+      mode, DENY below it — never silently AUTO. 8 tests covering the full
+      (mode × behavior × floor) matrix
+- [x] `AutomationPolicy` CRUD (`/api/automation-policies`, admin-only) + a real UI page
+      (`/dashboard/automation-policies`) — upsert-in-place per (mapServerType,
+      capabilityKey), a capability-key dropdown sourced from the org's actual configured Map
+      Servers when one exists, free-text fallback otherwise
+- [x] Resolution modes at the org level — `Organization.resolutionMode`
+      (OBSERVE_ONLY/RECOMMEND/HUMAN_APPROVED/AUTONOMOUS) already existed in the schema;
+      `PATCH /api/organizations/:id` (admin-only) + a selector on the Automation Policies
+      page make it real. Documented simplification: RECOMMEND and HUMAN_APPROVED both cap at
+      APPROVAL in the policy engine for now — see policy-engine.ts's header comment for why
+- [x] Resolution Agent (`packages/agents/src/remediation/resolution-agent.ts`) — same
+      hand-written tool-calling pattern as Phase 7's Investigation Agent, offered only the
+      org's enabled *mutating* capabilities (the inverse filter from investigation) plus an
+      explicit `no_remediation_needed` decline tool, so "no safe automated fix exists" is a
+      real, honest outcome rather than a forced guess. Proposes at most one remediation —
+      never executes it directly; that's gated by the policy engine below
+- [x] Approval flow — `POST /api/incidents/:id/approvals/:approvalId/decide`
+      (APPROVE/REJECT, admin-only), a global inbox (`GET /api/incidents/approvals/pending`,
+      `/dashboard/approvals`) and inline Approve/Reject on the incident detail page. Approve
+      executes the capability synchronously in the request (a single call plus the bounded
+      verification loop below); reject transitions the incident straight to CLOSED and never
+      touches the capability
+- [x] Remediation execution via Map Server mutating capabilities — real, through the same
+      `Capability.execute()` every read-only investigation call already went through
+- [x] Verification — `Capability.verification` (packages/map-servers/src/types.ts, new
+      optional field): a mutating capability can declare a read-only companion capability +
+      how to build its input + how to classify PASSED/FAILED/RETRYING. Never an LLM
+      (ARCHITECTURE.md §6). Wired real: Fabric's `retry_pipeline` now declares one, polling
+      `get_pipeline_run` for the started job's status. Bounded retry loop (3 attempts, 2s
+      apart) in the same consumer invocation, not a re-queued delayed message — a documented
+      simplification (remediation-consumer.ts's header comment) for capabilities that
+      resolve within seconds; longer-running remediation would need real re-queuing. A
+      capability with no `verification` (or a misconfigured one) resolves honestly as
+      "executed, unverified" rather than silently claiming confirmed success
+- [x] Third real Cloudflare Queue: `resolution-incident-remediation` (+ DLQ). One consumer
+      invocation covers propose → policy-gate → (if AUTO) execute → verify — not split
+      further; ARCHITECTURE.md §10 explains why. Chained automatically off a successful
+      RCA_COMPLETE, same `onXCompleted` hook pattern as ingestion→investigation
+- [x] 41 new tests — packages/agents: 19 (`policy-engine` 8, `resolution-agent` 7,
+      `verification-runner` 4); apps/api: 22 (`remediation-consumer` 9,
+      `automation-policies` 6, `incidents` +5, `app.test.ts` +2) — full end-to-end approval
+      flow proven through the real HTTP layer (webhook → ingest → investigate → RCA →
+      propose → PENDING_APPROVAL → approve → executed → RESOLVED), not just unit-level
+- [x] Verified live in production against the real Anthropic API, twice, with an
+      AUTONOMOUS-mode org and an AUTO policy on `retry_pipeline` actually configured — real
+      `claude-opus-5` correctly **declined** to remediate both times, for good reasons: (1)
+      an incident with zero evidence and no pipeline identifiers, where inventing
+      `workspaceId`/`pipelineId` to call the tool would have violated its own "never invent
+      a value not offered to you" instruction; (2) an incident that *did* name a specific
+      pipeline, where it reasoned that a nightly-recurring "transient" timeout reliably
+      cleared by retry is more likely a deterministic condition the retry would mask, not
+      fix — and that the RCA's own recommended fix (a pipeline-level retry policy) isn't
+      something `retry_pipeline` can perform. Both are exactly the honest "no safe
+      automated action exists" outcome the `no_remediation_needed` tool exists for, proving
+      the decline path works with a real model under real policy pressure to act — arguably
+      stronger evidence than a forced AUTO execution would have been. The AUTO
+      execute→verify→resolve path itself is proven separately, thoroughly, by the 9
+      `remediation-consumer` tests and the full HTTP approval-flow test (webhook → ingest →
+      investigate → RCA → propose → PENDING_APPROVAL → approve → executed → RESOLVED)
 
 ## Phase 9 — Dashboard
 - [ ] Metrics (`UsageMetric` rollups), `MetricCard`

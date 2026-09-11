@@ -58,11 +58,44 @@ interface IncidentEventRow {
   createdAt: string;
 }
 
+interface Approval {
+  id: string;
+  status: "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED";
+  requestedAt: string;
+  decidedAt: string | null;
+  reason: string | null;
+}
+
+interface Verification {
+  id: string;
+  status: "PENDING" | "PASSED" | "FAILED" | "RETRYING";
+  actualState: unknown;
+  attempt: number;
+  checkedAt: string;
+}
+
+interface RemediationAction {
+  id: string;
+  status: "PENDING" | "APPROVED" | "EXECUTING" | "SUCCEEDED" | "FAILED" | "ROLLED_BACK";
+  executedAt: string | null;
+  approval: Approval | null;
+  verifications: Verification[];
+}
+
+interface Resolution {
+  id: string;
+  proposedAction: string;
+  riskLevel: string;
+  createdAt: string;
+  actions: RemediationAction[];
+}
+
 interface IncidentDetailResponse {
   incident: IncidentDetail;
   evidence: Evidence[];
   rca: Rca | null;
   events: IncidentEventRow[];
+  resolutions: Resolution[];
 }
 
 // A manual (re-)investigate is only meaningful from a state the state machine actually
@@ -70,6 +103,22 @@ interface IncidentDetailResponse {
 // Mirrored here just for the button's visibility, not as an authority: the API re-checks
 // with canTransition() itself and returns 409 if this ever drifts out of sync.
 const INVESTIGATABLE_STATUSES = new Set(["NEW", "ESCALATED", "FAILED"]);
+
+const REMEDIATION_STATUS_MAP: Record<RemediationAction["status"], "success" | "warning" | "error" | "critical" | "info" | "neutral"> = {
+  PENDING: "neutral",
+  APPROVED: "info",
+  EXECUTING: "info",
+  SUCCEEDED: "success",
+  FAILED: "critical",
+  ROLLED_BACK: "warning",
+};
+
+const VERIFICATION_STATUS_MAP: Record<Verification["status"], "success" | "warning" | "error" | "critical" | "info" | "neutral"> = {
+  PENDING: "neutral",
+  PASSED: "success",
+  FAILED: "critical",
+  RETRYING: "warning",
+};
 
 // useSearchParams() opts a page out of static prerendering unless wrapped in Suspense —
 // required here since apps/web builds as a static export (next.config.js).
@@ -88,6 +137,8 @@ function IncidentDetailContent() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [investigating, setInvestigating] = useState(false);
+  const [proposing, setProposing] = useState(false);
+  const [decidingId, setDecidingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!currentOrganizationId || !id) return;
@@ -126,11 +177,47 @@ function IncidentDetailContent() {
     }
   }, [currentOrganizationId, id, load]);
 
+  const proposeRemediation = useCallback(async () => {
+    if (!currentOrganizationId || !id) return;
+    setProposing(true);
+    try {
+      await apiRequest(`/api/incidents/${id}/propose-remediation`, {
+        method: "POST",
+        organizationId: currentOrganizationId,
+      });
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to propose a remediation");
+    } finally {
+      setProposing(false);
+    }
+  }, [currentOrganizationId, id, load]);
+
+  const decideApproval = useCallback(
+    async (approvalId: string, decision: "APPROVE" | "REJECT") => {
+      if (!currentOrganizationId || !id) return;
+      setDecidingId(approvalId);
+      try {
+        await apiRequest(`/api/incidents/${id}/approvals/${approvalId}/decide`, {
+          method: "POST",
+          organizationId: currentOrganizationId,
+          body: { decision },
+        });
+        await load();
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : "Failed to record the decision");
+      } finally {
+        setDecidingId(null);
+      }
+    },
+    [currentOrganizationId, id, load],
+  );
+
   if (loading) return <p className="text-sm text-subink">Loading…</p>;
   if (error) return <p className="text-sm text-error">{error}</p>;
   if (!data) return <p className="text-sm text-subink">Incident not found.</p>;
 
-  const { incident, evidence, rca, events } = data;
+  const { incident, evidence, rca, events, resolutions } = data;
   const evidenceById = new Map(evidence.map((e) => [e.id, e]));
 
   return (
@@ -153,6 +240,14 @@ function IncidentDetailContent() {
         <div>
           <Button onClick={() => void investigate()} disabled={investigating}>
             {investigating ? "Investigating…" : "Run investigation"}
+          </Button>
+        </div>
+      )}
+
+      {incident.status === "RCA_COMPLETE" && (
+        <div>
+          <Button onClick={() => void proposeRemediation()} disabled={proposing}>
+            {proposing ? "Proposing…" : "Propose remediation"}
           </Button>
         </div>
       )}
@@ -234,6 +329,97 @@ function IncidentDetailContent() {
                 </div>
               )}
             </>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Remediation ({resolutions.length})</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          {resolutions.length === 0 ? (
+            <p className="text-sm text-subink">No remediation proposed yet.</p>
+          ) : (
+            resolutions.map((resolution) => (
+              <div key={resolution.id} className="rounded border border-border bg-background p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-medium text-ink">{resolution.proposedAction}</p>
+                  <StatusBadge status={domainStatusMap.severity[resolution.riskLevel as keyof typeof domainStatusMap.severity] ?? "neutral"}>
+                    {resolution.riskLevel}
+                  </StatusBadge>
+                </div>
+                <p className="mt-1 text-xs text-subink">{new Date(resolution.createdAt).toLocaleString()}</p>
+
+                {resolution.actions.map((action) => (
+                  <div key={action.id} className="mt-3 rounded border border-border bg-surface p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-medium text-subink">Action</span>
+                      <StatusBadge status={REMEDIATION_STATUS_MAP[action.status]}>{action.status}</StatusBadge>
+                      {action.executedAt && (
+                        <span className="text-xs text-subink">
+                          executed {new Date(action.executedAt).toLocaleString()}
+                        </span>
+                      )}
+                    </div>
+
+                    {action.approval && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-medium text-subink">Approval</span>
+                        <StatusBadge
+                          status={
+                            action.approval.status === "APPROVED"
+                              ? "success"
+                              : action.approval.status === "REJECTED"
+                                ? "critical"
+                                : action.approval.status === "EXPIRED"
+                                  ? "warning"
+                                  : "neutral"
+                          }
+                        >
+                          {action.approval.status}
+                        </StatusBadge>
+                        {action.approval.status === "PENDING" && (
+                          <>
+                            <Button
+                              size="sm"
+                              onClick={() => void decideApproval(action.approval!.id, "APPROVE")}
+                              disabled={decidingId === action.approval.id}
+                            >
+                              Approve
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="danger"
+                              onClick={() => void decideApproval(action.approval!.id, "REJECT")}
+                              disabled={decidingId === action.approval.id}
+                            >
+                              Reject
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    {action.verifications.length > 0 && (
+                      <div className="mt-2">
+                        <span className="text-xs font-medium text-subink">Verification</span>
+                        <ul className="mt-1 flex flex-col gap-1">
+                          {action.verifications.map((v) => (
+                            <li key={v.id} className="flex items-center gap-2 text-xs">
+                              <StatusBadge status={VERIFICATION_STATUS_MAP[v.status]}>{v.status}</StatusBadge>
+                              <span className="text-subink">
+                                attempt {v.attempt} · {new Date(v.checkedAt).toLocaleString()}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ))
           )}
         </CardContent>
       </Card>

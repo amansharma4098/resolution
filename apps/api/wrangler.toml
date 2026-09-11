@@ -14,10 +14,18 @@ database_id = "2c18552b-e3e5-4852-8d50-c71c79465890"
 # Cloudflare Queues — ARCHITECTURE.md §10. Webhook routes (POST /api/webhooks/jira|
 # servicenow) enqueue onto incident-ingestion and return immediately; its consumer
 # (apps/api/src/worker.ts's `queue` export) does the actual ingestion work, then itself
-# enqueues onto incident-investigation for Phase 7's Investigation/RCA agent. One Worker
-# script consumes both — worker.ts dispatches on `batch.queue`, see its header comment.
-# Dead-letter queues catch messages that exhaust max_retries so they're inspectable rather
-# than silently dropped.
+# enqueues onto incident-investigation for Phase 7's Investigation/RCA agent, whose consumer
+# in turn enqueues onto incident-remediation for Phase 8's Resolution/Verification pipeline
+# on a successful RCA. One Worker script consumes all three — worker.ts dispatches on
+# `batch.queue`, see its header comment. Dead-letter queues catch messages that exhaust
+# max_retries so they're inspectable rather than silently dropped.
+#
+# Safe by default even with MOCK_MODE=false in this deployment's [vars] below: an
+# incident-remediation message can only ever reach real, unattended execution
+# (packages/agents/policy-engine.ts's AUTO behavior) if an org has both (a) explicitly
+# switched its resolutionMode off OBSERVE_ONLY (the default for every org) and (b)
+# configured an AUTO AutomationPolicy for that exact capability — the DEFAULT_POLICY every
+# unconfigured capability falls back to never auto-executes.
 [[queues.producers]]
 queue = "resolution-incident-ingestion"
 binding = "INCIDENT_INGESTION_QUEUE"
@@ -25,6 +33,10 @@ binding = "INCIDENT_INGESTION_QUEUE"
 [[queues.producers]]
 queue = "resolution-incident-investigation"
 binding = "INCIDENT_INVESTIGATION_QUEUE"
+
+[[queues.producers]]
+queue = "resolution-incident-remediation"
+binding = "INCIDENT_REMEDIATION_QUEUE"
 
 [[queues.consumers]]
 queue = "resolution-incident-ingestion"
@@ -41,6 +53,16 @@ queue = "resolution-incident-investigation"
 max_batch_size = 3
 max_retries = 2
 dead_letter_queue = "resolution-incident-investigation-dlq"
+
+[[queues.consumers]]
+queue = "resolution-incident-remediation"
+# Same reasoning as incident-investigation, plus: a remediation message can call a real
+# *mutating* capability (if policy allows AUTO), so re-running one on retry must never
+# happen more than a couple of times — a genuinely broken remediation should land on the
+# DLQ for a human, not keep re-executing a mutating action against a real system.
+max_batch_size = 3
+max_retries = 2
+dead_letter_queue = "resolution-incident-remediation-dlq"
 
 # Plain (non-secret) config — safe to commit. JWT_SECRET, ENCRYPTION_MASTER_KEY and
 # ANTHROPIC_API_KEY are set via `wrangler secret put` instead (encrypted server-side, never

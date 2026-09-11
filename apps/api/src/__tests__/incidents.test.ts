@@ -194,4 +194,184 @@ describe("incident routes — investigation (Phase 7)", () => {
       expect(res.status).toBe(404);
     });
   });
+
+  describe("remediation approval flow (Phase 8)", () => {
+    const k8sProvider: MapServerProvider = {
+      type: "KUBERNETES",
+      metadata: { displayName: "Kubernetes (fixture)", isMock: true },
+      configSchema: z.object({}),
+      authAdapter: { authenticationTypes: ["TOKEN"], testConnection: async () => ({ status: "CONNECTED" }) },
+      capabilities: [
+        {
+          key: "restart_pod",
+          description: "Restart a crashing pod",
+          riskLevel: "MEDIUM",
+          mutating: true,
+          inputSchema: z.object({ podName: z.string().min(1) }),
+          outputSchema: z.object({ restarted: z.boolean() }),
+          execute: async () => ({ restarted: true }),
+        },
+      ],
+      healthCheck: async () => ({ status: "CONNECTED" }),
+    };
+
+    beforeEach(async () => {
+      ({ app, db } = buildTestApp({ chainInvestigation: true, chainRemediation: true }));
+      ({ cookie, organizationId } = await signupWithOrg(app, "owner@example.com", "Acme"));
+    });
+
+    async function createEscalatableIncident() {
+      registerMapServer(k8sProvider);
+      // RECOMMEND (or above) — the default policy engine floor. Below RECOMMEND every
+      // capability denies outright (see policy-engine.ts's DEFAULT_POLICY), so the proposal
+      // above would never even reach an Approval row.
+      await req(app, `/api/organizations/${organizationId}`, {
+        method: "PATCH",
+        cookie,
+        body: { resolutionMode: "RECOMMEND" },
+      });
+
+      const integ = await req(app, "/api/integrations", {
+        method: "POST",
+        cookie,
+        organizationId,
+        body: { type: "JIRA", name: "Jira", config: { baseUrl: "https://acme.atlassian.net" } },
+      });
+      const integration = (await jsonOf(integ)).integration;
+
+      const msRes = await req(app, "/api/map-servers", {
+        method: "POST",
+        cookie,
+        organizationId,
+        body: { type: "KUBERNETES", name: "Prod K8s", environments: ["prod"], config: {} },
+      });
+      const mapServer = (await jsonOf(msRes)).mapServer;
+      await req(app, `/api/map-servers/${mapServer.id}/capabilities/restart_pod`, {
+        method: "PATCH",
+        cookie,
+        organizationId,
+        body: { enabled: true },
+      });
+
+      const webhook = await app.request(`/api/webhooks/jira/${integration.id}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-webhook-secret": integration.config.webhookSecret },
+        body: JSON.stringify(jiraPayload()),
+      });
+      expect(webhook.status).toBe(202);
+
+      const list = await req(app, "/api/incidents", { cookie, organizationId });
+      return (await jsonOf(list)).incidents[0].id as string;
+    }
+
+    it("a proposed remediation under RECOMMEND mode lands PENDING_APPROVAL, and approving it executes and resolves", async () => {
+      const incidentId = await createEscalatableIncident();
+      expect(db._debug.incidents.find((i) => i.id === incidentId)!.status).toBe("PENDING_APPROVAL");
+
+      const detail = await req(app, `/api/incidents/${incidentId}`, { cookie, organizationId });
+      const body = await jsonOf(detail);
+      expect(body.resolutions).toHaveLength(1);
+      const action = body.resolutions[0].actions[0];
+      expect(action.approval.status).toBe("PENDING");
+
+      const decide = await req(app, `/api/incidents/${incidentId}/approvals/${action.approval.id}/decide`, {
+        method: "POST",
+        cookie,
+        organizationId,
+        body: { decision: "APPROVE" },
+      });
+      expect(decide.status).toBe(200);
+      expect((await jsonOf(decide)).status).toBe("EXECUTED");
+
+      const finalIncident = db._debug.incidents.find((i) => i.id === incidentId)!;
+      expect(finalIncident.status).toBe("RESOLVED");
+      expect(db._debug.remediationActions.find((a) => a.id === action.id)!.status).toBe("SUCCEEDED");
+    });
+
+    it("rejecting an approval closes the incident and never executes the capability", async () => {
+      const incidentId = await createEscalatableIncident();
+      const detail = await req(app, `/api/incidents/${incidentId}`, { cookie, organizationId });
+      const action = (await jsonOf(detail)).resolutions[0].actions[0];
+
+      const decide = await req(app, `/api/incidents/${incidentId}/approvals/${action.approval.id}/decide`, {
+        method: "POST",
+        cookie,
+        organizationId,
+        body: { decision: "REJECT", reason: "Too risky right now" },
+      });
+      expect(decide.status).toBe(200);
+      expect((await jsonOf(decide)).status).toBe("REJECTED");
+
+      expect(db._debug.incidents.find((i) => i.id === incidentId)!.status).toBe("CLOSED");
+      expect(db._debug.remediationActions.find((a) => a.id === action.id)!.status).toBe("PENDING");
+    });
+
+    it("refuses to decide the same approval twice", async () => {
+      const incidentId = await createEscalatableIncident();
+      const detail = await req(app, `/api/incidents/${incidentId}`, { cookie, organizationId });
+      const action = (await jsonOf(detail)).resolutions[0].actions[0];
+
+      await req(app, `/api/incidents/${incidentId}/approvals/${action.approval.id}/decide`, {
+        method: "POST",
+        cookie,
+        organizationId,
+        body: { decision: "APPROVE" },
+      });
+      const second = await req(app, `/api/incidents/${incidentId}/approvals/${action.approval.id}/decide`, {
+        method: "POST",
+        cookie,
+        organizationId,
+        body: { decision: "APPROVE" },
+      });
+      expect(second.status).toBe(409);
+    });
+
+    it("GET /approvals/pending lists it, and it disappears once decided", async () => {
+      const incidentId = await createEscalatableIncident();
+
+      const pending = await req(app, "/api/incidents/approvals/pending", { cookie, organizationId });
+      expect(pending.status).toBe(200);
+      const pendingBody = await jsonOf(pending);
+      expect(pendingBody.pending).toHaveLength(1);
+      expect(pendingBody.pending[0]).toMatchObject({ incidentId, riskLevel: "MEDIUM" });
+
+      await req(app, `/api/incidents/${incidentId}/approvals/${pendingBody.pending[0].approvalId}/decide`, {
+        method: "POST",
+        cookie,
+        organizationId,
+        body: { decision: "APPROVE" },
+      });
+
+      const after = await req(app, "/api/incidents/approvals/pending", { cookie, organizationId });
+      expect((await jsonOf(after)).pending).toHaveLength(0);
+    });
+
+    it("a non-admin cannot decide an approval", async () => {
+      const incidentId = await createEscalatableIncident();
+      const detail = await req(app, `/api/incidents/${incidentId}`, { cookie, organizationId });
+      const action = (await jsonOf(detail)).resolutions[0].actions[0];
+
+      const memberEmail = "approver-member@example.com";
+      const added = await req(app, "/api/organizations/members", {
+        method: "POST",
+        cookie,
+        organizationId,
+        body: { email: memberEmail, role: "MEMBER" },
+      });
+      const { temporaryPassword } = await jsonOf(added);
+      const login = await req(app, "/api/auth/login", {
+        method: "POST",
+        body: { email: memberEmail, password: temporaryPassword },
+      });
+      const memberCookie = login.headers.get("set-cookie")!.split(";")[0]!;
+
+      const res = await req(app, `/api/incidents/${incidentId}/approvals/${action.approval.id}/decide`, {
+        method: "POST",
+        cookie: memberCookie,
+        organizationId,
+        body: { decision: "APPROVE" },
+      });
+      expect(res.status).toBe(403);
+    });
+  });
 });

@@ -13,10 +13,12 @@ import { buildCredentialRoutes } from "./routes/credentials";
 import { buildMapServerRoutes } from "./routes/map-servers";
 import { buildIntegrationRoutes } from "./routes/integrations";
 import { buildIncidentRoutes } from "./routes/incidents";
+import { buildAutomationPolicyRoutes } from "./routes/automation-policies";
 import { buildWebhookRoutes } from "./routes/webhooks";
 import { createInlineIngestionQueue } from "./queue/inline-queue";
 import { createInlineInvestigationQueue } from "./queue/inline-investigation-queue";
-import type { IncidentIngestionQueue, IncidentInvestigationQueue } from "./queue/types";
+import { createInlineRemediationQueue } from "./queue/inline-remediation-queue";
+import type { IncidentIngestionQueue, IncidentInvestigationQueue, IncidentRemediationQueue } from "./queue/types";
 
 export interface BuildAppOptions {
   db: PrismaClient;
@@ -34,6 +36,8 @@ export interface BuildAppOptions {
    *  unless env carries a real ANTHROPIC_API_KEY and MOCK_MODE is off (see
    *  queue/inline-investigation-queue.ts). */
   incidentInvestigationQueue?: IncidentInvestigationQueue;
+  /** Same pattern again, for Phase 8's remediation queue (see queue/inline-remediation-queue.ts). */
+  incidentRemediationQueue?: IncidentRemediationQueue;
 }
 
 export function buildApp({
@@ -42,19 +46,28 @@ export function buildApp({
   secretProvider,
   incidentIngestionQueue,
   incidentInvestigationQueue,
+  incidentRemediationQueue,
 }: BuildAppOptions): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
   const resolvedSecretProvider =
     secretProvider ??
     createSecretProvider(env.SECRET_PROVIDER, { masterKey: env.ENCRYPTION_MASTER_KEY });
-  // Not auto-chained into the ingestion queue below — in production the two are genuinely
-  // decoupled async hops (worker.ts's real `queue` consumer enqueues investigation only
-  // after ingestion finishes, off the HTTP request entirely), and collapsing that into one
-  // synchronous call here would just be this inline test/dev stand-in inventing tighter
-  // coupling than production has. Callers that want the full chain inline (Phase 7's own
-  // tests) pass `incidentIngestionQueue: createInlineIngestionQueue(db, thisQueue)`
-  // explicitly — see test-helpers.ts's `chainInvestigation` option.
+  const resolvedRemediationQueue =
+    incidentRemediationQueue ??
+    createInlineRemediationQueue(db, {
+      mockMode: env.MOCK_MODE,
+      anthropicApiKey: env.ANTHROPIC_API_KEY,
+      anthropicModel: env.ANTHROPIC_MODEL,
+      secretProvider: resolvedSecretProvider,
+    });
+  // Not auto-chained into one another below — in production each hop is a genuinely
+  // decoupled async queue message (worker.ts's real `queue` consumer chains
+  // ingestion → investigation → remediation off the HTTP request entirely), and collapsing
+  // that into synchronous calls here would just be this inline test/dev stand-in inventing
+  // tighter coupling than production has. Callers that want the full chain inline (tests
+  // that exercise Phase 7/8 end to end) pass already-chained queues explicitly — see
+  // test-helpers.ts's `chainInvestigation`/`chainRemediation` options.
   const resolvedInvestigationQueue =
     incidentInvestigationQueue ??
     createInlineInvestigationQueue(db, {
@@ -100,7 +113,18 @@ export function buildApp({
   );
   app.route(
     "/api/incidents",
-    buildIncidentRoutes({ db, env, organizationRepository, investigationQueue: resolvedInvestigationQueue }),
+    buildIncidentRoutes({
+      db,
+      env,
+      organizationRepository,
+      investigationQueue: resolvedInvestigationQueue,
+      remediationQueue: resolvedRemediationQueue,
+      secretProvider: resolvedSecretProvider,
+    }),
+  );
+  app.route(
+    "/api/automation-policies",
+    buildAutomationPolicyRoutes({ db, env, organizationRepository }),
   );
   app.route("/api/webhooks", buildWebhookRoutes({ db, env, queue: resolvedQueue }));
 
