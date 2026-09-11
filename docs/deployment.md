@@ -68,14 +68,29 @@ echo -n "<sk-ant-...>" | npx wrangler secret put ANTHROPIC_API_KEY   # optional 
 npx wrangler deploy
 ```
 
-`wrangler.toml` holds the D1 binding (`DB`), the two Cloudflare Queue bindings
-(`INCIDENT_INGESTION_QUEUE`, `INCIDENT_INVESTIGATION_QUEUE` — see ARCHITECTURE.md §10), and
-non-secret vars (`CORS_ORIGIN`, `SECRET_PROVIDER`, `MOCK_MODE`, `NODE_ENV`,
-`ANTHROPIC_MODEL`) — safe to commit. `JWT_SECRET`, `ENCRYPTION_MASTER_KEY` and
-`ANTHROPIC_API_KEY` are set via `wrangler secret put` (encrypted server-side) and never
-appear in `wrangler.toml` or any committed file. `CORS_ORIGIN` must match the Pages URL
-exactly, and the session cookie is set with `SameSite=None; Secure` in production since
-Pages and the Worker are different sites (see ARCHITECTURE.md §2).
+`wrangler.toml` holds the D1 binding (`DB`), the three Cloudflare Queue bindings
+(`INCIDENT_INGESTION_QUEUE`, `INCIDENT_INVESTIGATION_QUEUE`, `INCIDENT_REMEDIATION_QUEUE` —
+see ARCHITECTURE.md §10), and non-secret vars (`CORS_ORIGIN`, `SECRET_PROVIDER`,
+`MOCK_MODE`, `NODE_ENV`, `ANTHROPIC_MODEL`) — safe to commit. `JWT_SECRET`,
+`ENCRYPTION_MASTER_KEY` and `ANTHROPIC_API_KEY` are set via `wrangler secret put`
+(encrypted server-side) and never appear in `wrangler.toml` or any committed file.
+`CORS_ORIGIN` must match the Pages URL exactly, and the session cookie is set with
+`SameSite=None; Secure` in production since Pages and the Worker are different sites (see
+ARCHITECTURE.md §2).
+
+**This project deploys `apps/api` manually, not via a Git-connected pipeline** — every
+deployment in this repo's history was run by hand from `apps/api` (`npx wrangler deploy`),
+not triggered by a push. Cloudflare's dashboard offers a separate "Connect to Git" option
+under a Worker's own Settings → Build tab (distinct from, and independent of, the Pages
+project's Git connection below) — if that ever gets connected for this Worker, it needs
+explicit configuration for this being an npm-workspaces monorepo, or its deploy step fails
+with `wrangler: not found` (the default deploy command, `npx wrangler deploy`, assumes a
+local `wrangler` install that was never actually installed). If enabling it: set **Root
+directory** to `apps/api` and **Deploy command** to `npm install && npx wrangler deploy` (a
+self-contained install-then-deploy, rather than relying on the separate Build command step
+carrying state over — that split failed silently in practice). A failing build here never
+affects the live Worker either way; it only blocks *that pipeline* from ever having
+successfully deployed anything.
 
 `MOCK_MODE` in this deployment's `[vars]` is `"false"` — an `ANTHROPIC_API_KEY` secret is
 set, so real incidents get a real, billed `claude-opus-5` investigation (packages/ai). Flip
