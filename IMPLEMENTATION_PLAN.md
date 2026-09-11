@@ -178,10 +178,31 @@ possible but never exposed.
       caveat as Jira: matches ServiceNow's published Table API docs, stated plainly
       rather than claimed as integration-tested
 
-## Phase 5 — Fabric Map Server (real)
-- [ ] Service-principal auth adapter
-- [ ] Capabilities: `get_workspace`, `get_pipeline`, `get_pipeline_run`, `get_logs`, `retry_pipeline`
-- [ ] Health check, config schema, tests
+## Phase 5 — Fabric Map Server (real) ✅ mostly complete
+- [x] Service-principal auth adapter: Azure AD OAuth2 client-credentials against the
+      standard `login.microsoftonline.com` v2.0 token endpoint (well-documented, solid
+      ground) authorizing calls to the Fabric REST API (`packages/map-servers/src/fabric/`)
+- [x] Capabilities: `get_workspace`, `get_pipeline`, `get_pipeline_run`, `get_logs`,
+      `retry_pipeline` — all five, matching ARCHITECTURE.md §4 exactly. `get_logs` is
+      honest about a real API gap: Fabric has no dedicated log-streaming endpoint, so it
+      surfaces the job instance's own status/failureReason rather than fabricating log
+      lines. `retry_pipeline` is the only mutating one (riskLevel LOW, defaults to AUTO
+      per the spec's risk table)
+- [x] Health check (lists workspaces visible to the service principal — a real,
+      config-independent connectivity check since `MapServerContext` carries no
+      org-configured workspaceId), config schema (`workspaceId`), 20 tests
+- [x] First real provider registered in the registry — wired at `apps/api/src/worker.ts`'s
+      module scope (once per Worker isolate, guarded idempotent; deliberately not inside
+      `packages/map-servers`'s own index so apps/api's tests keep an empty registry by
+      default) and confirmed live: `/api/map-servers/:id/test` for a FABRIC-typed Map
+      Server now runs the real `healthCheck` with a real decrypted credential
+- [x] Closed the Phase 2 gap this unblocked: `MapServerCapability` rows are now
+      auto-created (all disabled by default) when a Map Server is created for a type with
+      a registered provider, and `PATCH /api/map-servers/:id/capabilities/:key` lets an
+      ADMIN+ toggle one — with a lean inline toggle UI on the Map Servers page
+- [ ] Not tested against a real Fabric tenant (no test tenant available) — flagged with
+      extra care here specifically because Fabric's public REST API is newer and less
+      standardized than Jira's/ServiceNow's, so the risk of a shape mismatch is higher
 
 ## Phase 6 — Incident engine
 - [ ] State machine (`IncidentStatus` transitions) in `packages/agents`

@@ -56,7 +56,10 @@ export function buildApp({ db, env, secretProvider }: BuildAppOptions): Hono<App
     "/api/credentials",
     buildCredentialRoutes({ db, env, secretProvider: resolvedSecretProvider, organizationRepository }),
   );
-  app.route("/api/map-servers", buildMapServerRoutes({ db, env, organizationRepository }));
+  app.route(
+    "/api/map-servers",
+    buildMapServerRoutes({ db, env, secretProvider: resolvedSecretProvider, organizationRepository }),
+  );
   app.route(
     "/api/integrations",
     buildIntegrationRoutes({ db, env, secretProvider: resolvedSecretProvider, organizationRepository }),

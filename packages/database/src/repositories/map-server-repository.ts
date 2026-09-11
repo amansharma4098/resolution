@@ -1,7 +1,16 @@
 import type { PrismaClient } from "@prisma/client";
-import type { ConnectionStatus, MapServerType } from "@resolution/map-servers";
+import type { AnyCapability, ConnectionStatus, MapServerType } from "@resolution/map-servers";
 import { TenantScopedRepository } from "../tenant-scoped-repository";
 import { parseJsonField, serializeJsonField } from "../json-field";
+
+export interface MapServerCapabilityRow {
+  id: string;
+  mapServerId: string;
+  key: string;
+  enabled: boolean;
+  riskLevel: string;
+  mutating: boolean;
+}
 
 export interface CreateMapServerInput {
   type: MapServerType;
@@ -102,5 +111,59 @@ export class MapServerRepository extends TenantScopedRepository {
     if (!(await this.findById(id))) return false;
     await this.db.mapServer.delete({ where: { id } });
     return true;
+  }
+
+  /**
+   * Closes the loop Phase 2 deferred: "there's nothing real to toggle until Phase 5
+   * registers a provider with actual capabilities" (IMPLEMENTATION_PLAN.md). Called once,
+   * right after creating a MapServer, only when a provider is actually registered for its
+   * type — every capability starts `enabled: false` (ARCHITECTURE.md §4: a capability the
+   * org hasn't explicitly enabled is invisible to the agent). Uses the batch
+   * `$transaction([...])` form, not interactive — D1 doesn't support the latter (see
+   * OrganizationRepository.createWithOwner's comment).
+   */
+  async createCapabilitiesFromProvider(
+    mapServerId: string,
+    providerCapabilities: AnyCapability[],
+  ): Promise<void> {
+    if (providerCapabilities.length === 0) return;
+    await this.db.$transaction(
+      providerCapabilities.map((cap) =>
+        this.db.mapServerCapability.create({
+          data: {
+            mapServerId,
+            key: cap.key,
+            riskLevel: cap.riskLevel,
+            mutating: cap.mutating,
+            enabled: false,
+          },
+        }),
+      ),
+    );
+  }
+
+  /** No org-scoping needed beyond the caller already having proven ownership of
+   *  `mapServerId` via `findById` — capabilities have no organizationId of their own
+   *  (they belong to a MapServer, which does). */
+  async listCapabilities(mapServerId: string): Promise<MapServerCapabilityRow[]> {
+    return this.db.mapServerCapability.findMany({
+      where: { mapServerId },
+      orderBy: { key: "asc" },
+    });
+  }
+
+  async setCapabilityEnabled(
+    mapServerId: string,
+    key: string,
+    enabled: boolean,
+  ): Promise<MapServerCapabilityRow | null> {
+    const existing = await this.db.mapServerCapability.findUnique({
+      where: { mapServerId_key: { mapServerId, key } },
+    });
+    if (!existing) return null;
+    return this.db.mapServerCapability.update({
+      where: { mapServerId_key: { mapServerId, key } },
+      data: { enabled },
+    });
   }
 }

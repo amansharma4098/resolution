@@ -34,6 +34,13 @@ interface CredentialOption {
   name: string;
 }
 
+interface Capability {
+  key: string;
+  enabled: boolean;
+  riskLevel: string;
+  mutating: boolean;
+}
+
 export default function MapServersPage() {
   const { currentOrganizationId } = useSession();
   const [mapServers, setMapServers] = useState<MapServerSummary[]>([]);
@@ -43,6 +50,8 @@ export default function MapServersPage() {
   const [error, setError] = useState<string | null>(null);
   const [testDetail, setTestDetail] = useState<Record<string, string>>({});
   const [showForm, setShowForm] = useState(false);
+  const [capabilitiesByServer, setCapabilitiesByServer] = useState<Record<string, Capability[]>>({});
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     if (!currentOrganizationId) return;
@@ -94,6 +103,42 @@ export default function MapServersPage() {
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Delete failed");
+    }
+  }
+
+  async function toggleExpanded(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    if (!capabilitiesByServer[id] && currentOrganizationId) {
+      try {
+        const res = await apiRequest<{ capabilities: Capability[] }>(`/api/map-servers/${id}`, {
+          organizationId: currentOrganizationId,
+        });
+        setCapabilitiesByServer((prev) => ({ ...prev, [id]: res.capabilities }));
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : "Failed to load capabilities");
+      }
+    }
+  }
+
+  async function handleToggleCapability(mapServerId: string, key: string, enabled: boolean) {
+    if (!currentOrganizationId) return;
+    try {
+      await apiRequest(`/api/map-servers/${mapServerId}/capabilities/${key}`, {
+        method: "PATCH",
+        organizationId: currentOrganizationId,
+        body: { enabled },
+      });
+      setCapabilitiesByServer((prev) => ({
+        ...prev,
+        [mapServerId]: prev[mapServerId]!.map((c) => (c.key === key ? { ...c, enabled } : c)),
+      }));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to update capability");
     }
   }
 
@@ -151,6 +196,9 @@ export default function MapServersPage() {
                   {testDetail[ms.id] && <p className="text-xs text-subink">{testDetail[ms.id]}</p>}
                 </div>
                 <div className="flex gap-2">
+                  <Button size="sm" variant="secondary" onClick={() => void toggleExpanded(ms.id)}>
+                    {expanded.has(ms.id) ? "Hide capabilities" : "Capabilities"}
+                  </Button>
                   <Button size="sm" variant="secondary" onClick={() => void handleTest(ms.id)}>
                     Test
                   </Button>
@@ -159,6 +207,35 @@ export default function MapServersPage() {
                   </Button>
                 </div>
               </CardContent>
+              {expanded.has(ms.id) && (
+                <CardContent className="border-t border-border pt-4">
+                  {!capabilitiesByServer[ms.id] ? (
+                    <p className="text-xs text-subink">Loading…</p>
+                  ) : capabilitiesByServer[ms.id]!.length === 0 ? (
+                    <p className="text-xs text-subink">
+                      No provider is registered for {ms.type} yet, so there&apos;s nothing to
+                      enable — capabilities appear automatically once one ships.
+                    </p>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      {capabilitiesByServer[ms.id]!.map((cap) => (
+                        <label key={cap.key} className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={cap.enabled}
+                            onChange={(e) => void handleToggleCapability(ms.id, cap.key, e.target.checked)}
+                          />
+                          <span className="font-mono text-xs text-ink">{cap.key}</span>
+                          <StatusBadge status={cap.mutating ? "warning" : "success"}>
+                            {cap.mutating ? "MUTATING" : "READ-ONLY"}
+                          </StatusBadge>
+                          <span className="font-mono text-xs text-subink">{cap.riskLevel}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              )}
             </Card>
           ))}
         </div>

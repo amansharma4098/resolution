@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { z } from "zod";
-import { __resetRegistryForTests, registerMapServer, type MapServerProvider } from "@resolution/map-servers";
+import {
+  __resetRegistryForTests,
+  fabricProvider,
+  registerMapServer,
+  type MapServerProvider,
+} from "@resolution/map-servers";
 import { buildTestApp, jsonOf, req, signupWithOrg } from "./test-helpers";
 import type { AppEnv } from "../types";
 
@@ -146,5 +151,98 @@ describe("map server routes", () => {
       body: { type: "AWS", name: "x", credentialId, environments: [], config: {} },
     });
     expect(res.status).toBe(400);
+  });
+});
+
+describe("map server capability toggling (Fabric, the first real registered provider)", () => {
+  let app: Hono<AppEnv>;
+  let cookie: string;
+  let organizationId: string;
+
+  beforeEach(async () => {
+    ({ app } = buildTestApp());
+    ({ cookie, organizationId } = await signupWithOrg(app, "owner@example.com", "Acme"));
+    registerMapServer(fabricProvider);
+  });
+
+  afterEach(() => {
+    __resetRegistryForTests();
+  });
+
+  it("auto-populates capabilities, all disabled by default, when a registered provider's Map Server is created", async () => {
+    const created = await req(app, "/api/map-servers", {
+      method: "POST",
+      cookie,
+      organizationId,
+      body: { type: "FABRIC", name: "Prod Fabric", environments: ["prod"], config: {} },
+    });
+    const id = (await jsonOf(created)).mapServer.id;
+
+    const detail = await req(app, `/api/map-servers/${id}`, { cookie, organizationId });
+    const body = await jsonOf(detail);
+    expect(body.capabilities).toHaveLength(5);
+    expect(body.capabilities.every((c: { enabled: boolean }) => c.enabled === false)).toBe(true);
+    expect(body.capabilities.map((c: { key: string }) => c.key).sort()).toEqual([
+      "get_logs",
+      "get_pipeline",
+      "get_pipeline_run",
+      "get_workspace",
+      "retry_pipeline",
+    ]);
+  });
+
+  it("an admin can enable a capability", async () => {
+    const created = await req(app, "/api/map-servers", {
+      method: "POST",
+      cookie,
+      organizationId,
+      body: { type: "FABRIC", name: "Prod Fabric", environments: ["prod"], config: {} },
+    });
+    const id = (await jsonOf(created)).mapServer.id;
+
+    const res = await req(app, `/api/map-servers/${id}/capabilities/get_workspace`, {
+      method: "PATCH",
+      cookie,
+      organizationId,
+      body: { enabled: true },
+    });
+    expect(res.status).toBe(200);
+    expect((await jsonOf(res)).capability.enabled).toBe(true);
+
+    const detail = await req(app, `/api/map-servers/${id}`, { cookie, organizationId });
+    const capabilities = (await jsonOf(detail)).capabilities as { key: string; enabled: boolean }[];
+    expect(capabilities.find((c) => c.key === "get_workspace")!.enabled).toBe(true);
+    expect(capabilities.find((c) => c.key === "get_pipeline")!.enabled).toBe(false);
+  });
+
+  it("404s on toggling a capability key that doesn't exist for this Map Server", async () => {
+    const created = await req(app, "/api/map-servers", {
+      method: "POST",
+      cookie,
+      organizationId,
+      body: { type: "FABRIC", name: "Prod Fabric", environments: [], config: {} },
+    });
+    const id = (await jsonOf(created)).mapServer.id;
+
+    const res = await req(app, `/api/map-servers/${id}/capabilities/not_a_real_capability`, {
+      method: "PATCH",
+      cookie,
+      organizationId,
+      body: { enabled: true },
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("a type with no registered provider gets no capability rows at all", async () => {
+    const created = await req(app, "/api/map-servers", {
+      method: "POST",
+      cookie,
+      organizationId,
+      body: { type: "SPLUNK", name: "Splunk", environments: [], config: {} },
+    });
+    const id = (await jsonOf(created)).mapServer.id;
+
+    const detail = await req(app, `/api/map-servers/${id}`, { cookie, organizationId });
+    expect((await jsonOf(detail)).capabilities).toHaveLength(0);
   });
 });

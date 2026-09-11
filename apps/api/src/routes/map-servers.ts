@@ -4,6 +4,7 @@ import { MapServerType } from "@resolution/shared";
 import type { MapServer, PrismaClient } from "@resolution/database";
 import { CredentialRepository, MapServerRepository, auditLogWriter } from "@resolution/database";
 import { getMapServerCatalog, getMapServerProvider } from "@resolution/map-servers";
+import type { SecretProvider } from "@resolution/credentials";
 import { writeAuditLog } from "@resolution/security";
 import type { OrganizationRepository } from "@resolution/database";
 import type { Env } from "../env";
@@ -20,6 +21,8 @@ const CreateMapServerBody = z.object({
   config: z.record(z.unknown()).default({}),
 });
 
+const SetCapabilityBody = z.object({ enabled: z.boolean() });
+
 function toPublicMapServer(mapServer: MapServer) {
   return mapServer;
 }
@@ -27,9 +30,10 @@ function toPublicMapServer(mapServer: MapServer) {
 export function buildMapServerRoutes(deps: {
   db: PrismaClient;
   env: Env;
+  secretProvider: SecretProvider;
   organizationRepository: OrganizationRepository;
 }): Hono<AppEnv> {
-  const { db, env, organizationRepository } = deps;
+  const { db, env, secretProvider, organizationRepository } = deps;
   const router = new Hono<AppEnv>();
   const auth = authenticate(env.JWT_SECRET);
   const tenantContext = resolveTenantContext(organizationRepository);
@@ -68,6 +72,13 @@ export function buildMapServerRoutes(deps: {
       isMock: provider?.metadata.isMock ?? false,
     });
 
+    // Closes the Phase 2 gap: "nothing real to toggle until a provider registers actual
+    // capabilities". Every capability starts disabled — an org must explicitly turn one on
+    // before the agent can ever call it (ARCHITECTURE.md §4).
+    if (provider) {
+      await mapServers.createCapabilitiesFromProvider(mapServer.id, provider.capabilities);
+    }
+
     await writeAuditLog(auditLogWriter(db), {
       organizationId: c.get("organizationId"),
       actorType: "user",
@@ -92,7 +103,8 @@ export function buildMapServerRoutes(deps: {
     const mapServers = new MapServerRepository(db, c.get("organizationId")!);
     const mapServer = await mapServers.findById(c.req.param("id"));
     if (!mapServer) throw new NotFoundError("Map Server not found");
-    return c.json({ mapServer: toPublicMapServer(mapServer) });
+    const capabilities = await mapServers.listCapabilities(mapServer.id);
+    return c.json({ mapServer: toPublicMapServer(mapServer), capabilities });
   });
 
   router.delete("/:id", auth, tenantContext, requireAdmin, async (c) => {
@@ -111,6 +123,29 @@ export function buildMapServerRoutes(deps: {
     });
 
     return c.body(null, 204);
+  });
+
+  router.patch("/:id/capabilities/:key", auth, tenantContext, requireAdmin, async (c) => {
+    const mapServers = new MapServerRepository(db, c.get("organizationId")!);
+    const mapServer = await mapServers.findById(c.req.param("id"));
+    if (!mapServer) throw new NotFoundError("Map Server not found");
+
+    const body = SetCapabilityBody.parse(await c.req.json());
+    const updated = await mapServers.setCapabilityEnabled(mapServer.id, c.req.param("key"), body.enabled);
+    if (!updated) throw new NotFoundError("Capability not found");
+
+    await writeAuditLog(auditLogWriter(db), {
+      organizationId: c.get("organizationId"),
+      actorType: "user",
+      actorId: c.get("userId"),
+      action: "map_server.capability_toggled",
+      targetType: "MapServer",
+      targetId: mapServer.id,
+      requestId: c.get("requestId"),
+      metadata: { key: c.req.param("key"), enabled: body.enabled },
+    });
+
+    return c.json({ capability: updated });
   });
 
   router.post("/:id/test", auth, tenantContext, requireAdmin, async (c) => {
@@ -137,11 +172,14 @@ export function buildMapServerRoutes(deps: {
       if (!credential) {
         result = { status: "DISCONNECTED", detail: "Attached credential no longer exists" };
       } else {
+        const decrypted = await secretProvider.decrypt(credential.encryptedData, {
+          organizationId: c.get("organizationId")!,
+        });
         const testResult = await provider.healthCheck({
           organizationId: c.get("organizationId")!,
           mapServerId: mapServer.id,
           environment: mapServer.environments[0] ?? "default",
-          credential: {}, // decrypted credential wiring lands with the first real provider in Phase 5
+          credential: decrypted,
           requestId: c.get("requestId"),
         });
         result = {

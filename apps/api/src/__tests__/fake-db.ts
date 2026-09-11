@@ -61,6 +61,17 @@ export interface FakeMapServer {
   updatedAt: Date;
 }
 
+export interface FakeMapServerCapability {
+  id: string;
+  mapServerId: string;
+  key: string;
+  enabled: boolean;
+  riskLevel: string;
+  mutating: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface FakeIntegration {
   id: string;
   organizationId: string;
@@ -178,6 +189,17 @@ export interface FakeDb {
     update(args: { where: { id: string }; data: Partial<FakeMapServer> }): Promise<FakeMapServer>;
     delete(args: { where: { id: string } }): Promise<FakeMapServer>;
   };
+  mapServerCapability: {
+    create(args: { data: Partial<FakeMapServerCapability> }): Promise<FakeMapServerCapability>;
+    findMany(args: { where: { mapServerId: string } }): Promise<FakeMapServerCapability[]>;
+    findUnique(args: {
+      where: { mapServerId_key: { mapServerId: string; key: string } };
+    }): Promise<FakeMapServerCapability | null>;
+    update(args: {
+      where: { mapServerId_key: { mapServerId: string; key: string } };
+      data: Partial<FakeMapServerCapability>;
+    }): Promise<FakeMapServerCapability>;
+  };
   integration: {
     create(args: { data: Partial<FakeIntegration> }): Promise<FakeIntegration>;
     findMany(args: { where: { organizationId: string } }): Promise<FakeIntegration[]>;
@@ -213,6 +235,7 @@ export interface FakeDb {
     memberships: FakeMembership[];
     credentials: FakeCredential[];
     mapServers: FakeMapServer[];
+    mapServerCapabilities: FakeMapServerCapability[];
     integrations: FakeIntegration[];
     incidents: FakeIncident[];
     webhookEvents: FakeWebhookEvent[];
@@ -226,6 +249,7 @@ export function createFakeDb(): FakeDb {
   const memberships: FakeMembership[] = [];
   const credentials: FakeCredential[] = [];
   const mapServers: FakeMapServer[] = [];
+  const mapServerCapabilities: FakeMapServerCapability[] = [];
   const integrations: FakeIntegration[] = [];
   const incidents: FakeIncident[] = [];
   const webhookEvents: FakeWebhookEvent[] = [];
@@ -382,6 +406,46 @@ export function createFakeDb(): FakeDb {
         return row;
       },
     },
+    mapServerCapability: {
+      async create({ data }: { data: Partial<FakeMapServerCapability> }) {
+        const row: FakeMapServerCapability = {
+          id: randomUUID(),
+          mapServerId: data.mapServerId!,
+          key: data.key!,
+          enabled: data.enabled ?? false,
+          riskLevel: data.riskLevel!,
+          mutating: data.mutating ?? false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        mapServerCapabilities.push(row);
+        return row;
+      },
+      async findMany({ where }: { where: { mapServerId: string } }) {
+        return mapServerCapabilities.filter((c) => c.mapServerId === where.mapServerId);
+      },
+      async findUnique({
+        where,
+      }: {
+        where: { mapServerId_key: { mapServerId: string; key: string } };
+      }) {
+        const { mapServerId, key } = where.mapServerId_key;
+        return mapServerCapabilities.find((c) => c.mapServerId === mapServerId && c.key === key) ?? null;
+      },
+      async update({
+        where,
+        data,
+      }: {
+        where: { mapServerId_key: { mapServerId: string; key: string } };
+        data: Partial<FakeMapServerCapability>;
+      }) {
+        const { mapServerId, key } = where.mapServerId_key;
+        const row = mapServerCapabilities.find((c) => c.mapServerId === mapServerId && c.key === key);
+        if (!row) throw new Error("fake capability not found");
+        Object.assign(row, data);
+        return row;
+      },
+    },
     integration: {
       ...fakeTenantCollection(integrations),
       async create({ data }: { data: Partial<FakeIntegration> }) {
@@ -498,6 +562,7 @@ export function createFakeDb(): FakeDb {
       memberships,
       credentials,
       mapServers,
+      mapServerCapabilities,
       integrations,
       incidents,
       webhookEvents,

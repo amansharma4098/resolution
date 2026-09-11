@@ -1,7 +1,18 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { createD1Client } from "@resolution/database";
+import { fabricProvider, isMapServerTypeAvailable, registerMapServer } from "@resolution/map-servers";
 import { buildApp } from "./app";
 import { loadEnv } from "./env";
+
+// Registers real Map Server providers once per Worker isolate (module-level code runs on
+// cold start, then the isolate is reused across requests) — never inside the fetch handler
+// below, which would try to register on every request and throw on the second one. Kept
+// out of packages/map-servers' own index.ts on purpose: apps/api's tests import buildApp
+// directly and expect an empty registry unless a test explicitly registers a fixture — see
+// registry.ts's header comment.
+if (!isMapServerTypeAvailable("FABRIC")) {
+  registerMapServer(fabricProvider);
+}
 
 /**
  * The Cloudflare Worker bindings for this app — configured in wrangler.toml. `DB` is the
