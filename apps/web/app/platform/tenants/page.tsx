@@ -44,6 +44,7 @@ export default function PlatformTenantsPage() {
   const [orgName, setOrgName] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
   const [adminName, setAdminName] = useState("");
+  const [copied, setCopied] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -73,6 +74,7 @@ export default function PlatformTenantsPage() {
           body: { organizationName: orgName, adminEmail, adminName: adminName || undefined },
         });
         setJustCreated(res);
+        setCopied(false);
         setOrgName("");
         setAdminEmail("");
         setAdminName("");
@@ -109,12 +111,30 @@ export default function PlatformTenantsPage() {
             <CardTitle>Tenant created — save this password now</CardTitle>
             <CardDescription>
               Shown only this once. Relay it to {justCreated.admin.email} — they should change it on first login.
+              It&apos;s a long random string — copy it rather than retyping it, a dropped character reads back as
+              &quot;incorrect password&quot; with no other hint.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="font-mono text-sm text-ink">
-              {justCreated.admin.email} / {justCreated.temporaryPassword}
-            </p>
+            <div className="flex flex-wrap items-center gap-2 rounded border border-border bg-background p-2">
+              <p className="break-all font-mono text-sm text-ink">
+                {justCreated.admin.email} / {justCreated.temporaryPassword}
+              </p>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(justCreated.temporaryPassword!);
+                    setCopied(true);
+                  } catch {
+                    setCopied(false);
+                  }
+                }}
+              >
+                {copied ? "Copied ✓" : "Copy password"}
+              </Button>
+            </div>
             <Button size="sm" variant="secondary" className="mt-3" onClick={() => setJustCreated(null)}>
               Dismiss
             </Button>
