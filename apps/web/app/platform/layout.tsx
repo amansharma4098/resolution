@@ -24,12 +24,16 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
       router.replace("/login");
       return;
     }
+    if (user.mustChangePassword) {
+      router.replace("/change-password");
+      return;
+    }
     if (!user.isSuperAdmin) {
       router.replace("/dashboard");
     }
   }, [loading, user, router]);
 
-  if (loading || !user || !user.isSuperAdmin) {
+  if (loading || !user || user.mustChangePassword || !user.isSuperAdmin) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background text-sm text-subink">
         Loading…

@@ -12,6 +12,10 @@ const CreateTenantBody = z.object({
   organizationName: z.string().min(1).max(200),
   adminEmail: z.string().email(),
   adminName: z.string().min(1).optional(),
+  // Optional — the Super Admin can set the new tenant admin's initial password directly
+  // instead of relying on a generated one. Either way the account is created with
+  // mustChangePassword set.
+  adminPassword: z.string().min(12).optional(),
 });
 
 /**
@@ -48,18 +52,24 @@ export function buildPlatformRoutes(deps: { db: PrismaClient; env: Env }): Hono<
     }
 
     let adminUser = await users.findByEmail(body.adminEmail);
+    // Only returned to the caller when *we* generated it (body.adminPassword absent) — if
+    // the Super Admin typed their own password in, they already know it.
     let temporaryPassword: string | undefined;
+    let newAccount = false;
 
     if (adminUser) {
       // An existing account being handed a brand-new tenant as its OWNER is a real,
       // supported case (e.g. re-onboarding someone who already has a login elsewhere on
       // the platform) — just not a new-account case, so no temp password to show.
     } else {
-      temporaryPassword = generateTemporaryPassword();
+      newAccount = true;
+      const initialPassword = body.adminPassword ?? generateTemporaryPassword();
+      if (!body.adminPassword) temporaryPassword = initialPassword;
       adminUser = await users.create({
         email: body.adminEmail,
         name: body.adminName,
-        passwordHash: await hashPassword(temporaryPassword),
+        passwordHash: await hashPassword(initialPassword),
+        mustChangePassword: true,
       });
     }
 
@@ -81,7 +91,7 @@ export function buildPlatformRoutes(deps: { db: PrismaClient; env: Env }): Hono<
         name: organization.name,
         slug: organization.slug,
         adminEmail: adminUser.email,
-        newAccount: Boolean(temporaryPassword),
+        newAccount,
       },
     });
 
@@ -89,8 +99,10 @@ export function buildPlatformRoutes(deps: { db: PrismaClient; env: Env }): Hono<
       {
         organization,
         admin: { userId: adminUser.id, email: adminUser.email, name: adminUser.name },
-        // Present only when a brand-new account was created — never returned again after
-        // this response, same discipline as a credential's secret or a member invite's.
+        newAccount,
+        // Present only when a brand-new account was created *and* we generated its
+        // password — never returned again after this response, same discipline as a
+        // credential's secret or a member invite's.
         temporaryPassword,
       },
       201,

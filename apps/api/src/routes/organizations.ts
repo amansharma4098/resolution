@@ -24,6 +24,11 @@ const AddMemberBody = z.object({
   email: z.string().email(),
   name: z.string().min(1).optional(),
   role: z.enum(ROLES).default("MEMBER"),
+  // Optional — an ADMIN/OWNER can set this teammate's initial password directly instead of
+  // relying on a generated one. Either way the account is created with mustChangePassword
+  // set, so the choice here only affects who has to relay the password, not the
+  // first-login-change requirement.
+  password: z.string().min(12).optional(),
 });
 
 const UpdateMemberRoleBody = z.object({
@@ -94,18 +99,25 @@ export function buildOrganizationRoutes(deps: { db: PrismaClient; env: Env }): H
     const organizationId = c.get("organizationId")!;
 
     let user = await users.findByEmail(body.email);
+    // Only returned to the caller when *we* generated it (body.password absent) — if the
+    // admin typed their own password in, they already know it, so there's nothing new to
+    // show them.
     let temporaryPassword: string | undefined;
+    let newAccount = false;
 
     if (user) {
       if (await organizations.findMembership(user.id, organizationId)) {
         throw new ConflictError("This user is already a member of the organization");
       }
     } else {
-      temporaryPassword = generateTemporaryPassword();
+      newAccount = true;
+      const initialPassword = body.password ?? generateTemporaryPassword();
+      if (!body.password) temporaryPassword = initialPassword;
       user = await users.create({
         email: body.email,
         name: body.name,
-        passwordHash: await hashPassword(temporaryPassword),
+        passwordHash: await hashPassword(initialPassword),
+        mustChangePassword: true,
       });
     }
 
@@ -119,14 +131,16 @@ export function buildOrganizationRoutes(deps: { db: PrismaClient; env: Env }): H
       targetType: "User",
       targetId: user.id,
       requestId: c.get("requestId"),
-      metadata: { email: user.email, role: body.role, newAccount: Boolean(temporaryPassword) },
+      metadata: { email: user.email, role: body.role, newAccount },
     });
 
     return c.json(
       {
         member: { userId: user.id, email: user.email, name: user.name, role: body.role },
-        // Present only when a brand-new account was created for this email — never
-        // returned again after this response, same discipline as a credential's secret.
+        newAccount,
+        // Present only when a brand-new account was created *and* we generated its
+        // password — never returned again after this response, same discipline as a
+        // credential's secret.
         temporaryPassword,
       },
       201,

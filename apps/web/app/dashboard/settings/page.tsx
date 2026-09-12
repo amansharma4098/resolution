@@ -26,9 +26,10 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [newAccountNotice, setNewAccountNotice] = useState<{ email: string; password: string } | null>(
+  const [newAccountNotice, setNewAccountNotice] = useState<{ email: string; password: string | null } | null>(
     null,
   );
+  const [noticeCopied, setNoticeCopied] = useState(false);
 
   const canManage = currentOrganization?.role === "OWNER" || currentOrganization?.role === "ADMIN";
 
@@ -99,13 +100,37 @@ export default function SettingsPage() {
       {newAccountNotice && (
         <Card emphasized>
           <CardContent className="py-4">
-            <p className="text-sm text-white">
-              Account created for <span className="font-medium">{newAccountNotice.email}</span>. Share
-              this temporary password with them — it won&apos;t be shown again:
-            </p>
-            <p className="mt-2 rounded bg-white/10 px-3 py-2 font-mono text-sm text-white">
-              {newAccountNotice.password}
-            </p>
+            {newAccountNotice.password ? (
+              <>
+                <p className="text-sm text-white">
+                  Account created for <span className="font-medium">{newAccountNotice.email}</span>. Share
+                  this temporary password with them — it won&apos;t be shown again, and they&apos;ll be
+                  asked to set their own on first login. Copy it rather than retyping it elsewhere.
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2 rounded bg-white/10 px-3 py-2">
+                  <span className="break-all font-mono text-sm text-white">{newAccountNotice.password}</span>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(newAccountNotice.password!);
+                        setNoticeCopied(true);
+                      } catch {
+                        setNoticeCopied(false);
+                      }
+                    }}
+                  >
+                    {noticeCopied ? "Copied ✓" : "Copy password"}
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-white">
+                Account created for <span className="font-medium">{newAccountNotice.email}</span>. They can
+                sign in with the password you set, and will be asked to change it on first login.
+              </p>
+            )}
             <Button
               size="sm"
               variant="secondary"
@@ -122,6 +147,7 @@ export default function SettingsPage() {
         <AddMemberForm
           onAdded={(notice) => {
             setShowForm(false);
+            setNoticeCopied(false);
             if (notice) setNewAccountNotice(notice);
             void load();
           }}
@@ -176,29 +202,34 @@ function AddMemberForm({
   onAdded,
   onError,
 }: {
-  onAdded: (notice: { email: string; password: string } | null) => void;
+  onAdded: (notice: { email: string; password: string | null } | null) => void;
   onError: (msg: string) => void;
 }) {
   const { currentOrganizationId } = useSession();
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState<Role>("MEMBER");
+  const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!currentOrganizationId) return;
+    if (password && password.length < 12) {
+      onError("Password must be at least 12 characters — leave it blank to auto-generate one instead");
+      return;
+    }
     setSubmitting(true);
     try {
-      const res = await apiRequest<{ member: Member; temporaryPassword?: string }>(
+      const res = await apiRequest<{ member: Member; newAccount: boolean; temporaryPassword?: string }>(
         "/api/organizations/members",
         {
           method: "POST",
           organizationId: currentOrganizationId,
-          body: { email, name: name || undefined, role },
+          body: { email, name: name || undefined, role, password: password || undefined },
         },
       );
-      onAdded(res.temporaryPassword ? { email, password: res.temporaryPassword } : null);
+      onAdded(res.newAccount ? { email, password: res.temporaryPassword ?? null } : null);
     } catch (err) {
       onError(err instanceof ApiError ? err.message : "Failed to add teammate");
     } finally {
@@ -211,13 +242,16 @@ function AddMemberForm({
       <CardHeader>
         <CardTitle>Add a teammate</CardTitle>
         <CardDescription>
-          If this email doesn&apos;t have an account yet, one is created with a one-time
-          temporary password. If it does, they&apos;re just added to this organization.
+          If this email doesn&apos;t have an account yet, one is created — set their password
+          yourself below, or leave it blank to generate a one-time temporary one. If the email
+          already has an account, they&apos;re just added to this organization and the password
+          field is ignored. Either way, a newly created account must change its password on
+          first login.
         </CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="member-email">Email</Label>
               <Input id="member-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
@@ -235,6 +269,18 @@ function AddMemberForm({
                   </option>
                 ))}
               </Select>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="member-password">Initial password (optional)</Label>
+              <Input
+                id="member-password"
+                type="password"
+                autoComplete="new-password"
+                minLength={12}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Leave blank to auto-generate"
+              />
             </div>
           </div>
           <Button type="submit" disabled={submitting} className="self-start">

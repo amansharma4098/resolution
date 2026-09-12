@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import { buildTestApp, jsonOf, req, signupWithOrg } from "./test-helpers";
+import { buildTestApp, cookieFrom, jsonOf, req, signupWithOrg } from "./test-helpers";
 import type { AppEnv } from "../types";
 
 describe("organization member management", () => {
@@ -41,6 +41,54 @@ describe("organization member management", () => {
     expect(login.status).toBe(200);
   });
 
+  it("a new local user is created with mustChangePassword set", async () => {
+    const added = await req(app, "/api/organizations/members", {
+      method: "POST",
+      cookie: ownerCookie,
+      organizationId,
+      body: { email: "flagged@example.com", role: "MEMBER" },
+    });
+    const { temporaryPassword } = await jsonOf(added);
+
+    const login = await req(app, "/api/auth/login", {
+      method: "POST",
+      body: { email: "flagged@example.com", password: temporaryPassword },
+    });
+    const cookie = cookieFrom(login);
+    const me = await req(app, "/api/auth/me", { cookie });
+    expect((await jsonOf(me)).user.mustChangePassword).toBe(true);
+  });
+
+  it("an admin can set a brand-new member's initial password directly instead of generating one", async () => {
+    const res = await req(app, "/api/organizations/members", {
+      method: "POST",
+      cookie: ownerCookie,
+      organizationId,
+      body: { email: "chosen@example.com", role: "MEMBER", password: "a-chosen-password-123" },
+    });
+    expect(res.status).toBe(201);
+    const body = await jsonOf(res);
+    // The admin already knows the password they typed — nothing new to hand back.
+    expect(body.temporaryPassword).toBeUndefined();
+    expect(body.newAccount).toBe(true);
+
+    const login = await req(app, "/api/auth/login", {
+      method: "POST",
+      body: { email: "chosen@example.com", password: "a-chosen-password-123" },
+    });
+    expect(login.status).toBe(200);
+  });
+
+  it("rejects an admin-supplied password shorter than the 12-character policy", async () => {
+    const res = await req(app, "/api/organizations/members", {
+      method: "POST",
+      cookie: ownerCookie,
+      organizationId,
+      body: { email: "short@example.com", role: "MEMBER", password: "short" },
+    });
+    expect(res.status).toBe(400);
+  });
+
   it("adding an existing user to the org does not return a temporary password (no new account created)", async () => {
     const other = await signupWithOrg(app, "existing@example.com", "Other Org");
     void other;
@@ -54,6 +102,7 @@ describe("organization member management", () => {
     expect(res.status).toBe(201);
     const body = await jsonOf(res);
     expect(body.temporaryPassword).toBeUndefined();
+    expect(body.newAccount).toBe(false);
   });
 
   it("rejects adding the same user twice", async () => {

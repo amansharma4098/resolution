@@ -67,8 +67,10 @@ describe("platform routes (Super Admin)", () => {
     expect(body.organization.name).toBe("New Co");
     expect(body.admin.email).toBe("newadmin@newco.com");
     expect(body.temporaryPassword).toMatch(/^[0-9a-f]{36}$/);
+    expect(body.newAccount).toBe(true);
 
-    // The new admin can actually log in with it and land as OWNER of exactly that org.
+    // The new admin can actually log in with it and land as OWNER of exactly that org, and
+    // is flagged to change the (system-generated) password on first login.
     const login = await req(app, "/api/auth/login", {
       method: "POST",
       body: { email: "newadmin@newco.com", password: body.temporaryPassword },
@@ -80,6 +82,33 @@ describe("platform routes (Super Admin)", () => {
     const orgList = await jsonOf(orgs);
     expect(orgList.organizations).toHaveLength(1);
     expect(orgList.organizations[0]).toMatchObject({ name: "New Co", role: "OWNER" });
+
+    const me = await req(app, "/api/auth/me", { cookie: newAdminCookie });
+    expect((await jsonOf(me)).user.mustChangePassword).toBe(true);
+  });
+
+  it("a super admin can set the new tenant admin's initial password directly instead of generating one", async () => {
+    grantSuperAdmin("owner@example.com");
+
+    const res = await req(app, "/api/platform/tenants", {
+      method: "POST",
+      cookie,
+      body: {
+        organizationName: "Chosen Co",
+        adminEmail: "chosenadmin@chosenco.com",
+        adminPassword: "a-chosen-admin-password",
+      },
+    });
+    expect(res.status).toBe(201);
+    const body = await jsonOf(res);
+    expect(body.temporaryPassword).toBeUndefined();
+    expect(body.newAccount).toBe(true);
+
+    const login = await req(app, "/api/auth/login", {
+      method: "POST",
+      body: { email: "chosenadmin@chosenco.com", password: "a-chosen-admin-password" },
+    });
+    expect(login.status).toBe(200);
   });
 
   it("provisioning a tenant for an existing user's email adds them as OWNER without a temp password", async () => {
@@ -97,6 +126,7 @@ describe("platform routes (Super Admin)", () => {
     expect(res.status).toBe(201);
     const body = await jsonOf(res);
     expect(body.temporaryPassword).toBeUndefined();
+    expect(body.newAccount).toBe(false);
   });
 
   it("self-serve organization creation (POST /api/organizations) still works — additive, not a replacement", async () => {

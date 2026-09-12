@@ -34,6 +34,11 @@ model User {
   // directly in the database (there is no self-serve path to become one), same bootstrap
   // discipline as every other root credential in this project.
   isSuperAdmin Boolean  @default(false)
+  // Set true whenever an admin (tenant ADMIN/OWNER or platform Super Admin) provisions this
+  // account's initial password on the user's behalf — whether they typed it themselves or
+  // let the system generate one. Cleared by POST /api/auth/change-password. Self-serve
+  // signups never set this — nobody else chose that password for them.
+  mustChangePassword Boolean  @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

@@ -27,12 +27,29 @@ const LoginBody = z.object({
   password: z.string().min(1),
 });
 
+const ChangePasswordBody = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(1),
+});
+
 /** Shape returned for a user — never the passwordHash. `isSuperAdmin` is safe to expose to
  *  the user themselves (it's their own flag); the frontend uses it purely to decide whether
  *  to show the /platform section — every actual platform route re-checks it server-side via
  *  requireSuperAdmin regardless. */
-function toPublicUser(user: { id: string; email: string; name: string | null; isSuperAdmin: boolean }) {
-  return { id: user.id, email: user.email, name: user.name, isSuperAdmin: user.isSuperAdmin };
+function toPublicUser(user: {
+  id: string;
+  email: string;
+  name: string | null;
+  isSuperAdmin: boolean;
+  mustChangePassword: boolean;
+}) {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    isSuperAdmin: user.isSuperAdmin,
+    mustChangePassword: user.mustChangePassword,
+  };
 }
 
 export function buildAuthRoutes(deps: { db: PrismaClient; env: Env }): Hono<AppEnv> {
@@ -77,6 +94,22 @@ export function buildAuthRoutes(deps: { db: PrismaClient; env: Env }): Hono<AppE
     const token = await signSession({ sub: user.id }, env.JWT_SECRET);
     setCookie(c, sessionCookieName(), token, cookieOpts);
     return c.json({ user: toPublicUser(user) });
+  });
+
+  router.post("/change-password", auth, async (c) => {
+    const body = ChangePasswordBody.parse(await c.req.json());
+    const user = await users.findById(c.get("userId")!);
+    if (!user) throw new NotFoundError("User not found");
+
+    const valid = user.passwordHash && (await verifyPassword(body.currentPassword, user.passwordHash));
+    if (!valid) throw new UnauthorizedError("Current password is incorrect");
+
+    if (!isPasswordStrongEnough(body.newPassword)) {
+      throw new ValidationError("Password must be at least 12 characters");
+    }
+
+    const updated = await users.updatePassword(user.id, await hashPassword(body.newPassword));
+    return c.json({ user: toPublicUser(updated) });
   });
 
   router.post("/logout", auth, (c) => {

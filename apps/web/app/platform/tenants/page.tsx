@@ -30,6 +30,7 @@ interface Tenant {
 interface CreateTenantResponse {
   organization: Tenant;
   admin: { email: string; name: string | null };
+  newAccount: boolean;
   temporaryPassword?: string;
 }
 
@@ -44,6 +45,7 @@ export default function PlatformTenantsPage() {
   const [orgName, setOrgName] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
   const [adminName, setAdminName] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
   const [copied, setCopied] = useState(false);
 
   const load = useCallback(async () => {
@@ -66,18 +68,28 @@ export default function PlatformTenantsPage() {
   const submit = useCallback(
     async (e: FormEvent) => {
       e.preventDefault();
+      if (adminPassword && adminPassword.length < 12) {
+        setError("Admin password must be at least 12 characters — leave it blank to auto-generate one instead");
+        return;
+      }
       setSubmitting(true);
       setError(null);
       try {
         const res = await apiRequest<CreateTenantResponse>("/api/platform/tenants", {
           method: "POST",
-          body: { organizationName: orgName, adminEmail, adminName: adminName || undefined },
+          body: {
+            organizationName: orgName,
+            adminEmail,
+            adminName: adminName || undefined,
+            adminPassword: adminPassword || undefined,
+          },
         });
         setJustCreated(res);
         setCopied(false);
         setOrgName("");
         setAdminEmail("");
         setAdminName("");
+        setAdminPassword("");
         setShowForm(false);
         await load();
       } catch (err) {
@@ -86,7 +98,7 @@ export default function PlatformTenantsPage() {
         setSubmitting(false);
       }
     },
-    [orgName, adminEmail, adminName, load],
+    [orgName, adminEmail, adminName, adminPassword, load],
   );
 
   return (
@@ -110,9 +122,9 @@ export default function PlatformTenantsPage() {
           <CardHeader>
             <CardTitle>Tenant created — save this password now</CardTitle>
             <CardDescription>
-              Shown only this once. Relay it to {justCreated.admin.email} — they should change it on first login.
-              It&apos;s a long random string — copy it rather than retyping it, a dropped character reads back as
-              &quot;incorrect password&quot; with no other hint.
+              Shown only this once. Relay it to {justCreated.admin.email} — they&apos;ll be asked to set their
+              own on first login. It&apos;s a long random string — copy it rather than retyping it, a dropped
+              character reads back as &quot;incorrect password&quot; with no other hint.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -136,6 +148,23 @@ export default function PlatformTenantsPage() {
               </Button>
             </div>
             <Button size="sm" variant="secondary" className="mt-3" onClick={() => setJustCreated(null)}>
+              Dismiss
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {justCreated?.newAccount && !justCreated.temporaryPassword && (
+        <Card className="border-navy">
+          <CardHeader>
+            <CardTitle>Tenant created</CardTitle>
+            <CardDescription>
+              {justCreated.admin.email} can sign in with the password you set — they&apos;ll be asked to change
+              it on first login.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button size="sm" variant="secondary" onClick={() => setJustCreated(null)}>
               Dismiss
             </Button>
           </CardContent>
@@ -170,6 +199,21 @@ export default function PlatformTenantsPage() {
               <div>
                 <Label htmlFor="adminName">Admin name (optional)</Label>
                 <Input id="adminName" value={adminName} onChange={(e) => setAdminName(e.target.value)} />
+              </div>
+              <div className="sm:col-span-2">
+                <Label htmlFor="adminPassword">Admin initial password (optional)</Label>
+                <Input
+                  id="adminPassword"
+                  type="password"
+                  autoComplete="new-password"
+                  minLength={12}
+                  value={adminPassword}
+                  onChange={(e) => setAdminPassword(e.target.value)}
+                  placeholder="Leave blank to auto-generate"
+                />
+                <p className="mt-1 text-xs text-subink">
+                  Either way, a brand-new account must change its password on first login.
+                </p>
               </div>
               <div className="sm:col-span-2">
                 <Button type="submit" disabled={submitting}>

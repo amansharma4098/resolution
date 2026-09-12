@@ -21,6 +21,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       router.replace("/login");
       return;
     }
+    // Checked before anything else — an admin-set password isn't this user's own secret
+    // until they've changed it, so nothing tenant-scoped should render first.
+    if (user.mustChangePassword) {
+      router.replace("/change-password");
+      return;
+    }
     if (organizations.length === 0 && !isNewOrgPage) {
       // A Super Admin isn't a member of any tenant by design (they operate at the platform
       // level, not inside one org) — sending them to "create your own organization" would
@@ -30,7 +36,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [loading, user, organizations, isNewOrgPage, router]);
 
-  if (loading || !user) {
+  if (loading || !user || user.mustChangePassword) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background text-sm text-subink">
         Loading…

@@ -13,6 +13,7 @@ export interface FakeUser {
   name: string | null;
   passwordHash: string | null;
   isSuperAdmin: boolean;
+  mustChangePassword: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -249,6 +250,7 @@ export interface FakeDb {
   user: {
     findUnique(args: { where: { email?: string; id?: string } }): Promise<FakeUser | null>;
     create(args: { data: Partial<FakeUser> }): Promise<FakeUser>;
+    update(args: { where: { id: string }; data: Partial<FakeUser> }): Promise<FakeUser>;
   };
   organization: {
     create(args: { data: Partial<FakeOrganization> }): Promise<FakeOrganization>;
@@ -470,10 +472,17 @@ export function createFakeDb(): FakeDb {
           name: data.name ?? null,
           passwordHash: data.passwordHash ?? null,
           isSuperAdmin: data.isSuperAdmin ?? false,
+          mustChangePassword: data.mustChangePassword ?? false,
           createdAt: new Date(),
           updatedAt: new Date(),
         };
         users.push(user);
+        return user;
+      },
+      async update({ where, data }: { where: { id: string }; data: Partial<FakeUser> }) {
+        const user = users.find((u) => u.id === where.id);
+        if (!user) throw new Error(`fake user ${where.id} not found`);
+        Object.assign(user, data, { updatedAt: new Date() });
         return user;
       },
     },

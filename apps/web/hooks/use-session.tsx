@@ -11,6 +11,9 @@ export interface SessionUser {
   // for whether to show the /platform section; every platform route re-checks this
   // server-side regardless, so there's no privilege in trusting this client-side.
   isSuperAdmin: boolean;
+  // True when an admin set (or generated) this account's current password on the user's
+  // behalf — gates a hard redirect to /change-password until they set their own.
+  mustChangePassword: boolean;
 }
 
 export interface SessionOrganization {
