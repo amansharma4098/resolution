@@ -22,7 +22,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       return;
     }
     if (organizations.length === 0 && !isNewOrgPage) {
-      router.replace("/dashboard/new-organization");
+      // A Super Admin isn't a member of any tenant by design (they operate at the platform
+      // level, not inside one org) — sending them to "create your own organization" would
+      // be a dead end with no way back to /platform. Everyone else with zero orgs still
+      // goes through self-serve org creation, unaffected.
+      router.replace(user.isSuperAdmin ? "/platform/tenants" : "/dashboard/new-organization");
     }
   }, [loading, user, organizations, isNewOrgPage, router]);
 
