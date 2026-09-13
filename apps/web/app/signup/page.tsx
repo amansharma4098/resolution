@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { AuthLayout } from "@/components/auth-layout";
 import { ApiError, apiRequest } from "@/lib/api-client";
 import { useSession } from "@/hooks/use-session";
 
@@ -38,7 +39,7 @@ export default function SignupPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background px-6">
+    <AuthLayout>
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle>Create your account</CardTitle>
@@ -87,6 +88,6 @@ export default function SignupPage() {
           </p>
         </CardContent>
       </Card>
-    </main>
+    </AuthLayout>
   );
 }

@@ -18,6 +18,15 @@ export interface FakeUser {
   updatedAt: Date;
 }
 
+export interface FakePasswordResetToken {
+  id: string;
+  userId: string;
+  tokenHash: string;
+  expiresAt: Date;
+  usedAt: Date | null;
+  createdAt: Date;
+}
+
 export interface FakeOrganization {
   id: string;
   name: string;
@@ -252,6 +261,16 @@ export interface FakeDb {
     create(args: { data: Partial<FakeUser> }): Promise<FakeUser>;
     update(args: { where: { id: string }; data: Partial<FakeUser> }): Promise<FakeUser>;
   };
+  passwordResetToken: {
+    create(args: { data: Partial<FakePasswordResetToken> }): Promise<FakePasswordResetToken>;
+    findFirst(args: {
+      where: { tokenHash: string; usedAt: null; expiresAt: { gt: Date } };
+    }): Promise<FakePasswordResetToken | null>;
+    update(args: {
+      where: { id: string };
+      data: Partial<FakePasswordResetToken>;
+    }): Promise<FakePasswordResetToken>;
+  };
   organization: {
     create(args: { data: Partial<FakeOrganization> }): Promise<FakeOrganization>;
     findUnique(args: { where: { id?: string; slug?: string } }): Promise<FakeOrganization | null>;
@@ -418,6 +437,7 @@ export interface FakeDb {
   $disconnect(): Promise<void>;
   _debug: {
     users: FakeUser[];
+    passwordResetTokens: FakePasswordResetToken[];
     organizations: FakeOrganization[];
     memberships: FakeMembership[];
     credentials: FakeCredential[];
@@ -440,6 +460,7 @@ export interface FakeDb {
 
 export function createFakeDb(): FakeDb {
   const users: FakeUser[] = [];
+  const passwordResetTokens: FakePasswordResetToken[] = [];
   const organizations: FakeOrganization[] = [];
   const memberships: FakeMembership[] = [];
   const credentials: FakeCredential[] = [];
@@ -484,6 +505,46 @@ export function createFakeDb(): FakeDb {
         if (!user) throw new Error(`fake user ${where.id} not found`);
         Object.assign(user, data, { updatedAt: new Date() });
         return user;
+      },
+    },
+    passwordResetToken: {
+      async create({ data }: { data: Partial<FakePasswordResetToken> }) {
+        const token: FakePasswordResetToken = {
+          id: randomUUID(),
+          userId: data.userId!,
+          tokenHash: data.tokenHash!,
+          expiresAt: data.expiresAt!,
+          usedAt: data.usedAt ?? null,
+          createdAt: new Date(),
+        };
+        passwordResetTokens.push(token);
+        return token;
+      },
+      async findFirst({
+        where,
+      }: {
+        where: { tokenHash: string; usedAt: null; expiresAt: { gt: Date } };
+      }) {
+        return (
+          passwordResetTokens.find(
+            (t) =>
+              t.tokenHash === where.tokenHash &&
+              t.usedAt === null &&
+              t.expiresAt.getTime() > where.expiresAt.gt.getTime(),
+          ) ?? null
+        );
+      },
+      async update({
+        where,
+        data,
+      }: {
+        where: { id: string };
+        data: Partial<FakePasswordResetToken>;
+      }) {
+        const token = passwordResetTokens.find((t) => t.id === where.id);
+        if (!token) throw new Error(`fake password reset token ${where.id} not found`);
+        Object.assign(token, data);
+        return token;
       },
     },
     organization: {
@@ -1107,6 +1168,7 @@ export function createFakeDb(): FakeDb {
     async $disconnect() {},
     _debug: {
       users,
+      passwordResetTokens,
       organizations,
       memberships,
       credentials,

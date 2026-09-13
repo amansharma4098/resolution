@@ -36,6 +36,12 @@ const EnvSchema = z.object({
   // code change.
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_MODEL: z.string().default("claude-opus-5"),
+  // Forgot-password emails (packages/email). Same no-default, both-or-neither treatment as
+  // ANTHROPIC_API_KEY: unset means createEmailSender falls back to its console-logging
+  // MOCK_MODE-style sender instead of failing boot — the full signup → forgot-password →
+  // reset flow still works end to end, just without a real email landing anywhere.
+  RESEND_API_KEY: z.string().optional(),
+  EMAIL_FROM: z.string().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

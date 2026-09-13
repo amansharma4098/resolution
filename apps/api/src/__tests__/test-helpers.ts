@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { Hono } from "hono";
 import type { PrismaClient } from "@resolution/database";
 import { EncryptedDbSecretProvider } from "@resolution/credentials";
+import type { EmailMessage, EmailSender } from "@resolution/email";
 import { buildApp } from "../app";
 import { loadEnv } from "../env";
 import { createFakeDb } from "./fake-db";
@@ -30,9 +31,26 @@ export const testEnv = loadEnv({
  * IncidentEvent); only opt in for tests that actually exercise Phase 7/8. The bounded
  * verification retry loop's `sleep` is always a no-op here — tests never need to wait out
  * real backoff delays. */
+export interface CapturingEmailSender extends EmailSender {
+  /** Every message handed to `.send()` so far, in order — lets a test read the
+   *  forgot-password reset link out of a "sent" email instead of reaching into the
+   *  database for the raw token, the same way a real user only ever sees it in their inbox. */
+  sent: EmailMessage[];
+}
+
+export function createCapturingEmailSender(): CapturingEmailSender {
+  const sent: EmailMessage[] = [];
+  return {
+    sent,
+    async send(message) {
+      sent.push(message);
+    },
+  };
+}
+
 export function buildTestApp(
   options: { chainInvestigation?: boolean; chainRemediation?: boolean } = {},
-): { app: Hono<AppEnv>; db: ReturnType<typeof createFakeDb> } {
+): { app: Hono<AppEnv>; db: ReturnType<typeof createFakeDb>; emailSender: CapturingEmailSender } {
   const db = createFakeDb();
   const prismaDb = db as unknown as PrismaClient;
   const secretProvider = new EncryptedDbSecretProvider(randomBytes(32).toString("base64"));
@@ -49,6 +67,7 @@ export function buildTestApp(
   const incidentIngestionQueue = options.chainInvestigation
     ? createInlineIngestionQueue(prismaDb, investigationQueue)
     : undefined;
+  const emailSender = createCapturingEmailSender();
   const app = buildApp({
     db: prismaDb,
     env: testEnv,
@@ -56,8 +75,9 @@ export function buildTestApp(
     incidentInvestigationQueue: investigationQueue,
     incidentRemediationQueue: remediationQueue,
     incidentIngestionQueue,
+    emailSender,
   });
-  return { app, db };
+  return { app, db, emailSender };
 }
 
 /** Extracts just "name=value" from a Set-Cookie response header (drops attributes like

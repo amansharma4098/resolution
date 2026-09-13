@@ -4,6 +4,7 @@ import { fabricProvider, isMapServerTypeAvailable, registerMapServer } from "@re
 import { createSecretProvider } from "@resolution/credentials";
 import { buildApp } from "./app";
 import { loadEnv } from "./env";
+import { createRateLimitStore } from "./middleware/rate-limit";
 import { processIngestionMessage } from "./queue/consumer";
 import { processInvestigationMessage } from "./queue/investigation-consumer";
 import { processRemediationMessage } from "./queue/remediation-consumer";
@@ -18,6 +19,23 @@ import type { IngestionQueueMessage, InvestigationQueueMessage, RemediationQueue
 if (!isMapServerTypeAvailable("FABRIC")) {
   registerMapServer(fabricProvider);
 }
+
+/**
+ * Rate-limit hit logs, created once at module scope and reused by every `fetch` call this
+ * isolate serves — a Worker isolate stays warm across many requests, and module-level state
+ * like this survives between them the same way it would in a long-running Node process.
+ * Creating these *inside* `fetch` (or letting buildApp default them) would recreate an
+ * empty store on every single request, silently limiting nothing — see
+ * middleware/rate-limit.ts's header comment. Cloudflare can still spin up multiple isolates
+ * for the same Worker, so this remains the documented best-effort, per-isolate limiter, not
+ * a globally accurate one.
+ */
+const rateLimitStores = {
+  global: createRateLimitStore(),
+  login: createRateLimitStore(),
+  signup: createRateLimitStore(),
+  forgotPassword: createRateLimitStore(),
+};
 
 /**
  * The Cloudflare Worker bindings for this app — configured in wrangler.toml. `DB` is the
@@ -38,6 +56,8 @@ export interface WorkerEnv {
   ENCRYPTION_MASTER_KEY?: string;
   ANTHROPIC_API_KEY?: string;
   ANTHROPIC_MODEL?: string;
+  RESEND_API_KEY?: string;
+  EMAIL_FROM?: string;
 }
 
 function loadWorkerEnv(workerEnv: WorkerEnv) {
@@ -50,6 +70,8 @@ function loadWorkerEnv(workerEnv: WorkerEnv) {
     ENCRYPTION_MASTER_KEY: workerEnv.ENCRYPTION_MASTER_KEY,
     ANTHROPIC_API_KEY: workerEnv.ANTHROPIC_API_KEY,
     ANTHROPIC_MODEL: workerEnv.ANTHROPIC_MODEL,
+    RESEND_API_KEY: workerEnv.RESEND_API_KEY,
+    EMAIL_FROM: workerEnv.EMAIL_FROM,
   });
 }
 
@@ -63,6 +85,7 @@ export default {
     const app = buildApp({
       db,
       env,
+      rateLimitStores,
       incidentIngestionQueue: {
         send: async (message) => {
           await workerEnv.INCIDENT_INGESTION_QUEUE.send(message);

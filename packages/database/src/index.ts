@@ -8,6 +8,7 @@
 export { createD1Client } from "./d1-client";
 export { TenantScopedRepository } from "./tenant-scoped-repository";
 export * from "./repositories/user-repository";
+export * from "./repositories/password-reset-token-repository";
 export * from "./repositories/organization-repository";
 export * from "./repositories/credential-repository";
 export * from "./repositories/map-server-repository";

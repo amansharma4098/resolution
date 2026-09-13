@@ -5,8 +5,9 @@ import { OrganizationRepository } from "@resolution/database";
 import { createSecretProvider, type SecretProvider } from "@resolution/credentials";
 import type { Env } from "./env";
 import type { AppEnv } from "./types";
+import { createEmailSender, type EmailSender } from "@resolution/email";
 import { handleError } from "./plugins/error-handler";
-import { rateLimit } from "./middleware/rate-limit";
+import { createRateLimitStore, rateLimit, type RateLimitStore } from "./middleware/rate-limit";
 import { buildAuthRoutes } from "./routes/auth";
 import { buildOrganizationRoutes } from "./routes/organizations";
 import { buildCredentialRoutes } from "./routes/credentials";
@@ -41,6 +42,22 @@ export interface BuildAppOptions {
   incidentInvestigationQueue?: IncidentInvestigationQueue;
   /** Same pattern again, for Phase 8's remediation queue (see queue/inline-remediation-queue.ts). */
   incidentRemediationQueue?: IncidentRemediationQueue;
+  /** Injectable for tests (a fake that captures sent messages) — defaults to the real
+   *  Resend-or-console sender selected by env.RESEND_API_KEY/EMAIL_FROM (see
+   *  packages/email/src/sender.ts's createEmailSender). */
+  emailSender?: EmailSender;
+  /** Sliding-window hit logs for rate limiting, keyed by which routes share a budget —
+   *  see middleware/rate-limit.ts's header comment for why these must be passed in rather
+   *  than created inside buildApp. Each defaults to its own fresh, empty store when
+   *  omitted, which is what every test and local-dev buildApp call wants: isolation between
+   *  runs. worker.ts is the one caller that passes real stores, hoisted to module scope so
+   *  they persist across the requests one Worker isolate serves. */
+  rateLimitStores?: {
+    global: RateLimitStore;
+    login: RateLimitStore;
+    signup: RateLimitStore;
+    forgotPassword: RateLimitStore;
+  };
 }
 
 export function buildApp({
@@ -50,9 +67,19 @@ export function buildApp({
   incidentIngestionQueue,
   incidentInvestigationQueue,
   incidentRemediationQueue,
+  emailSender,
+  rateLimitStores,
 }: BuildAppOptions): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
+  const resolvedEmailSender =
+    emailSender ?? createEmailSender({ apiKey: env.RESEND_API_KEY, from: env.EMAIL_FROM });
+  const resolvedRateLimitStores = {
+    global: rateLimitStores?.global ?? createRateLimitStore(),
+    login: rateLimitStores?.login ?? createRateLimitStore(),
+    signup: rateLimitStores?.signup ?? createRateLimitStore(),
+    forgotPassword: rateLimitStores?.forgotPassword ?? createRateLimitStore(),
+  };
   const resolvedSecretProvider =
     secretProvider ??
     createSecretProvider(env.SECRET_PROVIDER, { masterKey: env.ENCRYPTION_MASTER_KEY });
@@ -94,13 +121,21 @@ export function buildApp({
   // Rate-limit per-IP by default; per-org limiting for authenticated, high-volume routes
   // (webhooks, incident ingestion) is added alongside those routes in later phases rather
   // than globally here. See middleware/rate-limit.ts for the per-isolate caveat on Workers.
-  app.use("*", rateLimit({ max: 100, windowMs: 60_000 }));
+  app.use("*", rateLimit(resolvedRateLimitStores.global, { max: 100, windowMs: 60_000 }));
 
   app.onError(handleError);
 
   app.get("/healthz", (c) => c.json({ status: "ok" }));
 
-  app.route("/api/auth", buildAuthRoutes({ db, env }));
+  app.route(
+    "/api/auth",
+    buildAuthRoutes({
+      db,
+      env,
+      emailSender: resolvedEmailSender,
+      rateLimitStores: resolvedRateLimitStores,
+    }),
+  );
   app.route("/api/organizations", buildOrganizationRoutes({ db, env }));
   app.route(
     "/api/credentials",

@@ -454,6 +454,43 @@ first.
       is just UX), with a linked entry point from the dashboard sidebar for Super Admins
 - [x] 5 new tests (`platform.test.ts`), all 101 prior apps/api tests still passing unchanged
 
+## Interlude — self-serve password reset, auth rate limiting, branded auth UI ✅ complete
+
+Not a planned phase — picked up alongside a UI pass on `/login`/`/signup`, then widened to
+close two real gaps found while there: no self-service recovery path for a locked-out user,
+and a rate-limit bug that made brute-force protection a no-op in production.
+
+- [x] `/login`/`/signup` UI: shared `AuthLayout` split-screen shell (`apps/web/components/
+      auth-layout.tsx`) reusing the landing page's dark-navy hero treatment, plus a small
+      `Logo` wordmark component — no external asset
+- [x] **Found and fixed**: `middleware/rate-limit.ts`'s in-memory hit log was created fresh
+      inside `buildApp`, which `worker.ts`'s `fetch` handler calls on every request — so the
+      "per-isolate" store documented in its own header comment never actually persisted
+      across requests and silently rate-limited nothing in production. Fixed by hoisting the
+      stores to module scope in `worker.ts` (outside `fetch`, where Worker isolates *do*
+      keep state across requests) and threading them into `buildApp`/`buildAuthRoutes` as an
+      injectable `rateLimitStores` option — tests/local dev still get fresh, isolated stores
+      by default
+- [x] Stricter, auth-specific rate limits layered on top of the existing global 100/min:
+      `/login` (10/15min), `/signup` (5/hour), `/forgot-password` + `/reset-password`
+      (5/hour) — all per client IP, same documented per-isolate caveat as the global limiter
+- [x] `PasswordResetToken` model (new migration,
+      `00000000000003_add_password_reset_token`) — only a SHA-256 hash of the token is
+      stored (`packages/security/src/reset-token.ts`), single-use (`usedAt`), 1-hour TTL
+- [x] `POST /api/auth/forgot-password` / `POST /api/auth/reset-password` — same
+      constant-response, no-enumeration discipline as `/login`: identical success message
+      whether or not the email is registered, and no email sent for an unregistered one
+- [x] `packages/email` (new package) — `EmailSender` abstraction: a real Resend sender (its
+      plain HTTP API via `fetch`, no SDK — same reasoning as `jose` over `jsonwebtoken` for
+      Workers compatibility) or, when `RESEND_API_KEY`/`EMAIL_FROM` aren't set, a
+      console-logging fallback — same disclosed, zero-cost-by-default treatment as
+      `MOCK_MODE`. Injectable into `buildApp` for tests
+- [x] `apps/web` `/forgot-password` and `/reset-password` pages, linked from `/login`
+- [x] 15 new tests across `packages/security` (4), `packages/email` (3), `apps/api`
+      (5 in `auth.test.ts`, 3 in new `rate-limit.test.ts`) — full typecheck/lint/test green
+      (117 apps/api tests passing, up from 109), plus a real `next build` (static export)
+      confirming both new routes prerender
+
 ## Phase 10 — Mock providers
 - [ ] Mock Map Servers: Databricks, Snowflake, Airflow, Azure, AWS, GCP, Kubernetes, Datadog, Splunk, Dynatrace, New Relic
 - [ ] Mock incident source: PagerDuty

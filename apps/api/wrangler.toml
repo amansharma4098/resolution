@@ -64,12 +64,17 @@ max_batch_size = 3
 max_retries = 2
 dead_letter_queue = "resolution-incident-remediation-dlq"
 
-# Plain (non-secret) config — safe to commit. JWT_SECRET, ENCRYPTION_MASTER_KEY and
-# ANTHROPIC_API_KEY are set via `wrangler secret put` instead (encrypted server-side, never
-# written to this file).
+# Plain (non-secret) config — safe to commit. JWT_SECRET, ENCRYPTION_MASTER_KEY,
+# ANTHROPIC_API_KEY and RESEND_API_KEY are set via `wrangler secret put` instead (encrypted
+# server-side, never written to this file).
 [vars]
 NODE_ENV = "production"
 CORS_ORIGIN = "https://resolution-a7j.pages.dev"
 SECRET_PROVIDER = "ENCRYPTED_DB"
 MOCK_MODE = "false"
 ANTHROPIC_MODEL = "claude-opus-5"
+# EMAIL_FROM intentionally unset here: no RESEND_API_KEY secret is set on this deployment
+# either, so forgot-password reset links are logged to the Worker's console instead of
+# emailed (see packages/email/src/sender.ts's createEmailSender fallback) — same disclosed,
+# zero-cost-by-default choice as MOCK_MODE. Set both to go live: EMAIL_FROM must be an
+# address on a domain verified with Resend, e.g. EMAIL_FROM = "Resolution <noreply@yourdomain.com>".

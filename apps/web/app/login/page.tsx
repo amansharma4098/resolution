@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { AuthLayout } from "@/components/auth-layout";
 import { ApiError, apiRequest } from "@/lib/api-client";
 import { useSession } from "@/hooks/use-session";
 
@@ -35,7 +36,7 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background px-6">
+    <AuthLayout>
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle>Sign in</CardTitle>
@@ -57,13 +58,18 @@ export default function LoginPage() {
             <div className="flex flex-col gap-1.5">
               <div className="flex items-center justify-between">
                 <Label htmlFor="password">Password</Label>
-                <button
-                  type="button"
-                  className="text-xs text-info hover:underline"
-                  onClick={() => setShowPassword((v) => !v)}
-                >
-                  {showPassword ? "Hide" : "Show"}
-                </button>
+                <div className="flex items-center gap-3">
+                  <Link href="/forgot-password" className="text-xs text-info hover:underline">
+                    Forgot password?
+                  </Link>
+                  <button
+                    type="button"
+                    className="text-xs text-info hover:underline"
+                    onClick={() => setShowPassword((v) => !v)}
+                  >
+                    {showPassword ? "Hide" : "Show"}
+                  </button>
+                </div>
               </div>
               <Input
                 id="password"
@@ -87,6 +93,6 @@ export default function LoginPage() {
           </p>
         </CardContent>
       </Card>
-    </main>
+    </AuthLayout>
   );
 }

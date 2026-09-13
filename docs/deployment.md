@@ -79,15 +79,17 @@ npx wrangler d1 execute resolution-db --remote --file=../../packages/database/pr
 echo -n "<strong random value>" | npx wrangler secret put JWT_SECRET
 echo -n "<openssl rand -base64 32>" | npx wrangler secret put ENCRYPTION_MASTER_KEY
 echo -n "<sk-ant-...>" | npx wrangler secret put ANTHROPIC_API_KEY   # optional — omit to run this deployment on MOCK_MODE's LLM client
+echo -n "<re_...>" | npx wrangler secret put RESEND_API_KEY          # optional — omit to log forgot-password reset links to the console instead
 npx wrangler deploy
 ```
 
 `wrangler.toml` holds the D1 binding (`DB`), the three Cloudflare Queue bindings
 (`INCIDENT_INGESTION_QUEUE`, `INCIDENT_INVESTIGATION_QUEUE`, `INCIDENT_REMEDIATION_QUEUE` —
 see ARCHITECTURE.md §10), and non-secret vars (`CORS_ORIGIN`, `SECRET_PROVIDER`,
-`MOCK_MODE`, `NODE_ENV`, `ANTHROPIC_MODEL`) — safe to commit. `JWT_SECRET`,
-`ENCRYPTION_MASTER_KEY` and `ANTHROPIC_API_KEY` are set via `wrangler secret put`
-(encrypted server-side) and never appear in `wrangler.toml` or any committed file.
+`MOCK_MODE`, `NODE_ENV`, `ANTHROPIC_MODEL`, `EMAIL_FROM`) — safe to commit. `JWT_SECRET`,
+`ENCRYPTION_MASTER_KEY`, `ANTHROPIC_API_KEY` and `RESEND_API_KEY` are set via
+`wrangler secret put` (encrypted server-side) and never appear in `wrangler.toml` or any
+committed file.
 `CORS_ORIGIN` must match the Pages URL exactly, and the session cookie is set with
 `SameSite=None; Secure` in production since Pages and the Worker are different sites (see
 ARCHITECTURE.md §2).
@@ -111,6 +113,12 @@ set, so real incidents get a real, billed `claude-opus-5` investigation (package
 `MOCK_MODE` back to `"true"` in `wrangler.toml` (and redeploy) to run this deployment on the
 zero-cost mock client instead; local dev/CI always use `MOCK_MODE=true` regardless of this
 deployment's setting, since they read their own `.env`/test env, not `wrangler.toml`.
+
+No `RESEND_API_KEY` secret is set on this deployment yet, so forgot-password emails aren't
+actually sent — the reset link is logged to the Worker's console instead (`wrangler tail`
+to see it), same disclosed, zero-cost-by-default treatment as `MOCK_MODE`. Set both
+`RESEND_API_KEY` (secret) and `EMAIL_FROM` (plain var, a Resend-verified sender address) to
+send real emails.
 
 Redeploying after a schema change: regenerate the migration
 (`npx prisma migrate diff --from-empty --to-schema-datamodel=prisma/schema.prisma --script`
