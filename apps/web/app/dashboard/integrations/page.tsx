@@ -11,7 +11,7 @@ import { ApiError, apiRequest } from "@/lib/api-client";
 import { useSession } from "@/hooks/use-session";
 
 const INCIDENT_SOURCE_TYPES = ["JIRA", "SERVICENOW", "PAGERDUTY", "WEBHOOK"] as const;
-const WEBHOOK_BASED = new Set(["JIRA", "SERVICENOW"]);
+const WEBHOOK_BASED = new Set(["JIRA", "SERVICENOW", "WEBHOOK"]);
 
 interface IntegrationSummary {
   id: string;
@@ -34,7 +34,7 @@ export default function IntegrationsPage() {
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [testDetail, setTestDetail] = useState<Record<string, string>>({});
-  const [webhookNotice, setWebhookNotice] = useState<{ url: string; secret: string } | null>(null);
+  const [webhookNotice, setWebhookNotice] = useState<{ url: string; secret: string; type: string } | null>(null);
 
   const load = useCallback(async () => {
     if (!currentOrganizationId) return;
@@ -92,9 +92,10 @@ export default function IntegrationsPage() {
           <span className="kicker">Configuration</span>
           <h1 className="mt-1 font-display text-2xl font-semibold text-ink">Integrations</h1>
           <p className="mt-1 text-sm text-subink">
-            Where incidents originate. Jira and ServiceNow are both real, end to end:
-            connectivity test hits the real API, and each webhook receiver creates real
-            incidents. PagerDuty and a generic webhook source are next.
+            Where incidents originate. Jira and ServiceNow are both real end to end
+            (connectivity test hits the real API). A generic Webhook source is real too —
+            for anything without a bespoke connector, POST your own JSON to it. PagerDuty
+            is next.
           </p>
         </div>
         <Button onClick={() => setShowForm((s) => !s)}>{showForm ? "Cancel" : "New integration"}</Button>
@@ -106,12 +107,30 @@ export default function IntegrationsPage() {
         <Card emphasized>
           <CardContent className="flex flex-col gap-2 py-4 text-white">
             <p className="text-sm">
-              Configure your Jira instance to send its issue webhook here, with header{" "}
+              {webhookNotice.type === "WEBHOOK"
+                ? "Send events here, with header"
+                : `Configure your ${webhookNotice.type === "JIRA" ? "Jira" : "ServiceNow"} instance to send its webhook here, with header`}{" "}
               <code className="rounded bg-white/10 px-1 py-0.5 font-mono text-xs">X-Webhook-Secret</code>{" "}
               set to the value below — shown once, won&apos;t be shown again:
             </p>
             <p className="rounded bg-white/10 px-3 py-2 font-mono text-xs break-all">{webhookNotice.url}</p>
             <p className="rounded bg-white/10 px-3 py-2 font-mono text-xs break-all">{webhookNotice.secret}</p>
+            {webhookNotice.type === "WEBHOOK" && (
+              <pre className="overflow-x-auto rounded bg-white/10 px-3 py-2 font-mono text-xs">
+{`POST, with X-Webhook-Secret set as above:
+{
+  "externalId": "your-own-idempotency-key",
+  "title": "Disk usage above 95%",
+  "description": "optional",
+  "severity": "CRITICAL | HIGH | MEDIUM | LOW",  // default MEDIUM
+  "priority": "P1 | P2 | P3 | P4",               // default P3
+  "service": "optional",
+  "environment": "optional",
+  "resource": "optional",
+  "metadata": {}                                  // optional, anything you want kept
+}`}
+              </pre>
+            )}
             <Button size="sm" variant="secondary" className="self-start" onClick={() => setWebhookNotice(null)}>
               Dismiss
             </Button>
@@ -175,7 +194,7 @@ function CreateIntegrationForm({
   onError,
 }: {
   credentials: CredentialOption[];
-  onCreated: (webhook: { url: string; secret: string } | null) => void;
+  onCreated: (webhook: { url: string; secret: string; type: string } | null) => void;
   onError: (msg: string) => void;
 }) {
   const { currentOrganizationId } = useSession();
@@ -204,7 +223,7 @@ function CreateIntegrationForm({
 
       onCreated(
         res.webhookUrl
-          ? { url: res.webhookUrl, secret: String(res.integration.config.webhookSecret) }
+          ? { url: res.webhookUrl, secret: String(res.integration.config.webhookSecret), type }
           : null,
       );
     } catch (err) {

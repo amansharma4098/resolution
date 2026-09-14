@@ -29,7 +29,7 @@ const CreateIntegrationBody = z.object({
 /** Every incident-source type that generates its own webhook secret at creation time — the
  *  customer configures their source system's outgoing webhook to send this as a header
  *  (X-Webhook-Secret). See packages/integrations/src/webhook-secret.ts. */
-const WEBHOOK_BASED_SOURCES = new Set(["JIRA", "SERVICENOW"]);
+const WEBHOOK_BASED_SOURCES = new Set(["JIRA", "SERVICENOW", "WEBHOOK"]);
 
 /** GET/list responses never include the webhook secret in full — same masking discipline
  *  as a credential's secret. It's only ever returned once, in the create response. */
@@ -141,7 +141,13 @@ export function buildIntegrationRoutes(deps: {
     let status: "CONNECTED" | "DISCONNECTED" = "DISCONNECTED";
     let detail: string;
 
-    if (integration.type !== "JIRA" && integration.type !== "SERVICENOW") {
+    if (integration.type === "WEBHOOK") {
+      // Genuinely nothing to test — a generic webhook is purely inbound, with no outbound
+      // connection or credential of its own to verify (unlike Jira/ServiceNow's real API
+      // clients above). "DISCONNECTED" would misleadingly suggest something's wrong.
+      status = "CONNECTED";
+      detail = "Nothing to test — send events to this integration's webhook URL to see incidents appear.";
+    } else if (integration.type !== "JIRA" && integration.type !== "SERVICENOW") {
       detail = `No real adapter for ${integration.type} yet in this deployment`;
     } else if (!integration.credentialId) {
       detail = "No credential attached to this integration";

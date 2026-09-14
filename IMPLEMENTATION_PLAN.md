@@ -491,7 +491,7 @@ and a rate-limit bug that made brute-force protection a no-op in production.
       (117 apps/api tests passing, up from 109), plus a real `next build` (static export)
       confirming both new routes prerender
 
-## Interlude — MCP: a generic connector, and being one ✅ complete (first pass)
+## Interlude — MCP: a generic connector, and being one ✅ complete
 
 Not a planned phase — added on explicit direction. Two independent features sharing the
 "MCP" (Model Context Protocol) name: this platform can now *consume* any org's MCP server
@@ -512,19 +512,51 @@ for the full writeup; summarized here.
       **Not yet supported**: OAuth/dynamic client registration for MCP servers that require
       it — only a static bearer token today.
 - [x] **Being one**: `POST /api/mcp` — a JSON-RPC endpoint exposing `list_incidents`,
-      `get_incident`, `get_rca` (all read-only by design — no tool triggers an
-      investigation or remediation; that would need the same policy/approval gating every
-      other mutating action goes through, tracked as a follow-up, not done implicitly
-      here). Authenticated via a new `ApiKey` model (new migration
-      `00000000000004_add_api_key`) — long-lived bearer tokens, hash-only storage (same
-      discipline as `PasswordResetToken`, refactored into a shared `packages/security/src/
-      hash.ts`), managed via `/api/api-keys` and a new `apps/web` `/dashboard/api-keys` page
-      (personal to a user, not org-scoped — every tool call still checks real membership in
-      whichever `organizationId` it names, same "404 not 403" discipline as everywhere else)
-- [x] 37 new tests in `packages/map-servers` (52 total, up from 20), 21 new in `apps/api`
-      (138 total, up from 117), 4 new in `packages/security` (19 total) — full
-      typecheck/lint/test green across the monorepo (306 tests total), plus a real
-      `next build` confirming the new `/dashboard/api-keys` route prerenders
+      `get_incident`, `get_rca` (read-only) plus, on explicit follow-up direction,
+      `trigger_investigation`, `propose_remediation`, and `decide_approval` — an incident
+      can now be fully investigated and resolved through MCP tool calls alone. These three
+      call the *exact same* functions (extracted into a new
+      `apps/api/src/lib/incident-actions.ts`) that `routes/incidents.ts`'s HTTP handlers
+      call — never a re-implementation that could drift from the state-machine checks,
+      policy-engine approval gating, or audit logging the dashboard enforces.
+      `decide_approval` additionally requires the caller's membership role be `ADMIN`+
+      (checked per-call via `hasRole`, since one MCP endpoint serves many orgs — there's no
+      per-request tenant-context middleware to resolve it once). Authenticated via a new
+      `ApiKey` model (new migration `00000000000004_add_api_key`) — long-lived bearer
+      tokens, hash-only storage (same discipline as `PasswordResetToken`, refactored into a
+      shared `packages/security/src/hash.ts`), managed via `/api/api-keys` and a new
+      `apps/web` `/dashboard/api-keys` page (personal to a user, not org-scoped — every tool
+      call still checks real membership in whichever `organizationId` it names, same
+      "404 not 403" discipline as everywhere else)
+- [x] 50 new tests in `apps/api` (151 total, up from 117), 37 new in `packages/map-servers`
+      (52 total, up from 20), 4 new in `packages/security` (19 total) — full
+      typecheck/lint/test green across the monorepo, plus a real `next build` confirming the
+      new `/dashboard/api-keys` route prerenders
+
+## Interlude — a generic inbound webhook connector ✅ complete
+
+Not a planned phase — the third `IncidentSourceType` (`WEBHOOK`) existed in the data model
+and the Integrations UI dropdown since Phase 3 with zero implementation behind it (same
+honest "listed but not built" treatment as an unregistered `MapServerType`). Built on
+explicit direction, alongside widening `POST /api/mcp` above. See `docs/webhooks.md`.
+
+- [x] `packages/integrations/src/webhook/normalize.ts` — unlike Jira/ServiceNow (which
+      mirror a real vendor's payload), there's no vendor shape to match here, so this *is*
+      the shape: a small Zod schema (`externalId`, `title` required; `description`,
+      `severity`, `priority`, `service`, `environment`, `resource`, `metadata` optional with
+      sensible defaults) mapping directly onto `NormalizedIncident`
+- [x] `POST /api/webhooks/webhook/:integrationId` — same secret-header auth and 202-then-
+      async-processing shape as Jira/ServiceNow (ARCHITECTURE.md §10), but validates the
+      body fully against that schema *before* the 202 (Jira/ServiceNow only sanity-check a
+      couple of fields, since an event type they don't handle is an expected, silently
+      ignored case for a documented third-party shape — a caller integrating directly
+      against *our* schema benefits far more from an immediate, specific `400`)
+- [x] Integrations UI: the "New integration" webhook-URL reveal now shows the exact JSON
+      shape to `POST` when the type is `WEBHOOK`; the Test button reports "nothing to test"
+      instead of a misleading `DISCONNECTED` (a purely inbound webhook has no outbound
+      connection to verify)
+- [x] 14 new tests (`packages/integrations`: 5, `apps/api`: 9) — full typecheck/lint/test
+      green across the monorepo (324 tests total), plus a real `next build`
 
 ## Phase 10 — Mock providers
 - [ ] Mock Map Servers: Databricks, Snowflake, Airflow, Azure, AWS, GCP, Kubernetes, Datadog, Splunk, Dynatrace, New Relic

@@ -1,6 +1,8 @@
 import type { PrismaClient } from "@resolution/database";
 import { IncidentRepository, IntegrationRepository, auditLogWriter, serializeJsonField } from "@resolution/database";
 import {
+  GenericWebhookPayloadSchema,
+  normalizeGenericWebhook,
   normalizeJiraWebhook,
   normalizeServiceNowWebhook,
   type JiraWebhookPayload,
@@ -63,10 +65,18 @@ export async function processIngestionMessage(
       const payload: JiraWebhookPayload = JSON.parse(message.rawBody);
       externalId = payload.issue?.key ?? "unknown";
       normalized = normalizeJiraWebhook(payload);
-    } else {
+    } else if (message.source === "SERVICENOW") {
       const payload: ServiceNowWebhookPayload = JSON.parse(message.rawBody);
       externalId = payload.number;
       normalized = normalizeServiceNowWebhook(payload);
+    } else {
+      // The route already validated this against GenericWebhookPayloadSchema before
+      // enqueueing (see routes/webhooks.ts) — re-parsing here is defense in depth, not the
+      // primary check, same "malformed → ignored, never a crash" fallback as the other two.
+      const parsed = GenericWebhookPayloadSchema.safeParse(JSON.parse(message.rawBody));
+      if (!parsed.success) return { status: "ignored" };
+      externalId = parsed.data.externalId;
+      normalized = normalizeGenericWebhook(parsed.data);
     }
   } catch {
     // Malformed JSON should never reach here (the webhook route validates it before

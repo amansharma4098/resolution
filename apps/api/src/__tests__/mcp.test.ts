@@ -1,7 +1,47 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
+import { z } from "zod";
+import { __resetRegistryForTests, registerMapServer, type MapServerProvider } from "@resolution/map-servers";
 import { buildTestApp, jsonOf, req, signupWithOrg } from "./test-helpers";
 import type { AppEnv } from "../types";
+
+function jiraPayload() {
+  return {
+    webhookEvent: "jira:issue_created",
+    issue: {
+      id: "1",
+      key: "OPS-1",
+      fields: {
+        summary: "Nightly job failing",
+        description: "Job run failed",
+        status: { name: "To Do" },
+        priority: { name: "High" },
+        project: { key: "OPS", name: "Operations" },
+        created: "2026-01-01T00:00:00.000+0000",
+        updated: "2026-01-01T00:00:00.000+0000",
+      },
+    },
+  };
+}
+
+const k8sProvider: MapServerProvider = {
+  type: "KUBERNETES",
+  metadata: { displayName: "Kubernetes (fixture)", isMock: true },
+  configSchema: z.object({}),
+  authAdapter: { authenticationTypes: ["TOKEN"], testConnection: async () => ({ status: "CONNECTED" }) },
+  capabilities: [
+    {
+      key: "restart_pod",
+      description: "Restart a crashing pod",
+      riskLevel: "MEDIUM",
+      mutating: true,
+      inputSchema: z.object({ podName: z.string().min(1) }),
+      outputSchema: z.object({ restarted: z.boolean() }),
+      execute: async () => ({ restarted: true }),
+    },
+  ],
+  healthCheck: async () => ({ status: "CONNECTED" }),
+};
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function mcp(app: Hono<AppEnv>, apiKey: string, body: Record<string, unknown>): Promise<{ status: number; body: any }> {
@@ -26,6 +66,10 @@ describe("MCP server (POST /api/mcp)", () => {
     apiKey = (await jsonOf(created)).token;
   });
 
+  afterEach(() => {
+    __resetRegistryForTests();
+  });
+
   it("rejects a request with no Authorization header", async () => {
     const res = await app.request("/api/mcp", {
       method: "POST",
@@ -46,13 +90,13 @@ describe("MCP server (POST /api/mcp)", () => {
     expect(body.result.serverInfo.name).toBe("resolution");
   });
 
-  it("lists exactly the three read-only tools", async () => {
+  it("lists three read-only tools and three mutating ones", async () => {
     const { body } = await mcp(app, apiKey, { method: "tools/list" });
-    const names = body.result.tools.map((t: { name: string }) => t.name).sort();
-    expect(names).toEqual(["get_incident", "get_rca", "list_incidents"]);
-    expect(body.result.tools.every((t: { annotations: { readOnlyHint: boolean } }) => t.annotations.readOnlyHint)).toBe(
-      true,
-    );
+    const tools = body.result.tools as { name: string; annotations: { readOnlyHint: boolean } }[];
+    const readOnly = tools.filter((t) => t.annotations.readOnlyHint).map((t) => t.name).sort();
+    const mutating = tools.filter((t) => !t.annotations.readOnlyHint).map((t) => t.name).sort();
+    expect(readOnly).toEqual(["get_incident", "get_rca", "list_incidents"]);
+    expect(mutating).toEqual(["decide_approval", "propose_remediation", "trigger_investigation"]);
   });
 
   it("unknown method is a JSON-RPC error", async () => {
@@ -117,5 +161,160 @@ describe("MCP server (POST /api/mcp)", () => {
 
     const { status } = await mcp(app, token, { method: "tools/list" });
     expect(status).toBe(401);
+  });
+
+  describe("resolving an incident through MCP tools", () => {
+    async function ingestNewIncident() {
+      const integ = await req(app, "/api/integrations", {
+        method: "POST",
+        cookie,
+        organizationId,
+        body: { type: "JIRA", name: "Jira", config: { baseUrl: "https://acme.atlassian.net" } },
+      });
+      const integration = (await jsonOf(integ)).integration;
+      await app.request(`/api/webhooks/jira/${integration.id}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-webhook-secret": integration.config.webhookSecret },
+        body: JSON.stringify(jiraPayload()),
+      });
+      const list = await req(app, "/api/incidents", { cookie, organizationId });
+      return (await jsonOf(list)).incidents[0].id as string;
+    }
+
+    it("trigger_investigation moves a NEW incident to RCA_COMPLETE", async () => {
+      const incidentId = await ingestNewIncident();
+      const { body } = await mcp(app, apiKey, {
+        method: "tools/call",
+        params: { name: "trigger_investigation", arguments: { organizationId, incidentId } },
+      });
+      expect(body.result.isError).toBeFalsy();
+      expect(JSON.parse(body.result.content[0].text)).toEqual({ status: "investigating" });
+
+      const detail = await jsonOf(await req(app, `/api/incidents/${incidentId}`, { cookie, organizationId }));
+      expect(detail.incident.status).toBe("RCA_COMPLETE");
+    });
+
+    it("trigger_investigation refuses to restart one already past NEW, as a tool error", async () => {
+      const incidentId = await ingestNewIncident();
+      await mcp(app, apiKey, {
+        method: "tools/call",
+        params: { name: "trigger_investigation", arguments: { organizationId, incidentId } },
+      });
+      const { body } = await mcp(app, apiKey, {
+        method: "tools/call",
+        params: { name: "trigger_investigation", arguments: { organizationId, incidentId } },
+      });
+      expect(body.result.isError).toBe(true);
+      expect(JSON.parse(body.result.content[0].text).error).toMatch(/Cannot start an investigation/);
+    });
+
+    it("the full loop — investigate, propose, approve — resolves an incident, entirely through MCP tools", async () => {
+      registerMapServer(k8sProvider);
+      await req(app, `/api/organizations/${organizationId}`, {
+        method: "PATCH",
+        cookie,
+        body: { resolutionMode: "RECOMMEND" },
+      });
+      const msRes = await req(app, "/api/map-servers", {
+        method: "POST",
+        cookie,
+        organizationId,
+        body: { type: "KUBERNETES", name: "Prod K8s", environments: ["prod"], config: {} },
+      });
+      const mapServer = (await jsonOf(msRes)).mapServer;
+      await req(app, `/api/map-servers/${mapServer.id}/capabilities/restart_pod`, {
+        method: "PATCH",
+        cookie,
+        organizationId,
+        body: { enabled: true },
+      });
+
+      const incidentId = await ingestNewIncident();
+
+      await mcp(app, apiKey, {
+        method: "tools/call",
+        params: { name: "trigger_investigation", arguments: { organizationId, incidentId } },
+      });
+      await mcp(app, apiKey, {
+        method: "tools/call",
+        params: { name: "propose_remediation", arguments: { organizationId, incidentId } },
+      });
+
+      const afterProposal = await jsonOf(await req(app, `/api/incidents/${incidentId}`, { cookie, organizationId }));
+      expect(afterProposal.incident.status).toBe("PENDING_APPROVAL");
+      const approvalId = afterProposal.resolutions[0].actions[0].approval.id;
+
+      const decided = await mcp(app, apiKey, {
+        method: "tools/call",
+        params: { name: "decide_approval", arguments: { organizationId, incidentId, approvalId, decision: "APPROVE" } },
+      });
+      expect(decided.body.result.isError).toBeFalsy();
+      expect(JSON.parse(decided.body.result.content[0].text).status).toBe("EXECUTED");
+
+      const final = await jsonOf(await req(app, `/api/incidents/${incidentId}`, { cookie, organizationId }));
+      expect(final.incident.status).toBe("RESOLVED");
+    });
+
+    it("decide_approval requires ADMIN — a MEMBER's key gets a tool error, not a silent no-op", async () => {
+      registerMapServer(k8sProvider);
+      await req(app, `/api/organizations/${organizationId}`, {
+        method: "PATCH",
+        cookie,
+        body: { resolutionMode: "RECOMMEND" },
+      });
+      const msRes = await req(app, "/api/map-servers", {
+        method: "POST",
+        cookie,
+        organizationId,
+        body: { type: "KUBERNETES", name: "Prod K8s", environments: ["prod"], config: {} },
+      });
+      const mapServer = (await jsonOf(msRes)).mapServer;
+      await req(app, `/api/map-servers/${mapServer.id}/capabilities/restart_pod`, {
+        method: "PATCH",
+        cookie,
+        organizationId,
+        body: { enabled: true },
+      });
+      const incidentId = await ingestNewIncident();
+      await req(app, `/api/incidents/${incidentId}/investigate`, { method: "POST", cookie, organizationId });
+      await req(app, `/api/incidents/${incidentId}/propose-remediation`, {
+        method: "POST",
+        cookie,
+        organizationId,
+      });
+      const detail = await jsonOf(await req(app, `/api/incidents/${incidentId}`, { cookie, organizationId }));
+      const approvalId = detail.resolutions[0].actions[0].approval.id;
+
+      // A MEMBER, added to the same org, with their own API key.
+      const memberSignup = await req(app, "/api/auth/signup", {
+        method: "POST",
+        body: { email: "member@example.com", password: "correct horse battery staple" },
+      });
+      const memberCookie = memberSignup.headers.get("set-cookie")!.split(";")[0]!;
+      const added = await req(app, "/api/organizations/members", {
+        method: "POST",
+        cookie,
+        organizationId,
+        body: { email: "member@example.com", role: "MEMBER" },
+      });
+      void added;
+      const memberKey = await req(app, "/api/api-keys", {
+        method: "POST",
+        cookie: memberCookie,
+        body: { name: "Member's key" },
+      });
+      const memberApiKey = (await jsonOf(memberKey)).token;
+
+      const { body } = await mcp(app, memberApiKey, {
+        method: "tools/call",
+        params: { name: "decide_approval", arguments: { organizationId, incidentId, approvalId, decision: "APPROVE" } },
+      });
+      expect(body.result.isError).toBe(true);
+      expect(JSON.parse(body.result.content[0].text).error).toMatch(/ADMIN/);
+
+      // Untouched — still pending, never executed by the rejected attempt.
+      const stillPending = await jsonOf(await req(app, `/api/incidents/${incidentId}`, { cookie, organizationId }));
+      expect(stillPending.resolutions[0].actions[0].approval.status).toBe("PENDING");
+    });
   });
 });

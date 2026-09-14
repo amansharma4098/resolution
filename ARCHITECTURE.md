@@ -336,6 +336,7 @@ error shape `{ error: { code, message, requestId } }`. Full contract per route:
 /api/audit
 /api/webhooks/jira        (HMAC/signature verified, 202 immediately, queued)
 /api/webhooks/servicenow  (signature verified, 202 immediately, queued)
+/api/webhooks/webhook     (generic connector, secret-header verified, 202 immediately, queued — docs/webhooks.md)
 ```
 
 ## 10. Background processing

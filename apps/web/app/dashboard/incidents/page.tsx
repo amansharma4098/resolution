@@ -50,9 +50,9 @@ export default function IncidentsPage() {
         <span className="kicker">Incidents</span>
         <h1 className="mt-1 font-display text-2xl font-semibold text-ink">Incidents</h1>
         <p className="mt-1 text-sm text-subink">
-          Ingested from connected sources (Jira today). AI investigation, RCA, and
-          remediation land in Phases 6–8 — this is real ingestion, not yet the full
-          lifecycle.
+          Ingested from connected sources (Jira and ServiceNow today). Open one to see its
+          AI investigation, cited root cause analysis, and remediation — every stage
+          real, none of it hand-waved.
         </p>
       </div>
 

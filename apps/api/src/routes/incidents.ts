@@ -6,23 +6,17 @@ import {
   IncidentEvidenceRepository,
   RootCauseAnalysisRepository,
   RemediationRepository,
-  MapServerRepository,
-  CredentialRepository,
-  auditLogWriter,
   parseJsonField,
 } from "@resolution/database";
 import type { OrganizationRepository } from "@resolution/database";
-import { getMapServerProvider, resolveCapability } from "@resolution/map-servers";
-import { canTransition, transition } from "@resolution/agents";
-import { writeAuditLog } from "@resolution/security";
 import type { SecretProvider } from "@resolution/credentials";
 import type { Env } from "../env";
 import { authenticate } from "../middleware/authenticate";
 import { requireMinimumRole, resolveTenantContext } from "../middleware/tenant-context";
-import { NotFoundError, ConflictError, ValidationError } from "../lib/errors";
+import { NotFoundError } from "../lib/errors";
 import type { AppEnv } from "../types";
 import type { IncidentInvestigationQueue, IncidentRemediationQueue } from "../queue/types";
-import { executeAndVerify } from "../queue/remediation-consumer";
+import { investigateIncident, proposeRemediationForIncident, decideRemediationApproval } from "../lib/incident-actions";
 
 const DecideApprovalBody = z.object({
   decision: z.enum(["APPROVE", "REJECT"]),
@@ -140,151 +134,36 @@ export function buildIncidentRoutes(deps: {
   });
 
   router.post("/:id/investigate", auth, tenantContext, async (c) => {
-    const organizationId = c.get("organizationId")!;
-    const incidents = new IncidentRepository(db, organizationId);
-    const incident = await incidents.findById(c.req.param("id"));
-    if (!incident) throw new NotFoundError("Incident not found");
-
-    if (!canTransition(incident.status, "INVESTIGATING")) {
-      throw new ConflictError(`Cannot start an investigation from status ${incident.status}`);
-    }
-
-    await investigationQueue.send({ incidentId: incident.id, organizationId });
-    return c.json({ status: "investigating" }, 202);
+    const result = await investigateIncident(
+      { db, investigationQueue },
+      { organizationId: c.get("organizationId")!, incidentId: c.req.param("id") },
+    );
+    return c.json(result, 202);
   });
 
   router.post("/:id/propose-remediation", auth, tenantContext, async (c) => {
-    const organizationId = c.get("organizationId")!;
-    const incidents = new IncidentRepository(db, organizationId);
-    const incident = await incidents.findById(c.req.param("id"));
-    if (!incident) throw new NotFoundError("Incident not found");
-
-    if (incident.status !== "RCA_COMPLETE") {
-      throw new ConflictError(`Cannot propose a remediation from status ${incident.status} — needs RCA_COMPLETE`);
-    }
-
-    await remediationQueue.send({ incidentId: incident.id, organizationId });
-    return c.json({ status: "proposing" }, 202);
+    const result = await proposeRemediationForIncident(
+      { db, remediationQueue },
+      { organizationId: c.get("organizationId")!, incidentId: c.req.param("id") },
+    );
+    return c.json(result, 202);
   });
 
   router.post("/:id/approvals/:approvalId/decide", auth, tenantContext, requireAdmin, async (c) => {
-    const organizationId = c.get("organizationId")!;
-    const incidents = new IncidentRepository(db, organizationId);
-    const incident = await incidents.findById(c.req.param("id"));
-    if (!incident) throw new NotFoundError("Incident not found");
-
-    const remediationRepo = new RemediationRepository(db);
-    const approval = await remediationRepo.findApprovalById(c.req.param("approvalId"));
-    if (!approval) throw new NotFoundError("Approval not found");
-
-    const action = await remediationRepo.findRemediationActionById(approval.remediationActionId);
-    if (!action) throw new NotFoundError("Remediation action not found");
-    const resolution = await remediationRepo.findResolutionById(action.resolutionId);
-    if (!resolution || resolution.incidentId !== incident.id) throw new NotFoundError("Approval not found");
-
-    if (approval.status !== "PENDING") {
-      throw new ConflictError(`This approval was already ${approval.status.toLowerCase()}`);
-    }
-    if (incident.status !== "PENDING_APPROVAL") {
-      throw new ConflictError(`Incident is no longer awaiting approval (status: ${incident.status})`);
-    }
-
     const body = DecideApprovalBody.parse(await c.req.json());
-    const decided = await remediationRepo.decideApproval(approval.id, {
-      status: body.decision === "APPROVE" ? "APPROVED" : "REJECTED",
-      decidedByUserId: c.get("userId")!,
-      reason: body.reason,
-    });
-
-    await writeAuditLog(auditLogWriter(db), {
-      organizationId,
-      actorType: "user",
-      actorId: c.get("userId"),
-      action: body.decision === "APPROVE" ? "remediation.approved" : "remediation.rejected",
-      targetType: "RemediationAction",
-      targetId: action.id,
-      requestId: c.get("requestId"),
-      metadata: { reason: body.reason },
-    });
-
-    if (body.decision === "REJECT") {
-      await db.incident.update({
-        where: { id: incident.id },
-        data: { status: transition(incident.status, "CLOSED") },
-      });
-      await db.incidentEvent.create({
-        data: {
-          incidentId: incident.id,
-          type: "approval_rejected",
-          actor: c.get("userId")!,
-          detail: JSON.stringify({ reason: body.reason ?? null }),
-        },
-      });
-      return c.json({ approval: decided, status: "REJECTED" });
-    }
-
-    if (!resolution.mapServerId || !resolution.capabilityKey) {
-      throw new ValidationError("This resolution has no capability to execute");
-    }
-    const mapServers = new MapServerRepository(db, organizationId);
-    const mapServer = await mapServers.findById(resolution.mapServerId);
-    if (!mapServer) throw new ValidationError("The Map Server for this resolution no longer exists");
-    const provider = getMapServerProvider(mapServer.type);
-    if (!provider) {
-      throw new ValidationError("The capability for this resolution is no longer available");
-    }
-    let approvalCredential: Record<string, unknown> = {};
-    if (mapServer.credentialId) {
-      const credentialRow = await new CredentialRepository(db, organizationId).findById(mapServer.credentialId);
-      if (credentialRow) {
-        approvalCredential = await secretProvider.decrypt(credentialRow.encryptedData, { organizationId });
-      }
-    }
-    const capability = await resolveCapability(
-      provider,
+    const result = await decideRemediationApproval(
+      { db, secretProvider },
       {
-        organizationId,
-        mapServerId: mapServer.id,
-        environment: mapServer.environments[0] ?? "default",
-        credential: approvalCredential,
-        config: mapServer.config,
+        organizationId: c.get("organizationId")!,
+        incidentId: c.req.param("id"),
+        approvalId: c.req.param("approvalId"),
+        decision: body.decision,
+        reason: body.reason,
+        actorUserId: c.get("userId")!,
         requestId: c.get("requestId"),
       },
-      resolution.capabilityKey,
     );
-    if (!capability) {
-      throw new ValidationError("The capability for this resolution is no longer available");
-    }
-
-    await db.incident.update({
-      where: { id: incident.id },
-      data: { status: transition(incident.status, "REMEDIATING") },
-    });
-    await db.incidentEvent.create({
-      data: {
-        incidentId: incident.id,
-        type: "approval_granted",
-        actor: c.get("userId")!,
-        detail: JSON.stringify({ reason: body.reason ?? null }),
-      },
-    });
-
-    // Executed synchronously in the request — a single capability call plus a short bounded
-    // verification loop (packages/agents' verification-runner, a few seconds at most), not
-    // re-queued. See remediation-consumer.ts's header comment on why the AUTO path already
-    // does the same thing inline rather than round-tripping through another queue message.
-    await executeAndVerify(db, {
-      organizationId,
-      incidentId: incident.id,
-      mapServerId: resolution.mapServerId,
-      mapServerType: mapServer.type,
-      capability,
-      input: resolution.input,
-      remediationActionId: action.id,
-      secretProvider,
-    });
-
-    return c.json({ approval: decided, status: "EXECUTED" });
+    return c.json(result);
   });
 
   return router;
