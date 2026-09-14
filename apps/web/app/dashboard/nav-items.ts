@@ -9,6 +9,7 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/dashboard" },
+  { label: "Chat", href: "/dashboard/chat" },
   // AI investigation (evidence, RCA) lives inline on each incident's detail page, not a
   // separate list — every incident is investigated, so a dedicated "AI Investigations" nav
   // item would just be a second, redundant path to the same Incidents list.

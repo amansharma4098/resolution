@@ -6,11 +6,13 @@ import { createSecretProvider, type SecretProvider } from "@resolution/credentia
 import type { Env } from "./env";
 import type { AppEnv } from "./types";
 import { createEmailSender, type EmailSender } from "@resolution/email";
+import { createAnthropicLlmClient, createMockChatClient, type LlmClient } from "@resolution/ai";
 import { handleError } from "./plugins/error-handler";
 import { createRateLimitStore, rateLimit, type RateLimitStore } from "./middleware/rate-limit";
 import { buildAuthRoutes } from "./routes/auth";
 import { buildApiKeyRoutes } from "./routes/api-keys";
 import { buildMcpRoutes } from "./routes/mcp";
+import { buildChatRoutes } from "./routes/chat";
 import { buildOrganizationRoutes } from "./routes/organizations";
 import { buildCredentialRoutes } from "./routes/credentials";
 import { buildMapServerRoutes } from "./routes/map-servers";
@@ -60,6 +62,13 @@ export interface BuildAppOptions {
     signup: RateLimitStore;
     forgotPassword: RateLimitStore;
   };
+  /** Injectable for tests (a scripted fake) — defaults to a real Anthropic client when
+   *  env carries a key and MOCK_MODE is off, else a chat-specific mock (packages/ai's
+   *  createMockChatClient — deliberately not the investigation agent's mock-client.ts,
+   *  which is shaped around a different tool-calling loop; see that file's header
+   *  comment). Powers routes/chat.ts's in-app assistant only — the investigation/
+   *  remediation agents build their own LlmClient independently (queue/inline-*-queue.ts). */
+  chatLlmClient?: LlmClient;
 }
 
 export function buildApp({
@@ -71,6 +80,7 @@ export function buildApp({
   incidentRemediationQueue,
   emailSender,
   rateLimitStores,
+  chatLlmClient,
 }: BuildAppOptions): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
@@ -180,6 +190,22 @@ export function buildApp({
       investigationQueue: resolvedInvestigationQueue,
       remediationQueue: resolvedRemediationQueue,
       secretProvider: resolvedSecretProvider,
+    }),
+  );
+  app.route(
+    "/api/chat",
+    buildChatRoutes({
+      db,
+      env,
+      organizationRepository,
+      investigationQueue: resolvedInvestigationQueue,
+      remediationQueue: resolvedRemediationQueue,
+      secretProvider: resolvedSecretProvider,
+      llmClient:
+        chatLlmClient ??
+        (env.MOCK_MODE || !env.ANTHROPIC_API_KEY
+          ? createMockChatClient()
+          : createAnthropicLlmClient({ apiKey: env.ANTHROPIC_API_KEY, model: env.ANTHROPIC_MODEL })),
     }),
   );
 

@@ -329,6 +329,7 @@ error shape `{ error: { code, message, requestId } }`. Full contract per route:
 /api/credentials  /api/credentials/:id  /api/credentials/:id/test  /api/credentials/:id/rotate
 /api/api-keys  /api/api-keys/:id       (bearer-key management, session-authenticated)
 /api/mcp                               (JSON-RPC, bearer-key authenticated — docs/mcp-server.md)
+/api/chat                              (in-app assistant, session-authenticated — docs/chat.md)
 /api/integrations
 /api/knowledge
 /api/runbooks

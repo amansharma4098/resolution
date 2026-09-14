@@ -558,6 +558,36 @@ explicit direction, alongside widening `POST /api/mcp` above. See `docs/webhooks
 - [x] 14 new tests (`packages/integrations`: 5, `apps/api`: 9) — full typecheck/lint/test
       green across the monorepo (324 tests total), plus a real `next build`
 
+## Interlude — an in-app chat assistant, on the same tools as the MCP server ✅ complete
+
+Not a planned phase — added on explicit direction. `POST /api/chat` and a new
+`apps/web` `/dashboard/chat` page let an engineer investigate and resolve incidents by
+typing, instead of clicking through the dashboard. See `docs/chat.md`.
+
+- [x] Extracted `POST /api/mcp`'s tool catalog and execution out of `routes/mcp.ts` into a
+      shared `apps/api/src/lib/incident-tools.ts` — chat and the MCP server are two entry
+      points onto the *exact same* six tools (list/get incidents, get RCA, investigate,
+      propose remediation, decide approval), never two implementations that could drift
+      apart. `list_incidents`' output gained a `source` field so results can be grouped by
+      platform, as asked
+- [x] `routes/chat.ts` — a manual tool-calling loop (mirrors
+      `packages/agents/src/investigation/investigation-agent.ts`'s reasoning for hand-writing
+      it rather than the SDK's Tool Runner), bounded to 10 iterations per turn. Session- (not
+      API-key-) authenticated and scoped to the dashboard's currently-selected organization —
+      `organizationId` is stripped from the tool schemas the model sees and the real one is
+      injected server-side on every call, overriding anything the model supplies
+- [x] `packages/ai/src/mock-chat-client.ts` — a MOCK_MODE fallback dedicated to chat (not a
+      reuse of the investigation agent's `mock-client.ts`, which is shaped around a
+      different, submit_rca-specific loop and would either call an arbitrary tool or dead-end
+      on a free-form message — neither an honest answer). Explains the limitation instead of
+      faking a response; the tool-calling loop and every tool it can call stay fully real
+- [x] `apps/web/app/dashboard/chat/page.tsx` — chat UI that keeps the raw message history
+      (including tool_use/tool_result blocks) client-side, replayed each turn; renders a
+      `list_incidents` result as an incident list grouped by platform instead of raw text
+- [x] 9 new tests (`apps/api`: 7, `packages/ai`: 2) — full typecheck/lint/test green across
+      the monorepo (333 tests total), plus a real `next build` confirming the new
+      `/dashboard/chat` route prerenders
+
 ## Phase 10 — Mock providers
 - [ ] Mock Map Servers: Databricks, Snowflake, Airflow, Azure, AWS, GCP, Kubernetes, Datadog, Splunk, Dynatrace, New Relic
 - [ ] Mock incident source: PagerDuty

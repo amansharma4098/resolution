@@ -3,6 +3,7 @@ import type { Hono } from "hono";
 import type { PrismaClient } from "@resolution/database";
 import { EncryptedDbSecretProvider } from "@resolution/credentials";
 import type { EmailMessage, EmailSender } from "@resolution/email";
+import type { LlmClient, LlmTurnResult } from "@resolution/ai";
 import { buildApp } from "../app";
 import { loadEnv } from "../env";
 import { createFakeDb } from "./fake-db";
@@ -48,8 +49,38 @@ export function createCapturingEmailSender(): CapturingEmailSender {
   };
 }
 
+/** A fake LlmClient that plays back a fixed sequence of turns, one per `.send()` call — lets
+ *  a chat test script exactly what the model "decides" to do (e.g. call list_incidents,
+ *  then respond with text) without depending on packages/ai's mock clients, which are each
+ *  shaped around a different, specific tool-calling loop (see mock-chat-client.ts's header
+ *  comment). Throws if `.send()` is called more times than scripted — a test relying on more
+ *  turns than it planned for is a test bug, not something to silently paper over. */
+export interface ScriptedLlmClient extends LlmClient {
+  calls: Array<{ system: string; messages: unknown[] }>;
+}
+
+export function createScriptedLlmClient(turns: LlmTurnResult[]): ScriptedLlmClient {
+  let i = 0;
+  const calls: ScriptedLlmClient["calls"] = [];
+  return {
+    isMock: true,
+    calls,
+    async send({ system, messages }) {
+      // A snapshot, not the live array — the caller keeps pushing onto the same `messages`
+      // array after this call returns, so storing the reference itself would make every
+      // entry in `calls` retroactively reflect the *final* state instead of what this
+      // particular call actually saw.
+      calls.push({ system, messages: [...messages] });
+      if (i >= turns.length) {
+        throw new Error(`ScriptedLlmClient: no turn scripted for call #${i + 1}`);
+      }
+      return turns[i++]!;
+    },
+  };
+}
+
 export function buildTestApp(
-  options: { chainInvestigation?: boolean; chainRemediation?: boolean } = {},
+  options: { chainInvestigation?: boolean; chainRemediation?: boolean; chatLlmClient?: LlmClient } = {},
 ): { app: Hono<AppEnv>; db: ReturnType<typeof createFakeDb>; emailSender: CapturingEmailSender } {
   const db = createFakeDb();
   const prismaDb = db as unknown as PrismaClient;
@@ -76,6 +107,7 @@ export function buildTestApp(
     incidentRemediationQueue: remediationQueue,
     incidentIngestionQueue,
     emailSender,
+    chatLlmClient: options.chatLlmClient,
   });
   return { app, db, emailSender };
 }
