@@ -68,6 +68,7 @@ const contextFor = async () => ({
   mapServerId: "ms1",
   environment: "default",
   credential: {},
+  config: {},
   requestId: "req1",
 });
 

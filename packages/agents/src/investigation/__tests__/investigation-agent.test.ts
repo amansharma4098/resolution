@@ -70,6 +70,7 @@ function baseDeps(llmClient: LlmClient, available: AvailableCapability[] = []) {
       mapServerId: "ms1",
       environment: "default",
       credential: {},
+      config: {},
       requestId: "req1",
     }),
     recordEvidence: async () => VALID_EVIDENCE_ID,

@@ -9,6 +9,8 @@ import { createEmailSender, type EmailSender } from "@resolution/email";
 import { handleError } from "./plugins/error-handler";
 import { createRateLimitStore, rateLimit, type RateLimitStore } from "./middleware/rate-limit";
 import { buildAuthRoutes } from "./routes/auth";
+import { buildApiKeyRoutes } from "./routes/api-keys";
+import { buildMcpRoutes } from "./routes/mcp";
 import { buildOrganizationRoutes } from "./routes/organizations";
 import { buildCredentialRoutes } from "./routes/credentials";
 import { buildMapServerRoutes } from "./routes/map-servers";
@@ -168,6 +170,8 @@ export function buildApp({
   app.route("/api/metrics", buildMetricsRoutes({ db, env, organizationRepository }));
   app.route("/api/platform", buildPlatformRoutes({ db, env }));
   app.route("/api/webhooks", buildWebhookRoutes({ db, env, queue: resolvedQueue }));
+  app.route("/api/api-keys", buildApiKeyRoutes({ db, env }));
+  app.route("/api/mcp", buildMcpRoutes({ db, env, organizationRepository }));
 
   app.notFound((c) =>
     c.json({ error: { code: "NOT_FOUND", message: "Not found", requestId: c.get("requestId") } }, 404),

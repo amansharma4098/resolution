@@ -41,6 +41,7 @@ export const MapServerType = z.enum([
   "DYNATRACE",
   "NEW_RELIC",
   "AIRFLOW",
+  "MCP",
   "CUSTOM",
 ]);
 export type MapServerType = z.infer<typeof MapServerType>;

@@ -1,4 +1,4 @@
-import { getMapServerProvider } from "@resolution/map-servers";
+import { getMapServerProvider, resolveCapability } from "@resolution/map-servers";
 import type { MapServerContext, MapServerType } from "@resolution/map-servers";
 import type { VerificationStatus } from "@resolution/shared";
 
@@ -30,11 +30,13 @@ export async function runVerification(params: {
   contextFor: (mapServerId: string) => Promise<MapServerContext>;
 }): Promise<VerificationRunResult | null> {
   const provider = getMapServerProvider(params.mapServerType);
-  const mutatingCapability = provider?.capabilities.find((c) => c.key === params.capabilityKey);
+  if (!provider) return null;
+  const ctx = await params.contextFor(params.mapServerId);
+  const mutatingCapability = await resolveCapability(provider, ctx, params.capabilityKey);
   const spec = mutatingCapability?.verification;
-  if (!provider || !mutatingCapability || !spec) return null;
+  if (!mutatingCapability || !spec) return null;
 
-  const verifyCapability = provider.capabilities.find((c) => c.key === spec.capabilityKey);
+  const verifyCapability = await resolveCapability(provider, ctx, spec.capabilityKey);
   if (!verifyCapability) return null;
 
   const verifyInputParsed = verifyCapability.inputSchema.safeParse(
@@ -42,7 +44,6 @@ export async function runVerification(params: {
   );
   if (!verifyInputParsed.success) return null;
 
-  const ctx = await params.contextFor(params.mapServerId);
   const actualState = await verifyCapability.execute(ctx, verifyInputParsed.data);
 
   return {

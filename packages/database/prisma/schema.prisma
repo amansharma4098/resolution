@@ -47,8 +47,27 @@ model User {
   approvals           Approval[]
   notifications       Notification[]
   passwordResetTokens PasswordResetToken[]
+  apiKeys             ApiKey[]
 
   @@index([email])
+}
+
+// Long-lived programmatic credentials — currently only consumed by POST /api/mcp (exposing
+// this platform's own read-only incident data to an external MCP client). Only a hash of
+// the key is stored (packages/security/src/api-key.ts's header comment). No expiry:
+// `revokedAt` is the only way a key stops working, set explicitly by its owner.
+model ApiKey {
+  id         String    @id @default(uuid())
+  userId     String
+  name       String
+  keyHash    String    @unique
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+  revokedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 // Self-serve "forgot password" flow. Only a hash of the token is ever stored — see
@@ -163,7 +182,7 @@ model MapServer {
   id             String @id @default(uuid())
   organizationId String
   // MapServerType: FABRIC | DATABRICKS | SNOWFLAKE | AZURE | AWS | GCP | KUBERNETES |
-  // DATADOG | SPLUNK | DYNATRACE | NEW_RELIC | AIRFLOW | CUSTOM — see packages/shared
+  // DATADOG | SPLUNK | DYNATRACE | NEW_RELIC | AIRFLOW | MCP | CUSTOM — see packages/shared
   type         String
   name         String
   credentialId String?

@@ -180,6 +180,7 @@ export function buildMapServerRoutes(deps: {
           mapServerId: mapServer.id,
           environment: mapServer.environments[0] ?? "default",
           credential: decrypted,
+          config: mapServer.config,
           requestId: c.get("requestId"),
         });
         result = {
@@ -203,6 +204,57 @@ export function buildMapServerRoutes(deps: {
     });
 
     return c.json({ mapServer: toPublicMapServer(updated!), detail: result.detail });
+  });
+
+  // For a provider whose capability set isn't fixed in code (the generic `MCP` provider —
+  // see packages/map-servers/src/mcp) — (re-)discovers it from the org's actual configured
+  // server and persists it via the same additive, non-destructive sync
+  // `MapServerRepository.syncCapabilitiesFromProvider` documents. A no-op 400 for every
+  // other provider, whose capabilities are fixed at registration and never need refreshing.
+  router.post("/:id/refresh-capabilities", auth, tenantContext, requireAdmin, async (c) => {
+    const mapServers = new MapServerRepository(db, c.get("organizationId")!);
+    const mapServer = await mapServers.findById(c.req.param("id"));
+    if (!mapServer) throw new NotFoundError("Map Server not found");
+
+    const provider = getMapServerProvider(mapServer.type);
+    if (!provider) throw new ValidationError(`No provider is registered for ${mapServer.type} yet in this deployment`);
+    if (!provider.discoverCapabilities) {
+      throw new ValidationError(`${provider.metadata.displayName} has a fixed capability set — nothing to refresh`);
+    }
+    if (!mapServer.credentialId) {
+      throw new ValidationError("Attach a credential before discovering capabilities");
+    }
+
+    const credentials = new CredentialRepository(db, c.get("organizationId")!);
+    const credential = await credentials.findById(mapServer.credentialId);
+    if (!credential) throw new ValidationError("Attached credential no longer exists");
+
+    const decrypted = await secretProvider.decrypt(credential.encryptedData, {
+      organizationId: c.get("organizationId")!,
+    });
+    const discovered = await provider.discoverCapabilities({
+      organizationId: c.get("organizationId")!,
+      mapServerId: mapServer.id,
+      environment: mapServer.environments[0] ?? "default",
+      credential: decrypted,
+      config: mapServer.config,
+      requestId: c.get("requestId"),
+    });
+    await mapServers.syncCapabilitiesFromProvider(mapServer.id, discovered);
+
+    await writeAuditLog(auditLogWriter(db), {
+      organizationId: c.get("organizationId"),
+      actorType: "user",
+      actorId: c.get("userId"),
+      action: "map_server.capabilities_refreshed",
+      targetType: "MapServer",
+      targetId: mapServer.id,
+      requestId: c.get("requestId"),
+      metadata: { discoveredCount: discovered.length },
+    });
+
+    const capabilities = await mapServers.listCapabilities(mapServer.id);
+    return c.json({ capabilities });
   });
 
   return router;

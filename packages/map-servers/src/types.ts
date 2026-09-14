@@ -25,6 +25,13 @@ export interface MapServerContext {
   mapServerId: string;
   environment: string;
   credential: Record<string, unknown>;
+  /** This specific Map Server instance's org-entered config (workspace id, region,
+   *  server URL, …) — the same object `MapServerProvider.configSchema` validates when the
+   *  org created it. Every hand-built provider so far has taken config-like data as
+   *  capability *input* instead (e.g. Fabric's `workspaceId`), so this went unused until
+   *  the generic `MCP` provider needed its server URL available to every capability
+   *  regardless of what the LLM's tool call passes — see packages/map-servers/src/mcp. */
+  config: Record<string, unknown>;
   requestId: string;
 }
 
@@ -92,7 +99,21 @@ export interface MapServerProvider {
     authenticationTypes: AuthenticationType[];
     testConnection: (ctx: MapServerContext) => Promise<ConnectionTestResult>;
   };
+  /** Every hand-built provider (Fabric, the Phase 10 mocks, …) has a fixed capability set
+   *  known at registration time — this is it. A provider whose capability set is only
+   *  known once you're actually connected to a specific org's instance (the `MCP` provider
+   *  — see packages/map-servers/src/mcp) leaves this empty and implements
+   *  `discoverCapabilities` instead; see that field's own comment. */
   capabilities: Capability[];
+  /** For a provider whose tools aren't fixed in code — an MCP server's tool set is whatever
+   *  the specific server an org points at happens to expose, discovered live via its
+   *  `tools/list`. Called by `resolveCapability` (this package's `capability-lookup.ts`)
+   *  whenever a `key` isn't found in the static `capabilities` array; every existing
+   *  provider omits this and is completely unaffected. Not cached here — callers that want
+   *  caching (e.g. apps/api's refresh-capabilities route persisting keys to
+   *  `MapServerCapability` rows) own that themselves, since "how long is stale OK" is a
+   *  product decision, not this package's. */
+  discoverCapabilities?: (ctx: MapServerContext) => Promise<AnyCapability[]>;
   healthCheck: (ctx: MapServerContext) => Promise<ConnectionTestResult>;
 }
 

@@ -10,7 +10,13 @@ import {
   auditLogWriter,
   serializeJsonField,
 } from "@resolution/database";
-import { getMapServerProvider, type AnyCapability, type MapServerContext, type MapServerType } from "@resolution/map-servers";
+import {
+  getMapServerProvider,
+  resolveCapability,
+  type AnyCapability,
+  type MapServerContext,
+  type MapServerType,
+} from "@resolution/map-servers";
 import { createLlmClient, type LlmClient } from "@resolution/ai";
 import {
   evaluatePolicy,
@@ -74,7 +80,29 @@ export async function processRemediationMessage(
   if (!rcaRow) return; // shouldn't happen (RCA_COMPLETE implies one exists) — fail closed, not throw
 
   const mapServers = new MapServerRepository(db, message.organizationId);
+  const credentials = new CredentialRepository(db, message.organizationId);
   const allMapServers = await mapServers.list();
+
+  const contextForProposal = async (server: (typeof allMapServers)[number]): Promise<MapServerContext> => {
+    let credential: Record<string, unknown> = {};
+    if (server.credentialId) {
+      const credentialRow = await credentials.findById(server.credentialId);
+      if (credentialRow) {
+        credential = await config.secretProvider.decrypt(credentialRow.encryptedData, {
+          organizationId: message.organizationId,
+        });
+      }
+    }
+    return {
+      organizationId: message.organizationId,
+      mapServerId: server.id,
+      environment: server.environments[0] ?? "default",
+      credential,
+      config: server.config,
+      requestId: crypto.randomUUID(),
+    };
+  };
+
   const availableCapabilities: AvailableCapability[] = [];
   for (const server of allMapServers) {
     const provider = getMapServerProvider(server.type);
@@ -82,8 +110,11 @@ export async function processRemediationMessage(
     const capabilityRows = await mapServers.listCapabilities(server.id);
     // The inverse filter from investigation: remediation only ever sees mutating,
     // explicitly-enabled capabilities. A read-only capability is never a "remediation".
-    for (const row of capabilityRows.filter((r) => r.enabled && r.mutating)) {
-      const capability = provider.capabilities.find((c) => c.key === row.key);
+    const mutatingRows = capabilityRows.filter((r) => r.enabled && r.mutating);
+    if (mutatingRows.length === 0) continue;
+    const ctx = await contextForProposal(server);
+    for (const row of mutatingRows) {
+      const capability = await resolveCapability(provider, ctx, row.key);
       if (capability) {
         availableCapabilities.push({ mapServerId: server.id, mapServerType: server.type, capability });
       }
@@ -284,6 +315,7 @@ export async function executeAndVerify(
       mapServerId,
       environment: server?.environments[0] ?? "default",
       credential,
+      config: server?.config ?? {},
       requestId: crypto.randomUUID(),
     };
   };

@@ -8,7 +8,12 @@ import {
   auditLogWriter,
   serializeJsonField,
 } from "@resolution/database";
-import { getMapServerProvider, type AnyCapability, type MapServerContext } from "@resolution/map-servers";
+import {
+  getMapServerProvider,
+  resolveCapability,
+  type AnyCapability,
+  type MapServerContext,
+} from "@resolution/map-servers";
 import { createLlmClient, type LlmClient } from "@resolution/ai";
 import { runInvestigationAgent, InvestigationIncompleteError, transition, type AvailableCapability } from "@resolution/agents";
 import { writeAuditLog } from "@resolution/security";
@@ -58,22 +63,6 @@ export async function processInvestigationMessage(
   const rcaRepo = new RootCauseAnalysisRepository(db);
 
   const allMapServers = await mapServers.list();
-  const availableCapabilities: AvailableCapability[] = [];
-  for (const server of allMapServers) {
-    const provider = getMapServerProvider(server.type);
-    if (!provider) continue;
-    const capabilityRows = await mapServers.listCapabilities(server.id);
-    // Investigation only ever sees read-only capabilities — a `mutating: true` capability
-    // (restart a pipeline, roll back a deploy, ...) belongs to Phase 8's remediation flow,
-    // gated by the automation policy engine and human approval, never called during
-    // read-only investigation regardless of whether an org has enabled it.
-    for (const row of capabilityRows.filter((r) => r.enabled && !r.mutating)) {
-      const capability = provider.capabilities.find((c) => c.key === row.key);
-      if (capability) {
-        availableCapabilities.push({ mapServerId: server.id, mapServerType: server.type, capability });
-      }
-    }
-  }
 
   const contextFor = async (mapServerId: string): Promise<MapServerContext> => {
     const server = allMapServers.find((s) => s.id === mapServerId);
@@ -91,9 +80,30 @@ export async function processInvestigationMessage(
       mapServerId,
       environment: server?.environments[0] ?? "default",
       credential,
+      config: server?.config ?? {},
       requestId: crypto.randomUUID(),
     };
   };
+
+  const availableCapabilities: AvailableCapability[] = [];
+  for (const server of allMapServers) {
+    const provider = getMapServerProvider(server.type);
+    if (!provider) continue;
+    const capabilityRows = await mapServers.listCapabilities(server.id);
+    // Investigation only ever sees read-only capabilities — a `mutating: true` capability
+    // (restart a pipeline, roll back a deploy, ...) belongs to Phase 8's remediation flow,
+    // gated by the automation policy engine and human approval, never called during
+    // read-only investigation regardless of whether an org has enabled it.
+    const readOnlyRows = capabilityRows.filter((r) => r.enabled && !r.mutating);
+    if (readOnlyRows.length === 0) continue;
+    const ctx = await contextFor(server.id);
+    for (const row of readOnlyRows) {
+      const capability = await resolveCapability(provider, ctx, row.key);
+      if (capability) {
+        availableCapabilities.push({ mapServerId: server.id, mapServerType: server.type, capability });
+      }
+    }
+  }
 
   const llmClient =
     config.llmClient ??

@@ -7,11 +7,12 @@ import {
   RootCauseAnalysisRepository,
   RemediationRepository,
   MapServerRepository,
+  CredentialRepository,
   auditLogWriter,
   parseJsonField,
 } from "@resolution/database";
 import type { OrganizationRepository } from "@resolution/database";
-import { getMapServerProvider } from "@resolution/map-servers";
+import { getMapServerProvider, resolveCapability } from "@resolution/map-servers";
 import { canTransition, transition } from "@resolution/agents";
 import { writeAuditLog } from "@resolution/security";
 import type { SecretProvider } from "@resolution/credentials";
@@ -229,8 +230,29 @@ export function buildIncidentRoutes(deps: {
     const mapServer = await mapServers.findById(resolution.mapServerId);
     if (!mapServer) throw new ValidationError("The Map Server for this resolution no longer exists");
     const provider = getMapServerProvider(mapServer.type);
-    const capability = provider?.capabilities.find((cap) => cap.key === resolution.capabilityKey);
-    if (!provider || !capability) {
+    if (!provider) {
+      throw new ValidationError("The capability for this resolution is no longer available");
+    }
+    let approvalCredential: Record<string, unknown> = {};
+    if (mapServer.credentialId) {
+      const credentialRow = await new CredentialRepository(db, organizationId).findById(mapServer.credentialId);
+      if (credentialRow) {
+        approvalCredential = await secretProvider.decrypt(credentialRow.encryptedData, { organizationId });
+      }
+    }
+    const capability = await resolveCapability(
+      provider,
+      {
+        organizationId,
+        mapServerId: mapServer.id,
+        environment: mapServer.environments[0] ?? "default",
+        credential: approvalCredential,
+        config: mapServer.config,
+        requestId: c.get("requestId"),
+      },
+      resolution.capabilityKey,
+    );
+    if (!capability) {
       throw new ValidationError("The capability for this resolution is no longer available");
     }
 

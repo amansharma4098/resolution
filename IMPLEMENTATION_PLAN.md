@@ -491,6 +491,41 @@ and a rate-limit bug that made brute-force protection a no-op in production.
       (117 apps/api tests passing, up from 109), plus a real `next build` (static export)
       confirming both new routes prerender
 
+## Interlude — MCP: a generic connector, and being one ✅ complete (first pass)
+
+Not a planned phase — added on explicit direction. Two independent features sharing the
+"MCP" (Model Context Protocol) name: this platform can now *consume* any org's MCP server
+as a Map Server, and *is* one itself for read-only incident lookup. See `docs/mcp-server.md`
+for the full writeup; summarized here.
+
+- [x] **Consuming**: `packages/map-servers/src/mcp` — a Workers-native JSON-RPC client
+      (`client.ts`, plain `fetch`, no SDK), a best-effort JSON Schema → Zod converter, and
+      `mcpProvider`. Its capability set is live-discovered, not fixed at registration — the
+      first provider to need this, so `MapServerProvider` gained an optional
+      `discoverCapabilities` and every capability-lookup call site (`investigation-consumer`,
+      `remediation-consumer`, `verification-runner`, the approval-execute path in
+      `incidents.ts`) now goes through a new `resolveCapability` helper instead of a raw
+      array `.find()` — a no-op for every existing provider, exercised only by this one.
+      `POST /api/map-servers/:id/refresh-capabilities` (re-)discovers and persists them,
+      additive and non-destructive (never deletes/disables a key on refresh). Discovered
+      tools default to `HIGH`/mutating unless the server declares `readOnlyHint: true`.
+      **Not yet supported**: OAuth/dynamic client registration for MCP servers that require
+      it — only a static bearer token today.
+- [x] **Being one**: `POST /api/mcp` — a JSON-RPC endpoint exposing `list_incidents`,
+      `get_incident`, `get_rca` (all read-only by design — no tool triggers an
+      investigation or remediation; that would need the same policy/approval gating every
+      other mutating action goes through, tracked as a follow-up, not done implicitly
+      here). Authenticated via a new `ApiKey` model (new migration
+      `00000000000004_add_api_key`) — long-lived bearer tokens, hash-only storage (same
+      discipline as `PasswordResetToken`, refactored into a shared `packages/security/src/
+      hash.ts`), managed via `/api/api-keys` and a new `apps/web` `/dashboard/api-keys` page
+      (personal to a user, not org-scoped — every tool call still checks real membership in
+      whichever `organizationId` it names, same "404 not 403" discipline as everywhere else)
+- [x] 37 new tests in `packages/map-servers` (52 total, up from 20), 21 new in `apps/api`
+      (138 total, up from 117), 4 new in `packages/security` (19 total) — full
+      typecheck/lint/test green across the monorepo (306 tests total), plus a real
+      `next build` confirming the new `/dashboard/api-keys` route prerenders
+
 ## Phase 10 — Mock providers
 - [ ] Mock Map Servers: Databricks, Snowflake, Airflow, Azure, AWS, GCP, Kubernetes, Datadog, Splunk, Dynatrace, New Relic
 - [ ] Mock incident source: PagerDuty

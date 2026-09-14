@@ -142,6 +142,43 @@ export class MapServerRepository extends TenantScopedRepository {
     );
   }
 
+  /**
+   * The discovery-driven counterpart to `createCapabilitiesFromProvider` — for a provider
+   * whose capability set can change after the Map Server already exists (the generic `MCP`
+   * provider: an org's server can add/remove tools at any time), called by
+   * `POST /:id/refresh-capabilities` instead of only once at creation. Additive and
+   * non-destructive by design: a newly-seen key is added `enabled: false` (same "nothing
+   * runs until explicitly enabled" rule as creation), an existing key's `riskLevel`/
+   * `mutating` are refreshed to whatever the provider reports now, but its `enabled` state
+   * is never touched — and a key the provider no longer reports is left alone rather than
+   * deleted, since silently disabling something already relied on (an AutomationPolicy may
+   * reference it) on nothing more than a transient discovery hiccup would be a worse
+   * failure mode than one stale row an admin can still see and disable by hand.
+   */
+  async syncCapabilitiesFromProvider(
+    mapServerId: string,
+    providerCapabilities: AnyCapability[],
+  ): Promise<void> {
+    const existing = await this.listCapabilities(mapServerId);
+    const existingByKey = new Map(existing.map((row) => [row.key, row]));
+
+    const writes = providerCapabilities.map((cap) => {
+      const current = existingByKey.get(cap.key);
+      if (!current) {
+        return this.db.mapServerCapability.create({
+          data: { mapServerId, key: cap.key, riskLevel: cap.riskLevel, mutating: cap.mutating, enabled: false },
+        });
+      }
+      return this.db.mapServerCapability.update({
+        where: { mapServerId_key: { mapServerId, key: cap.key } },
+        data: { riskLevel: cap.riskLevel, mutating: cap.mutating },
+      });
+    });
+    if (writes.length > 0) {
+      await this.db.$transaction(writes);
+    }
+  }
+
   /** No org-scoping needed beyond the caller already having proven ownership of
    *  `mapServerId` via `findById` — capabilities have no organizationId of their own
    *  (they belong to a MapServer, which does). */

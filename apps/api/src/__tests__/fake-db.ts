@@ -27,6 +27,16 @@ export interface FakePasswordResetToken {
   createdAt: Date;
 }
 
+export interface FakeApiKey {
+  id: string;
+  userId: string;
+  name: string;
+  keyHash: string;
+  lastUsedAt: Date | null;
+  createdAt: Date;
+  revokedAt: Date | null;
+}
+
 export interface FakeOrganization {
   id: string;
   name: string;
@@ -271,6 +281,12 @@ export interface FakeDb {
       data: Partial<FakePasswordResetToken>;
     }): Promise<FakePasswordResetToken>;
   };
+  apiKey: {
+    create(args: { data: Partial<FakeApiKey> }): Promise<FakeApiKey>;
+    findFirst(args: { where: { keyHash?: string; revokedAt?: null; id?: string; userId?: string } }): Promise<FakeApiKey | null>;
+    findMany(args: { where: { userId: string }; orderBy?: { createdAt: "asc" | "desc" } }): Promise<FakeApiKey[]>;
+    update(args: { where: { id: string }; data: Partial<FakeApiKey> }): Promise<FakeApiKey>;
+  };
   organization: {
     create(args: { data: Partial<FakeOrganization> }): Promise<FakeOrganization>;
     findUnique(args: { where: { id?: string; slug?: string } }): Promise<FakeOrganization | null>;
@@ -438,6 +454,7 @@ export interface FakeDb {
   _debug: {
     users: FakeUser[];
     passwordResetTokens: FakePasswordResetToken[];
+    apiKeys: FakeApiKey[];
     organizations: FakeOrganization[];
     memberships: FakeMembership[];
     credentials: FakeCredential[];
@@ -461,6 +478,7 @@ export interface FakeDb {
 export function createFakeDb(): FakeDb {
   const users: FakeUser[] = [];
   const passwordResetTokens: FakePasswordResetToken[] = [];
+  const apiKeys: FakeApiKey[] = [];
   const organizations: FakeOrganization[] = [];
   const memberships: FakeMembership[] = [];
   const credentials: FakeCredential[] = [];
@@ -545,6 +563,56 @@ export function createFakeDb(): FakeDb {
         if (!token) throw new Error(`fake password reset token ${where.id} not found`);
         Object.assign(token, data);
         return token;
+      },
+    },
+    apiKey: {
+      async create({ data }: { data: Partial<FakeApiKey> }) {
+        const apiKey: FakeApiKey = {
+          id: randomUUID(),
+          userId: data.userId!,
+          name: data.name!,
+          keyHash: data.keyHash!,
+          lastUsedAt: data.lastUsedAt ?? null,
+          createdAt: new Date(),
+          revokedAt: data.revokedAt ?? null,
+        };
+        apiKeys.push(apiKey);
+        return apiKey;
+      },
+      async findFirst({
+        where,
+      }: {
+        where: { keyHash?: string; revokedAt?: null; id?: string; userId?: string };
+      }) {
+        return (
+          apiKeys.find(
+            (k) =>
+              (where.keyHash === undefined || k.keyHash === where.keyHash) &&
+              (where.revokedAt === undefined || k.revokedAt === where.revokedAt) &&
+              (where.id === undefined || k.id === where.id) &&
+              (where.userId === undefined || k.userId === where.userId),
+          ) ?? null
+        );
+      },
+      async findMany({
+        where,
+        orderBy,
+      }: {
+        where: { userId: string };
+        orderBy?: { createdAt: "asc" | "desc" };
+      }) {
+        const rows = apiKeys.filter((k) => k.userId === where.userId);
+        return [...rows].sort((a, b) =>
+          orderBy?.createdAt === "asc"
+            ? a.createdAt.getTime() - b.createdAt.getTime()
+            : b.createdAt.getTime() - a.createdAt.getTime(),
+        );
+      },
+      async update({ where, data }: { where: { id: string }; data: Partial<FakeApiKey> }) {
+        const apiKey = apiKeys.find((k) => k.id === where.id);
+        if (!apiKey) throw new Error(`fake api key ${where.id} not found`);
+        Object.assign(apiKey, data);
+        return apiKey;
       },
     },
     organization: {
@@ -1169,6 +1237,7 @@ export function createFakeDb(): FakeDb {
     _debug: {
       users,
       passwordResetTokens,
+      apiKeys,
       organizations,
       memberships,
       credentials,

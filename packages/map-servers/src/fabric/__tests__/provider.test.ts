@@ -7,6 +7,7 @@ const context: MapServerContext = {
   mapServerId: "ms1",
   environment: "prod",
   credential: { tenantId: "t1", clientId: "c1", clientSecret: "s1" },
+  config: {},
   requestId: "req1",
 };
 

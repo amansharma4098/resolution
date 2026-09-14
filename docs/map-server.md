@@ -63,6 +63,13 @@ At runtime, for a given org and affected system:
    agent, not merely "policy-denied" — this is enforced before the LLM ever sees a tool
    definition, not after.
 
+## Skipping this whole pattern: the generic MCP connector
+
+If the system you want to connect already speaks [MCP](https://modelcontextprotocol.io) (an
+internal tool, or a public server — GitHub, Postgres, Grafana, …), you don't need any of the
+above — `packages/map-servers/src/mcp`'s `mcpProvider` lets an org point at it directly and
+discovers its tools live instead of them being hand-written here. See `docs/mcp-server.md`.
+
 ## Mock providers
 
 A mock provider implements the exact same `MapServerProvider` interface with `isMock:

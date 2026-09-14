@@ -8,6 +8,9 @@ import type { Role } from "@resolution/security";
 export interface Variables {
   requestId: string;
   userId?: string;
+  /** Set only by authenticateApiKey — identifies which key authenticated this request, for
+   *  audit logging. Never set by the session-cookie authenticate(). */
+  apiKeyId?: string;
   organizationId?: string;
   role?: Role;
   /** Set only by requireSuperAdmin — platform-level, not tenant-scoped. Never set by

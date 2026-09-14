@@ -13,7 +13,8 @@ See `ARCHITECTURE.md` §2 for why and what that trades off.
 - **Architecture**: [`ARCHITECTURE.md`](./ARCHITECTURE.md) — data model, API contracts, the
   Map Server interface, credential architecture, AI agent architecture.
 - **Build plan & status**: [`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md).
-- **Docs**: [`docs/`](./docs) — `map-server.md` (how to add an integration), `deployment.md`
+- **Docs**: [`docs/`](./docs) — `map-server.md` (how to add an integration), `mcp-server.md`
+  (the generic MCP connector, and this platform's own MCP server), `deployment.md`
   (the Cloudflare-only deploy flow), more added per phase.
 - **Live**: `apps/web` → https://resolution-a7j.pages.dev · `apps/api` →
   https://resolution-api.amansharma4098.workers.dev
