@@ -338,6 +338,7 @@ error shape `{ error: { code, message, requestId } }`. Full contract per route:
 /api/webhooks/jira        (HMAC/signature verified, 202 immediately, queued)
 /api/webhooks/servicenow  (signature verified, 202 immediately, queued)
 /api/webhooks/webhook     (generic connector, secret-header verified, 202 immediately, queued — docs/webhooks.md)
+/api/webhooks/datadog     (real auto-alerting — a monitor firing creates an incident — docs/datadog.md)
 ```
 
 ## 10. Background processing
@@ -406,9 +407,11 @@ similarity-search query — there is no cross-org fallback path. Sources: past i
 
 ## 13. MVP scope
 
-Real end-to-end: Jira, ServiceNow, Microsoft Fabric Map Server.
+Real end-to-end: Jira, ServiceNow, Microsoft Fabric Map Server, Datadog (both a Map Server
+and — the one genuinely observability-driven path — an incident source: a monitor firing
+auto-creates an incident; see `docs/datadog.md`).
 Mock (labeled `MOCK` in the UI, real interface/schema, canned/simulated responses):
-Databricks, Snowflake, Airflow, Azure, AWS, GCP, Kubernetes, Datadog, Splunk, Dynatrace,
-New Relic, PagerDuty. A `MOCK_MODE=true` env flag runs the entire flow — mock Jira incident
-→ mock/real Map Server → AI investigation → RCA → approval → remediation → verification →
-Jira updated — with zero production credentials required.
+Databricks, Snowflake, Airflow, Azure, AWS, GCP, Kubernetes, Splunk, Dynatrace, New Relic,
+PagerDuty. A `MOCK_MODE=true` env flag runs the entire flow — mock Jira incident → mock/real
+Map Server → AI investigation → RCA → approval → remediation → verification → Jira updated
+— with zero production credentials required.

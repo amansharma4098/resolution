@@ -10,6 +10,7 @@ import {
   ServiceNowApiError,
   ServiceNowClient,
 } from "@resolution/integrations";
+import { DatadogApiError, DatadogClient } from "@resolution/map-servers";
 import type { SecretProvider } from "@resolution/credentials";
 import { writeAuditLog } from "@resolution/security";
 import type { OrganizationRepository } from "@resolution/database";
@@ -29,7 +30,7 @@ const CreateIntegrationBody = z.object({
 /** Every incident-source type that generates its own webhook secret at creation time — the
  *  customer configures their source system's outgoing webhook to send this as a header
  *  (X-Webhook-Secret). See packages/integrations/src/webhook-secret.ts. */
-const WEBHOOK_BASED_SOURCES = new Set(["JIRA", "SERVICENOW", "WEBHOOK"]);
+const WEBHOOK_BASED_SOURCES = new Set(["JIRA", "SERVICENOW", "WEBHOOK", "DATADOG"]);
 
 /** GET/list responses never include the webhook secret in full — same masking discipline
  *  as a credential's secret. It's only ever returned once, in the create response. */
@@ -147,11 +148,11 @@ export function buildIntegrationRoutes(deps: {
       // clients above). "DISCONNECTED" would misleadingly suggest something's wrong.
       status = "CONNECTED";
       detail = "Nothing to test — send events to this integration's webhook URL to see incidents appear.";
-    } else if (integration.type !== "JIRA" && integration.type !== "SERVICENOW") {
+    } else if (integration.type !== "JIRA" && integration.type !== "SERVICENOW" && integration.type !== "DATADOG") {
       detail = `No real adapter for ${integration.type} yet in this deployment`;
     } else if (!integration.credentialId) {
       detail = "No credential attached to this integration";
-    } else if (typeof integration.config.baseUrl !== "string" || !integration.config.baseUrl) {
+    } else if (integration.type !== "DATADOG" && (typeof integration.config.baseUrl !== "string" || !integration.config.baseUrl)) {
       detail =
         integration.type === "JIRA"
           ? "Missing config.baseUrl (your Jira Cloud site URL)"
@@ -167,21 +168,34 @@ export function buildIntegrationRoutes(deps: {
             organizationId: c.get("organizationId")!,
           });
           if (integration.type === "JIRA") {
-            const client = new JiraClient(integration.config.baseUrl, {
+            const client = new JiraClient(integration.config.baseUrl as string, {
               email: String(decrypted.username ?? decrypted.email ?? ""),
               apiToken: String(decrypted.password ?? decrypted.apiToken ?? ""),
             });
             const me = await client.getMyself();
             status = "CONNECTED";
             detail = `Authenticated as ${me.displayName}`;
-          } else {
-            const client = new ServiceNowClient(integration.config.baseUrl, {
+          } else if (integration.type === "SERVICENOW") {
+            const client = new ServiceNowClient(integration.config.baseUrl as string, {
               username: String(decrypted.username ?? ""),
               password: String(decrypted.password ?? ""),
             });
             await client.testConnection();
             status = "CONNECTED";
             detail = "Authenticated successfully";
+          } else {
+            // DATADOG — the same real client packages/map-servers/src/datadog uses for
+            // evidence-gathering/remediation, reused here since "is this key pair valid"
+            // is exactly the same question either way.
+            const site =
+              typeof integration.config.site === "string" && integration.config.site ? integration.config.site : "datadoghq.com";
+            const client = new DatadogClient(site, {
+              apiKey: String(decrypted.apiKey ?? ""),
+              applicationKey: String(decrypted.applicationKey ?? ""),
+            });
+            const { valid } = await client.validate();
+            status = valid ? "CONNECTED" : "DISCONNECTED";
+            detail = valid ? "Authenticated successfully" : "Datadog reported this API key pair as invalid";
           }
         } catch (err) {
           detail =
@@ -189,9 +203,11 @@ export function buildIntegrationRoutes(deps: {
               ? `Jira returned ${err.status}: ${err.message}`
               : err instanceof ServiceNowApiError
                 ? `ServiceNow returned ${err.status}: ${err.message}`
-                : err instanceof Error
-                  ? err.message
-                  : "Connection failed";
+                : err instanceof DatadogApiError
+                  ? `Datadog returned ${err.status}: ${err.message}`
+                  : err instanceof Error
+                    ? err.message
+                    : "Connection failed";
         }
       }
     }

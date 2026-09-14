@@ -2,9 +2,11 @@ import type { PrismaClient } from "@resolution/database";
 import { IncidentRepository, IntegrationRepository, auditLogWriter, serializeJsonField } from "@resolution/database";
 import {
   GenericWebhookPayloadSchema,
+  normalizeDatadogWebhook,
   normalizeGenericWebhook,
   normalizeJiraWebhook,
   normalizeServiceNowWebhook,
+  type DatadogWebhookPayload,
   type JiraWebhookPayload,
   type ServiceNowWebhookPayload,
 } from "@resolution/integrations";
@@ -69,6 +71,13 @@ export async function processIngestionMessage(
       const payload: ServiceNowWebhookPayload = JSON.parse(message.rawBody);
       externalId = payload.number;
       normalized = normalizeServiceNowWebhook(payload);
+    } else if (message.source === "DATADOG") {
+      const payload: DatadogWebhookPayload = JSON.parse(message.rawBody);
+      externalId = payload.alert_id;
+      // Recovered/Warn/No Data/etc. transitions are expected and normal — not errors, just
+      // not a page — normalizeDatadogWebhook returns null for those; falls through to the
+      // same "ignored" handling below.
+      normalized = normalizeDatadogWebhook(payload);
     } else {
       // The route already validated this against GenericWebhookPayloadSchema before
       // enqueueing (see routes/webhooks.ts) — re-parsing here is defense in depth, not the

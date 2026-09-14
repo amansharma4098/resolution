@@ -1,6 +1,12 @@
 import type { D1Database, MessageBatch, Queue } from "@cloudflare/workers-types";
 import { createD1Client } from "@resolution/database";
-import { fabricProvider, mcpProvider, isMapServerTypeAvailable, registerMapServer } from "@resolution/map-servers";
+import {
+  fabricProvider,
+  datadogProvider,
+  mcpProvider,
+  isMapServerTypeAvailable,
+  registerMapServer,
+} from "@resolution/map-servers";
 import { createSecretProvider } from "@resolution/credentials";
 import { buildApp } from "./app";
 import { loadEnv } from "./env";
@@ -18,6 +24,9 @@ import type { IngestionQueueMessage, InvestigationQueueMessage, RemediationQueue
 // registry.ts's header comment.
 if (!isMapServerTypeAvailable("FABRIC")) {
   registerMapServer(fabricProvider);
+}
+if (!isMapServerTypeAvailable("DATADOG")) {
+  registerMapServer(datadogProvider);
 }
 if (!isMapServerTypeAvailable("MCP")) {
   registerMapServer(mcpProvider);

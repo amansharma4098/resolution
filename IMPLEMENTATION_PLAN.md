@@ -588,8 +588,46 @@ typing, instead of clicking through the dashboard. See `docs/chat.md`.
       the monorepo (333 tests total), plus a real `next build` confirming the new
       `/dashboard/chat` route prerenders
 
+## Interlude — real observability: Datadog, and auto-alerting into auto-resolution ✅ complete
+
+Not a planned phase — added on explicit direction ("make it an observability platform,
+with an auto resolution agent of incidents"). Datadog moves from Phase 10's mock list to
+real, end-to-end, both as a Map Server and as an incident source — see `docs/datadog.md`.
+
+- [x] `packages/map-servers/src/datadog` — the second real Map Server after Fabric.
+      `CUSTOM` credential (`apiKey`/`applicationKey` — Datadog's two-key auth doesn't fit any
+      single-secret `AuthenticationType`). Six capabilities: `get_monitor`, `list_monitors`,
+      `query_metrics`, `search_logs` (read-only evidence for an investigation) and
+      `mute_monitor`/`unmute_monitor` (the mutating pair, `mute_monitor` MEDIUM risk with a
+      `verification` spec that re-reads the monitor rather than trusting the mutation call's
+      own response)
+- [x] `packages/integrations/src/datadog` — a real incident source. Unlike Jira/ServiceNow,
+      Datadog's webhook body is a customer-typed JSON template with Datadog's own
+      `$VARIABLE` substitution tokens, not a fixed shape it sends; the exact template
+      Resolution expects is documented (`docs/datadog.md`, and shown in the Integrations UI
+      on creating a `DATADOG` integration) and pasted into Datadog's webhook config
+      verbatim. Only `Triggered`/`Re-Triggered` transitions create an incident — others
+      (`Recovered`, `Warn`, …) share the same `alert_id` (this incident's `externalId`) and
+      resolve to the one already created rather than duplicating
+- [x] `POST /api/webhooks/datadog/:integrationId` (same 202-then-async shape as every other
+      webhook source), the Datadog Integration's `/test` route now calls the real
+      `DatadogClient.validate()` (reused directly from `packages/map-servers`, exported
+      alongside the provider) instead of "no real adapter yet"
+- [x] **Closes the loop, using entirely pre-existing machinery**: a monitor firing →
+      auto-created incident → auto-enqueued investigation (can use the Datadog Map Server's
+      real metrics/logs as evidence, alongside anything else the org has connected) →
+      RCA_COMPLETE → auto-enqueued remediation proposal → the existing policy engine decides
+      whether it needs human approval or (only in `AUTONOMOUS` mode with an explicit `AUTO`
+      policy for that capability, e.g. `mute_monitor`) executes unattended → verified before
+      `RESOLVED`. No new orchestration code — the AUTO-mode pipeline already existed
+      (Phase 8); this just gives it a real observability trigger instead of only a human
+      filing a ticket
+- [x] 33 new tests (`packages/map-servers`: 20, `packages/integrations`: 7, `apps/api`: 6) —
+      full typecheck/lint/test green across the monorepo (366 tests total), plus a real
+      `next build`
+
 ## Phase 10 — Mock providers
-- [ ] Mock Map Servers: Databricks, Snowflake, Airflow, Azure, AWS, GCP, Kubernetes, Datadog, Splunk, Dynatrace, New Relic
+- [ ] Mock Map Servers: Databricks, Snowflake, Airflow, Azure, AWS, GCP, Kubernetes, Splunk, Dynatrace, New Relic (Datadog is now real — see the Interlude above)
 - [ ] Mock incident source: PagerDuty
 - [ ] `MOCK` badge component + enforcement (never disguised as real)
 - [ ] `MOCK_MODE=true` full end-to-end demo path

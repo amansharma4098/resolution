@@ -113,5 +113,41 @@ export function buildWebhookRoutes(deps: {
     return c.json({ status: "accepted" }, 202);
   });
 
+  // Datadog's Webhooks integration doesn't send a fixed shape — the customer pastes a JSON
+  // template (with Datadog's own $VARIABLE tokens) into Datadog's UI, and Datadog renders
+  // and POSTs it verbatim. docs/webhooks.md documents the exact template Resolution expects;
+  // this only sanity-checks the fields every alert (regardless of transition) always
+  // carries, same rigor as the ServiceNow route above — full transition filtering
+  // (Triggered/Re-Triggered vs. Recovered/Warn/…) happens in normalizeDatadogWebhook.
+  router.post("/datadog/:integrationId", async (c) => {
+    const integrationId = c.req.param("integrationId");
+    const integration = await IntegrationRepository.findByIdUnscoped(db, integrationId);
+    if (!integration || integration.type !== "DATADOG") throw new NotFoundError("Not found");
+    verifySecretOrThrow(integration.config.webhookSecret, c.req.header("x-webhook-secret"));
+
+    const rawBody = await c.req.text();
+    let payload: { alert_id?: string; alert_transition?: string; alert_title?: string };
+    try {
+      payload = JSON.parse(rawBody);
+    } catch {
+      return c.json({ error: { code: "VALIDATION_ERROR", message: "Invalid JSON body" } }, 400);
+    }
+    if (!payload.alert_id || !payload.alert_transition || !payload.alert_title) {
+      return c.json(
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message:
+              "Missing required fields: alert_id, alert_transition, alert_title — check the webhook payload template in Datadog matches docs/webhooks.md",
+          },
+        },
+        400,
+      );
+    }
+
+    await queue.send({ source: "DATADOG", integrationId, rawBody });
+    return c.json({ status: "accepted" }, 202);
+  });
+
   return router;
 }

@@ -81,7 +81,11 @@ real one; only the `isMock` flag surfaces to the UI as the `MOCK` badge.
 
 ## Real Map Servers in the MVP
 
-Only **Fabric** is real end-to-end in the MVP. Its capabilities: `get_workspace`,
-`get_pipeline`, `get_pipeline_run`, `get_logs`, `retry_pipeline` (the only mutating one —
-`riskLevel: LOW`, default policy `AUTO` per the spec's risk table, still overridable per
-org). See `packages/map-servers/fabric/` (Phase 5).
+**Fabric**: `get_workspace`, `get_pipeline`, `get_pipeline_run`, `get_logs`,
+`retry_pipeline` (the only mutating one — `riskLevel: LOW`). See
+`packages/map-servers/fabric/` (Phase 5).
+
+**Datadog**: `get_monitor`, `list_monitors`, `query_metrics`, `search_logs`,
+`mute_monitor`/`unmute_monitor` (the mutating pair — `riskLevel: MEDIUM`/`LOW`). Also a real
+incident source (a monitor firing auto-creates an incident) — see `docs/datadog.md` for how
+the two combine into observability-driven auto-resolution. `packages/map-servers/datadog/`.

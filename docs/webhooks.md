@@ -1,9 +1,14 @@
 # Webhook connectors
 
-Three incident sources send events in via a webhook today: `JIRA`, `SERVICENOW`, and the
-generic `WEBHOOK` type. All three share the same shape at the transport level
+Four incident sources send events in via a webhook today: `JIRA`, `SERVICENOW`, `DATADOG`,
+and the generic `WEBHOOK` type. All four share the same shape at the transport level
 (`POST /api/webhooks/<type>/:integrationId`, `X-Webhook-Secret` header, 202 immediately,
 real work happens off-queue — ARCHITECTURE.md §10) and differ only in what body they expect.
+
+Datadog gets its own doc (`docs/datadog.md`) since it's also a real Map Server (evidence +
+remediation), not just an incident source — the two combine into real observability-driven
+auto-resolution: a monitor firing creates an incident, which the agent can investigate using
+real Datadog metrics/logs and (if policy allows) resolve by muting the monitor.
 
 ## Jira / ServiceNow
 

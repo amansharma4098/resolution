@@ -159,7 +159,7 @@ model Credential {
 model Integration {
   id             String @id @default(uuid())
   organizationId String
-  // IncidentSourceType: JIRA | SERVICENOW | PAGERDUTY | WEBHOOK
+  // IncidentSourceType: JIRA | SERVICENOW | PAGERDUTY | WEBHOOK | DATADOG
   type         String
   name         String
   credentialId String?
@@ -227,7 +227,7 @@ model Incident {
   organizationId String
   integrationId  String?
   externalId     String // ID in the source system
-  // IncidentSourceType: JIRA | SERVICENOW | PAGERDUTY | WEBHOOK
+  // IncidentSourceType: JIRA | SERVICENOW | PAGERDUTY | WEBHOOK | DATADOG
   source      String
   title       String
   description String
@@ -539,7 +539,7 @@ model AgentExecution {
 model WebhookEvent {
   id             String @id @default(uuid())
   organizationId String?
-  // IncidentSourceType: JIRA | SERVICENOW | PAGERDUTY | WEBHOOK
+  // IncidentSourceType: JIRA | SERVICENOW | PAGERDUTY | WEBHOOK | DATADOG
   source      String
   externalId  String
   eventHash   String // idempotency: hash of the raw payload

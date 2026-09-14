@@ -1,4 +1,4 @@
-export type IngestionSource = "JIRA" | "SERVICENOW" | "WEBHOOK";
+export type IngestionSource = "JIRA" | "SERVICENOW" | "WEBHOOK" | "DATADOG";
 
 export interface IngestionQueueMessage {
   source: IngestionSource;

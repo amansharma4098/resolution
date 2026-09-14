@@ -10,8 +10,8 @@ import { Select } from "@/components/ui/select";
 import { ApiError, apiRequest } from "@/lib/api-client";
 import { useSession } from "@/hooks/use-session";
 
-const INCIDENT_SOURCE_TYPES = ["JIRA", "SERVICENOW", "PAGERDUTY", "WEBHOOK"] as const;
-const WEBHOOK_BASED = new Set(["JIRA", "SERVICENOW", "WEBHOOK"]);
+const INCIDENT_SOURCE_TYPES = ["JIRA", "SERVICENOW", "PAGERDUTY", "WEBHOOK", "DATADOG"] as const;
+const WEBHOOK_BASED = new Set(["JIRA", "SERVICENOW", "WEBHOOK", "DATADOG"]);
 
 interface IntegrationSummary {
   id: string;
@@ -92,9 +92,10 @@ export default function IntegrationsPage() {
           <span className="kicker">Configuration</span>
           <h1 className="mt-1 font-display text-2xl font-semibold text-ink">Integrations</h1>
           <p className="mt-1 text-sm text-subink">
-            Where incidents originate. Jira and ServiceNow are both real end to end
-            (connectivity test hits the real API). A generic Webhook source is real too —
-            for anything without a bespoke connector, POST your own JSON to it. PagerDuty
+            Where incidents originate. Jira, ServiceNow and Datadog are all real end to end
+            (connectivity test hits the real API — Datadog monitors auto-create incidents,
+            which the AI agent can then auto-resolve). A generic Webhook source is real too
+            — for anything without a bespoke connector, POST your own JSON to it. PagerDuty
             is next.
           </p>
         </div>
@@ -109,7 +110,9 @@ export default function IntegrationsPage() {
             <p className="text-sm">
               {webhookNotice.type === "WEBHOOK"
                 ? "Send events here, with header"
-                : `Configure your ${webhookNotice.type === "JIRA" ? "Jira" : "ServiceNow"} instance to send its webhook here, with header`}{" "}
+                : webhookNotice.type === "DATADOG"
+                  ? "In Datadog, add a Webhooks integration pointing here, with a custom header"
+                  : `Configure your ${webhookNotice.type === "JIRA" ? "Jira" : "ServiceNow"} instance to send its webhook here, with header`}{" "}
               <code className="rounded bg-white/10 px-1 py-0.5 font-mono text-xs">X-Webhook-Secret</code>{" "}
               set to the value below — shown once, won&apos;t be shown again:
             </p>
@@ -130,6 +133,31 @@ export default function IntegrationsPage() {
   "metadata": {}                                  // optional, anything you want kept
 }`}
               </pre>
+            )}
+            {webhookNotice.type === "DATADOG" && (
+              <>
+                <p className="text-xs text-ice">
+                  Paste this exact JSON as the webhook&apos;s payload template in Datadog (it
+                  substitutes the <span className="font-mono">$VARIABLE</span> tokens before
+                  sending) — then add it as a notification target on any monitor, e.g.{" "}
+                  <span className="font-mono">@webhook-resolution</span>. Only Triggered/
+                  Re-Triggered alerts create an incident; other transitions (Recovered, Warn,
+                  …) update nothing.
+                </p>
+                <pre className="overflow-x-auto rounded bg-white/10 px-3 py-2 font-mono text-xs">
+{`{
+  "alert_id": "$ALERT_ID",
+  "alert_transition": "$ALERT_TRANSITION",
+  "alert_title": "$ALERT_TITLE",
+  "alert_query": "$ALERT_QUERY",
+  "event_msg": "$EVENT_MSG",
+  "priority": "$ALERT_PRIORITY",
+  "host": "$HOSTNAME",
+  "tags": "$TAGS",
+  "link": "$LINK"
+}`}
+                </pre>
+              </>
             )}
             <Button size="sm" variant="secondary" className="self-start" onClick={() => setWebhookNotice(null)}>
               Dismiss
@@ -211,6 +239,7 @@ function CreateIntegrationForm({
     try {
       const config: Record<string, unknown> = {};
       if ((type === "JIRA" || type === "SERVICENOW") && baseUrl) config.baseUrl = baseUrl;
+      if (type === "DATADOG" && baseUrl) config.site = baseUrl;
 
       const res = await apiRequest<{
         integration: IntegrationSummary;
@@ -261,13 +290,19 @@ function CreateIntegrationForm({
               <Input id="int-name" required value={name} onChange={(e) => setName(e.target.value)} />
             </div>
           </div>
-          {(type === "JIRA" || type === "SERVICENOW") && (
+          {(type === "JIRA" || type === "SERVICENOW" || type === "DATADOG") && (
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="int-base-url">{type === "JIRA" ? "Jira site URL" : "ServiceNow instance URL"}</Label>
+              <Label htmlFor="int-base-url">
+                {type === "JIRA" ? "Jira site URL" : type === "SERVICENOW" ? "ServiceNow instance URL" : "Datadog site (optional)"}
+              </Label>
               <Input
                 id="int-base-url"
                 placeholder={
-                  type === "JIRA" ? "https://your-domain.atlassian.net" : "https://your-instance.service-now.com"
+                  type === "JIRA"
+                    ? "https://your-domain.atlassian.net"
+                    : type === "SERVICENOW"
+                      ? "https://your-instance.service-now.com"
+                      : "datadoghq.com (default) · datadoghq.eu · us3.datadoghq.com · …"
                 }
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
@@ -294,6 +329,15 @@ function CreateIntegrationForm({
               <p className="text-xs text-subink">
                 Use a BASIC_AUTH credential with a ServiceNow username and password that
                 has Table API access.
+              </p>
+            )}
+            {type === "DATADOG" && (
+              <p className="text-xs text-subink">
+                Use a CUSTOM credential with fields <span className="font-mono">apiKey</span>{" "}
+                and <span className="font-mono">applicationKey</span> — an API key and an
+                Application key from Organization Settings in Datadog. The same credential
+                also works on a Datadog Map Server (Map Servers page) for the agent to query
+                metrics/logs and mute monitors during investigation and remediation.
               </p>
             )}
           </div>
