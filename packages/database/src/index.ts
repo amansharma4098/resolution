@@ -20,6 +20,7 @@ export * from "./repositories/rca-repository";
 export * from "./repositories/automation-policy-repository";
 export * from "./repositories/remediation-repository";
 export * from "./repositories/audit-log-repository";
+export * from "./repositories/credit-wallet-repository";
 export * from "./audit-log-writer";
 export * from "./json-field";
 // Deliberately not `export * from "@prisma/client"` — its generated model types (Credential,

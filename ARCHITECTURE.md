@@ -294,7 +294,7 @@ MapServerCapability, Incident, IncidentEvent, IncidentEvidence, Investigation,
 InvestigationStep, RootCauseAnalysis, Resolution, RemediationAction, Approval,
 Verification, KnowledgeDocument, KnowledgeEmbedding, Runbook, RunbookStep,
 AutomationPolicy, AuditLog, AgentExecution, WebhookEvent, Notification, UsageMetric,
-Subscription`
+Subscription, PasswordResetToken, ApiKey, CreditWallet, CreditTransaction`
 
 Normalized incident shape (every source maps into this on ingestion):
 
@@ -330,6 +330,7 @@ error shape `{ error: { code, message, requestId } }`. Full contract per route:
 /api/api-keys  /api/api-keys/:id       (bearer-key management, session-authenticated)
 /api/mcp                               (JSON-RPC, bearer-key authenticated — docs/mcp-server.md)
 /api/chat                              (in-app assistant, session-authenticated — docs/chat.md)
+/api/billing/wallet  /api/billing/checkout  (Owner-only, session-authenticated — docs/billing.md)
 /api/integrations
 /api/knowledge
 /api/runbooks
@@ -339,6 +340,7 @@ error shape `{ error: { code, message, requestId } }`. Full contract per route:
 /api/webhooks/servicenow  (signature verified, 202 immediately, queued)
 /api/webhooks/webhook     (generic connector, secret-header verified, 202 immediately, queued — docs/webhooks.md)
 /api/webhooks/datadog     (real auto-alerting — a monitor firing creates an incident — docs/datadog.md)
+/api/webhooks/stripe      (real signature verified — credits a wallet on a completed purchase — docs/billing.md)
 ```
 
 ## 10. Background processing

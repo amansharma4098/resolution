@@ -63,7 +63,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <span className="font-display text-lg font-semibold text-navy">resolution</span>
         </div>
         <nav className="flex flex-1 flex-col gap-0.5 p-2">
-          {NAV_ITEMS.map((item) => {
+          {NAV_ITEMS.filter((item) => !item.minRole || currentOrganization?.role === item.minRole).map((item) => {
             const isActive = pathname === item.href;
             if (item.builtInPhase) {
               return (

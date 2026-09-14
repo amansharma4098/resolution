@@ -632,9 +632,55 @@ real, end-to-end, both as a Map Server and as an incident source — see `docs/d
 - [ ] `MOCK` badge component + enforcement (never disguised as real)
 - [ ] `MOCK_MODE=true` full end-to-end demo path
 
-## Phase 11 — Billing
-- [ ] `BillingProvider` abstraction (Stripe adapter), plans, metering off `UsageMetric`
-- [ ] Billing UI
+## Phase 11 — Billing ✅ mostly complete — see the Interlude below for what shipped
+- [x] Stripe adapter (`packages/billing`) + `CreditWallet`/`CreditTransaction` + Billing UI —
+      one-time credit-pack purchases, real end to end
+- [ ] Auto-recharge (off-session charge on a saved card when the balance crosses a
+      threshold) — `CreditWallet`'s fields for this exist, nothing charges yet
+- [ ] Real consumption debiting off actual LLM token usage / remediation execution — the
+      ledger (`CreditWalletRepository.applyTransaction`) is ready for it, nothing calls it
+      with `type: "CONSUMPTION"` yet
+- [ ] Low-balance handling (pause new investigations, alert the Owner) — see the original
+      spec's Billing & Credits section
+- [ ] `BillingProvider` abstraction generalized beyond Stripe (metering off `UsageMetric`,
+      recurring `Subscription` plans) — out of scope for the credits-first approach actually
+      built; `Subscription`/`UsageMetric` remain unused placeholder tables
+
+## Interlude — self-serve billing: one-time credit packs via Stripe ✅ complete (foundation)
+
+Not a planned phase in this order — added on explicit direction ("pivot and implement this
+new build spec"), picking Billing & Credits as the first net-new area per that spec's own
+"ships early, not as a late-stage add-on" framing (§16, Phase 2 in the new spec's ordering).
+See `docs/billing.md`.
+
+- [x] `packages/billing` — `CREDIT_PACKS` (Starter/Growth/Scale, one-time purchase at 20%
+      off the `BASELINE_CENTS_PER_CREDIT` auto-recharge rate, on explicit direction) and a
+      real Stripe REST client (`StripeClient`, plain `fetch` — no SDK, same reasoning as
+      every other external client in this codebase) — `createCheckoutSession` and
+      `verifyStripeSignature` (HMAC-SHA256 via Web Crypto, the same discipline as every
+      other webhook-secret check in this codebase, just Stripe's own signature scheme
+      instead of a shared secret)
+- [x] `CreditWallet` (one per tenant, created lazily) / `CreditTransaction` (an append-only
+      ledger — every balance change is one row, never a silent mutation) — new migration
+      `00000000000006_add_credit_wallet`. `CreditWalletRepository.applyTransaction` is
+      idempotent on `stripeCheckoutSessionId` (checked before writing, and via the schema's
+      own unique constraint as a race-safe backstop) so a redelivered Stripe webhook event
+      never double-credits
+- [x] `POST /api/billing/checkout` (Owner-only) creates a real Stripe Checkout Session;
+      `POST /api/webhooks/stripe` verifies the real signature and credits the wallet on
+      `checkout.session.completed` with `payment_status: "paid"` — never on the strength of
+      session creation alone
+- [x] No `STRIPE_SECRET_KEY` configured means checkout applies the purchase directly instead
+      of a real charge, labeled `mock: true` — same disclosed, zero-cost-by-default fallback
+      as every other real-provider integration in this codebase, so the whole
+      purchase → wallet loop is exercisable with zero external accounts
+- [x] `apps/web` `/dashboard/billing` — balance, pack cards (discounted price shown next to
+      the crossed-out baseline), transaction history; nav item gated to `OWNER` only (a new
+      `NavItem.minRole` field, not a full per-item RBAC nav rework — narrowly scoped to what
+      this one page needed)
+- [x] 29 new tests (`packages/billing`: 13, `apps/api`: 16 across `billing.test.ts` and
+      `stripe-webhook.test.ts`) — full typecheck/lint/test green across the monorepo (395
+      tests total), plus a real `next build` confirming `/dashboard/billing` prerenders
 
 ## Phase 12 — Production hardening
 - [ ] Security review pass (`security-review` skill) on full diff

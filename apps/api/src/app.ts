@@ -22,6 +22,7 @@ import { buildAutomationPolicyRoutes } from "./routes/automation-policies";
 import { buildAuditLogRoutes } from "./routes/audit-logs";
 import { buildMetricsRoutes } from "./routes/metrics";
 import { buildPlatformRoutes } from "./routes/platform";
+import { buildBillingRoutes } from "./routes/billing";
 import { buildWebhookRoutes } from "./routes/webhooks";
 import { createInlineIngestionQueue } from "./queue/inline-queue";
 import { createInlineInvestigationQueue } from "./queue/inline-investigation-queue";
@@ -179,6 +180,7 @@ export function buildApp({
   app.route("/api/audit-logs", buildAuditLogRoutes({ db, env, organizationRepository }));
   app.route("/api/metrics", buildMetricsRoutes({ db, env, organizationRepository }));
   app.route("/api/platform", buildPlatformRoutes({ db, env }));
+  app.route("/api/billing", buildBillingRoutes({ db, env, organizationRepository }));
   app.route("/api/webhooks", buildWebhookRoutes({ db, env, queue: resolvedQueue }));
   app.route("/api/api-keys", buildApiKeyRoutes({ db, env }));
   app.route(

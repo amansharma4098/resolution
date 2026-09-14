@@ -80,6 +80,8 @@ echo -n "<strong random value>" | npx wrangler secret put JWT_SECRET
 echo -n "<openssl rand -base64 32>" | npx wrangler secret put ENCRYPTION_MASTER_KEY
 echo -n "<sk-ant-...>" | npx wrangler secret put ANTHROPIC_API_KEY   # optional — omit to run this deployment on MOCK_MODE's LLM client
 echo -n "<re_...>" | npx wrangler secret put RESEND_API_KEY          # optional — omit to log forgot-password reset links to the console instead
+echo -n "<sk_live_...>" | npx wrangler secret put STRIPE_SECRET_KEY  # optional — omit to apply credit-pack purchases directly instead of a real charge
+echo -n "<whsec_...>" | npx wrangler secret put STRIPE_WEBHOOK_SECRET # only needed alongside STRIPE_SECRET_KEY, to verify POST /api/webhooks/stripe
 npx wrangler deploy
 ```
 
@@ -87,9 +89,9 @@ npx wrangler deploy
 (`INCIDENT_INGESTION_QUEUE`, `INCIDENT_INVESTIGATION_QUEUE`, `INCIDENT_REMEDIATION_QUEUE` —
 see ARCHITECTURE.md §10), and non-secret vars (`CORS_ORIGIN`, `SECRET_PROVIDER`,
 `MOCK_MODE`, `NODE_ENV`, `ANTHROPIC_MODEL`, `EMAIL_FROM`) — safe to commit. `JWT_SECRET`,
-`ENCRYPTION_MASTER_KEY`, `ANTHROPIC_API_KEY` and `RESEND_API_KEY` are set via
-`wrangler secret put` (encrypted server-side) and never appear in `wrangler.toml` or any
-committed file.
+`ENCRYPTION_MASTER_KEY`, `ANTHROPIC_API_KEY`, `RESEND_API_KEY`, `STRIPE_SECRET_KEY` and
+`STRIPE_WEBHOOK_SECRET` are set via `wrangler secret put` (encrypted server-side) and never
+appear in `wrangler.toml` or any committed file.
 `CORS_ORIGIN` must match the Pages URL exactly, and the session cookie is set with
 `SameSite=None; Secure` in production since Pages and the Worker are different sites (see
 ARCHITECTURE.md §2).

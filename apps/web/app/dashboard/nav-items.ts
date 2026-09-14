@@ -5,6 +5,10 @@ export interface NavItem {
    *  broken/fake link until it's real. Never render a nav item as active without a page
    *  behind it. */
   builtInPhase?: number;
+  /** Hides the item entirely (not greyed out — simply absent) for anyone below this role in
+   *  the current organization. Only Billing uses this today — a full per-item RBAC nav
+   *  (Member vs. Admin vs. Owner) is broader scope than this one page needed. */
+  minRole?: "OWNER";
 }
 
 export const NAV_ITEMS: NavItem[] = [
@@ -27,5 +31,5 @@ export const NAV_ITEMS: NavItem[] = [
   // Personal, not org-scoped (ApiKey.userId, no tenantId) — the only nav item that
   // isn't really "about this organization," same as the account-level /change-password.
   { label: "API Keys", href: "/dashboard/api-keys" },
-  { label: "Billing", href: "/dashboard/billing", builtInPhase: 11 },
+  { label: "Billing & Credits", href: "/dashboard/billing", minRole: "OWNER" },
 ];

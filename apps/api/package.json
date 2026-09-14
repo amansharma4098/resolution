@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@resolution/ai": "*",
+    "@resolution/billing": "*",
     "@resolution/credentials": "*",
     "@resolution/database": "*",
     "@resolution/email": "*",

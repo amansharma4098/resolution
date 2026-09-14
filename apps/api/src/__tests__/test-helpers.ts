@@ -19,6 +19,20 @@ export const testEnv = loadEnv({
   MOCK_MODE: "true",
 });
 
+/** `testEnv` plus overrides — for a test that needs a var `testEnv` deliberately leaves
+ *  unset (e.g. STRIPE_SECRET_KEY, to exercise a real-provider code path instead of that
+ *  var's absence-triggered mock fallback). Pass the result as `buildTestApp`'s `env`
+ *  option. */
+export function loadEnvForTest(overrides: Record<string, string | undefined>): ReturnType<typeof loadEnv> {
+  return loadEnv({
+    NODE_ENV: "test",
+    JWT_SECRET: "test-secret-at-least-32-characters-long",
+    CORS_ORIGIN: "http://localhost:3000",
+    MOCK_MODE: "true",
+    ...overrides,
+  });
+}
+
 /** Real envelope encryption (not a fake) with a fresh random key per test app instance —
  *  exercises packages/credentials end to end through the HTTP layer, not just its own
  *  unit tests.
@@ -80,10 +94,19 @@ export function createScriptedLlmClient(turns: LlmTurnResult[]): ScriptedLlmClie
 }
 
 export function buildTestApp(
-  options: { chainInvestigation?: boolean; chainRemediation?: boolean; chatLlmClient?: LlmClient } = {},
+  options: {
+    chainInvestigation?: boolean;
+    chainRemediation?: boolean;
+    chatLlmClient?: LlmClient;
+    /** Overrides testEnv — e.g. to set STRIPE_SECRET_KEY/STRIPE_WEBHOOK_SECRET for a test
+     *  that exercises the real-Stripe path instead of billing's default mock-checkout
+     *  fallback. */
+    env?: ReturnType<typeof loadEnv>;
+  } = {},
 ): { app: Hono<AppEnv>; db: ReturnType<typeof createFakeDb>; emailSender: CapturingEmailSender } {
   const db = createFakeDb();
   const prismaDb = db as unknown as PrismaClient;
+  const env = options.env ?? testEnv;
   const secretProvider = new EncryptedDbSecretProvider(randomBytes(32).toString("base64"));
   const remediationQueue = createInlineRemediationQueue(prismaDb, {
     mockMode: true,
@@ -101,7 +124,7 @@ export function buildTestApp(
   const emailSender = createCapturingEmailSender();
   const app = buildApp({
     db: prismaDb,
-    env: testEnv,
+    env,
     secretProvider,
     incidentInvestigationQueue: investigationQueue,
     incidentRemediationQueue: remediationQueue,

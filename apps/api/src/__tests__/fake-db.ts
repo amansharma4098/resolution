@@ -37,6 +37,32 @@ export interface FakeApiKey {
   revokedAt: Date | null;
 }
 
+export interface FakeCreditWallet {
+  id: string;
+  tenantId: string;
+  balance: number;
+  currency: string;
+  autoRechargeEnabled: boolean;
+  autoRechargeThresholdCredits: number | null;
+  autoRechargeAmountCredits: number | null;
+  stripeCustomerId: string | null;
+  stripePaymentMethodId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface FakeCreditTransaction {
+  id: string;
+  tenantId: string;
+  type: string;
+  amount: number;
+  relatedEntityType: string | null;
+  relatedEntityId: string | null;
+  balanceAfter: number;
+  stripeCheckoutSessionId: string | null;
+  createdAt: Date;
+}
+
 export interface FakeOrganization {
   id: string;
   name: string;
@@ -287,6 +313,20 @@ export interface FakeDb {
     findMany(args: { where: { userId: string }; orderBy?: { createdAt: "asc" | "desc" } }): Promise<FakeApiKey[]>;
     update(args: { where: { id: string }; data: Partial<FakeApiKey> }): Promise<FakeApiKey>;
   };
+  creditWallet: {
+    create(args: { data: Partial<FakeCreditWallet> }): Promise<FakeCreditWallet>;
+    findUnique(args: { where: { tenantId: string } }): Promise<FakeCreditWallet | null>;
+    update(args: { where: { tenantId: string }; data: Partial<FakeCreditWallet> }): Promise<FakeCreditWallet>;
+  };
+  creditTransaction: {
+    create(args: { data: Partial<FakeCreditTransaction> }): Promise<FakeCreditTransaction>;
+    findUnique(args: { where: { stripeCheckoutSessionId: string } }): Promise<FakeCreditTransaction | null>;
+    findMany(args: {
+      where: { tenantId: string };
+      orderBy?: { createdAt: "asc" | "desc" };
+      take?: number;
+    }): Promise<FakeCreditTransaction[]>;
+  };
   organization: {
     create(args: { data: Partial<FakeOrganization> }): Promise<FakeOrganization>;
     findUnique(args: { where: { id?: string; slug?: string } }): Promise<FakeOrganization | null>;
@@ -455,6 +495,8 @@ export interface FakeDb {
     users: FakeUser[];
     passwordResetTokens: FakePasswordResetToken[];
     apiKeys: FakeApiKey[];
+    creditWallets: FakeCreditWallet[];
+    creditTransactions: FakeCreditTransaction[];
     organizations: FakeOrganization[];
     memberships: FakeMembership[];
     credentials: FakeCredential[];
@@ -479,6 +521,8 @@ export function createFakeDb(): FakeDb {
   const users: FakeUser[] = [];
   const passwordResetTokens: FakePasswordResetToken[] = [];
   const apiKeys: FakeApiKey[] = [];
+  const creditWallets: FakeCreditWallet[] = [];
+  const creditTransactions: FakeCreditTransaction[] = [];
   const organizations: FakeOrganization[] = [];
   const memberships: FakeMembership[] = [];
   const credentials: FakeCredential[] = [];
@@ -613,6 +657,71 @@ export function createFakeDb(): FakeDb {
         if (!apiKey) throw new Error(`fake api key ${where.id} not found`);
         Object.assign(apiKey, data);
         return apiKey;
+      },
+    },
+    creditWallet: {
+      async create({ data }: { data: Partial<FakeCreditWallet> }) {
+        const wallet: FakeCreditWallet = {
+          id: randomUUID(),
+          tenantId: data.tenantId!,
+          balance: data.balance ?? 0,
+          currency: data.currency ?? "usd",
+          autoRechargeEnabled: data.autoRechargeEnabled ?? false,
+          autoRechargeThresholdCredits: data.autoRechargeThresholdCredits ?? null,
+          autoRechargeAmountCredits: data.autoRechargeAmountCredits ?? null,
+          stripeCustomerId: data.stripeCustomerId ?? null,
+          stripePaymentMethodId: data.stripePaymentMethodId ?? null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        creditWallets.push(wallet);
+        return wallet;
+      },
+      async findUnique({ where }: { where: { tenantId: string } }) {
+        return creditWallets.find((w) => w.tenantId === where.tenantId) ?? null;
+      },
+      async update({ where, data }: { where: { tenantId: string }; data: Partial<FakeCreditWallet> }) {
+        const wallet = creditWallets.find((w) => w.tenantId === where.tenantId);
+        if (!wallet) throw new Error(`fake credit wallet for tenant ${where.tenantId} not found`);
+        Object.assign(wallet, data, { updatedAt: new Date() });
+        return wallet;
+      },
+    },
+    creditTransaction: {
+      async create({ data }: { data: Partial<FakeCreditTransaction> }) {
+        const transaction: FakeCreditTransaction = {
+          id: randomUUID(),
+          tenantId: data.tenantId!,
+          type: data.type!,
+          amount: data.amount!,
+          relatedEntityType: data.relatedEntityType ?? null,
+          relatedEntityId: data.relatedEntityId ?? null,
+          balanceAfter: data.balanceAfter!,
+          stripeCheckoutSessionId: data.stripeCheckoutSessionId ?? null,
+          createdAt: new Date(),
+        };
+        creditTransactions.push(transaction);
+        return transaction;
+      },
+      async findUnique({ where }: { where: { stripeCheckoutSessionId: string } }) {
+        return creditTransactions.find((t) => t.stripeCheckoutSessionId === where.stripeCheckoutSessionId) ?? null;
+      },
+      async findMany({
+        where,
+        orderBy,
+        take,
+      }: {
+        where: { tenantId: string };
+        orderBy?: { createdAt: "asc" | "desc" };
+        take?: number;
+      }) {
+        let rows = creditTransactions.filter((t) => t.tenantId === where.tenantId);
+        rows = [...rows].sort((a, b) =>
+          orderBy?.createdAt === "asc"
+            ? a.createdAt.getTime() - b.createdAt.getTime()
+            : b.createdAt.getTime() - a.createdAt.getTime(),
+        );
+        return take !== undefined ? rows.slice(0, take) : rows;
       },
     },
     organization: {
@@ -1238,6 +1347,8 @@ export function createFakeDb(): FakeDb {
       users,
       passwordResetTokens,
       apiKeys,
+      creditWallets,
+      creditTransactions,
       organizations,
       memberships,
       credentials,

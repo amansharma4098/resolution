@@ -111,8 +111,60 @@ model Organization {
   notifications      Notification[]
   usageMetrics       UsageMetric[]
   subscription       Subscription?
+  creditWallet       CreditWallet?
+  creditTransactions CreditTransaction[]
 
   @@index([slug])
+}
+
+// ─────────────────────────── Billing & credits ───────────────────────────
+
+// One wallet per tenant, created lazily on first touch (CreditWalletRepository.getOrCreate)
+// rather than at signup — an org that never buys credits never gets a row. Balance is in
+// whole credits (packages/billing's CREDIT_PACKS defines what a credit is worth); every
+// change to `balance` is written alongside a CreditTransaction in the same batch write
+// (D1 has no interactive transactions — see OrganizationRepository.createWithOwner's
+// comment — so this is the same pre-computed-then-batched pattern), never updated alone.
+model CreditWallet {
+  id                           String   @id @default(uuid())
+  tenantId                     String   @unique
+  balance                      Int      @default(0)
+  currency                     String   @default("usd")
+  autoRechargeEnabled          Boolean  @default(false)
+  autoRechargeThresholdCredits Int?
+  autoRechargeAmountCredits    Int?
+  stripeCustomerId             String?
+  stripePaymentMethodId        String?
+  createdAt                    DateTime @default(now())
+  updatedAt                    DateTime @updatedAt
+
+  organization Organization @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+// The append-only ledger — every balance change (a Stripe purchase, real usage debited off
+// an AgentExecution, a manual refund/bonus) is one row here, never just a silent balance
+// mutation. `amount` is always a positive magnitude; `type` says which direction it moved
+// the balance (PURCHASE/BONUS/TRIAL_GRANT/REFUND add, CONSUMPTION subtracts) —
+// CreditWalletRepository.applyTransaction is the only place that interprets it either way.
+model CreditTransaction {
+  id                      String   @id @default(uuid())
+  tenantId                String
+  // CreditTransactionType: PURCHASE | CONSUMPTION | REFUND | BONUS | TRIAL_GRANT
+  type                    String
+  amount                  Int
+  relatedEntityType       String?
+  relatedEntityId         String?
+  balanceAfter            Int
+  // Stripe Checkout Session id for a PURCHASE row — unique so a redelivered webhook event
+  // can never credit the same purchase twice (ARCHITECTURE.md §7's idempotency rule).
+  stripeCheckoutSessionId String?  @unique
+  createdAt               DateTime @default(now())
+
+  organization Organization @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
 }
 
 model OrganizationMember {

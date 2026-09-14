@@ -42,6 +42,16 @@ const EnvSchema = z.object({
   // reset flow still works end to end, just without a real email landing anywhere.
   RESEND_API_KEY: z.string().optional(),
   EMAIL_FROM: z.string().optional(),
+  // Billing (packages/billing) — a credit-pack purchase. Same no-default, both-unset-means-
+  // fall-back-honestly treatment as every other real-provider integration in this file: no
+  // STRIPE_SECRET_KEY means POST /api/billing/checkout applies the purchase directly
+  // (labeled `mock: true` in the response) instead of a real charge, so the full
+  // purchase → wallet → consumption loop still works with zero external accounts.
+  STRIPE_SECRET_KEY: z.string().optional(),
+  // Required to verify a real Stripe webhook's signature — irrelevant in the mock-checkout
+  // path above, since nothing calls out to Stripe (and therefore nothing webhooks back) in
+  // that case.
+  STRIPE_WEBHOOK_SECRET: z.string().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

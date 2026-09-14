@@ -1,7 +1,9 @@
 import { Hono } from "hono";
 import type { PrismaClient } from "@resolution/database";
-import { IntegrationRepository } from "@resolution/database";
+import { CreditWalletRepository, IntegrationRepository, auditLogWriter } from "@resolution/database";
 import { GenericWebhookPayloadSchema, verifyWebhookSecret } from "@resolution/integrations";
+import { findCreditPack, verifyStripeSignature } from "@resolution/billing";
+import { writeAuditLog } from "@resolution/security";
 import type { Env } from "../env";
 import { NotFoundError } from "../lib/errors";
 import type { AppEnv } from "../types";
@@ -31,7 +33,7 @@ export function buildWebhookRoutes(deps: {
   env: Env;
   queue: IncidentIngestionQueue;
 }): Hono<AppEnv> {
-  const { db, queue } = deps;
+  const { db, env, queue } = deps;
   const router = new Hono<AppEnv>();
 
   router.post("/jira/:integrationId", async (c) => {
@@ -147,6 +149,67 @@ export function buildWebhookRoutes(deps: {
 
     await queue.send({ source: "DATADOG", integrationId, rawBody });
     return c.json({ status: "accepted" }, 202);
+  });
+
+  // Real signature verification (Stripe-Signature header, HMAC-SHA256 — see
+  // packages/billing/src/stripe-client.ts's verifyStripeSignature), unlike every source
+  // above, which relies on a shared secret because the source system doesn't sign its own
+  // requests. A tenant/pack that can't be resolved from the event's own metadata (which
+  // this platform set at checkout-session creation — never client-supplied) is logged and
+  // ignored rather than erroring, since Stripe retries a non-2xx response and there's
+  // nothing productive retrying would fix.
+  router.post("/stripe", async (c) => {
+    if (!env.STRIPE_WEBHOOK_SECRET) throw new NotFoundError("Not found");
+
+    const rawBody = await c.req.text();
+    const valid = await verifyStripeSignature(rawBody, c.req.header("stripe-signature"), env.STRIPE_WEBHOOK_SECRET);
+    if (!valid) throw new NotFoundError("Not found");
+
+    let event: { type?: string; data?: { object?: Record<string, unknown> } };
+    try {
+      event = JSON.parse(rawBody);
+    } catch {
+      return c.json({ error: { code: "VALIDATION_ERROR", message: "Invalid JSON body" } }, 400);
+    }
+
+    if (event.type === "checkout.session.completed") {
+      const session = event.data?.object ?? {};
+      const metadata = (session.metadata as Record<string, string> | undefined) ?? {};
+      const tenantId = metadata.tenantId;
+      const pack = metadata.packId ? findCreditPack(metadata.packId) : undefined;
+      const sessionId = session.id as string | undefined;
+      // Some payment methods settle asynchronously — `checkout.session.completed` can fire
+      // before payment_status actually reaches "paid"; crediting on that would be crediting
+      // for money not actually received yet.
+      const paid = session.payment_status === "paid";
+
+      if (tenantId && pack && sessionId && paid) {
+        const walletRepo = new CreditWalletRepository(db, tenantId);
+        await walletRepo.getOrCreate();
+        if (typeof session.customer === "string") {
+          await walletRepo.setStripeCustomerId(session.customer);
+        }
+        const { alreadyApplied, wallet } = await walletRepo.applyTransaction({
+          type: "PURCHASE",
+          amount: pack.credits,
+          relatedEntityType: "CreditPack",
+          relatedEntityId: pack.id,
+          stripeCheckoutSessionId: sessionId,
+        });
+        if (!alreadyApplied) {
+          await writeAuditLog(auditLogWriter(db), {
+            tenantId,
+            actorType: "system",
+            action: "billing.purchase_completed",
+            targetType: "CreditWallet",
+            targetId: wallet.id,
+            metadata: { packId: pack.id, credits: pack.credits, stripeCheckoutSessionId: sessionId },
+          });
+        }
+      }
+    }
+
+    return c.json({ received: true }, 200);
   });
 
   return router;
