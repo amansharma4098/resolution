@@ -9,7 +9,7 @@ import { investigateIncident, proposeRemediationForIncident, decideRemediationAp
 import type { IncidentInvestigationQueue, IncidentRemediationQueue } from "../queue/types";
 
 const ORG_AND_INCIDENT = {
-  organizationId: { type: "string" as const, description: "The organization the incident belongs to." },
+  tenantId: { type: "string" as const, description: "The organization the incident belongs to." },
   incidentId: { type: "string" as const },
 };
 
@@ -34,38 +34,38 @@ export const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        organizationId: { type: "string", description: "The organization to list incidents for." },
+        tenantId: { type: "string", description: "The organization to list incidents for." },
         status: { type: "string", enum: IncidentStatus.options, description: "Filter by status." },
         limit: { type: "integer", description: "Max incidents to return (default 20, max 100)." },
       },
-      required: ["organizationId"],
+      required: ["tenantId"],
     },
     annotations: { readOnlyHint: true },
   },
   {
     name: "get_incident",
     description: "Get full detail for one incident.",
-    inputSchema: { type: "object", properties: ORG_AND_INCIDENT, required: ["organizationId", "incidentId"] },
+    inputSchema: { type: "object", properties: ORG_AND_INCIDENT, required: ["tenantId", "incidentId"] },
     annotations: { readOnlyHint: true },
   },
   {
     name: "get_rca",
     description: "Get the latest root cause analysis for one incident, if one exists yet.",
-    inputSchema: { type: "object", properties: ORG_AND_INCIDENT, required: ["organizationId", "incidentId"] },
+    inputSchema: { type: "object", properties: ORG_AND_INCIDENT, required: ["tenantId", "incidentId"] },
     annotations: { readOnlyHint: true },
   },
   {
     name: "trigger_investigation",
     description:
       "Start (or restart) an AI investigation for an incident. Only valid from certain statuses (NEW, ESCALATED, FAILED) — the tool reports the current status if it isn't one of those.",
-    inputSchema: { type: "object", properties: ORG_AND_INCIDENT, required: ["organizationId", "incidentId"] },
+    inputSchema: { type: "object", properties: ORG_AND_INCIDENT, required: ["tenantId", "incidentId"] },
     annotations: { readOnlyHint: false },
   },
   {
     name: "propose_remediation",
     description:
       "Ask the Resolution Agent to propose a remediation for an incident whose root cause analysis is already complete (status RCA_COMPLETE). The agent automatically picks whichever connected Map Server (including any org-configured MCP server) can actually perform the fix — the caller never names one.",
-    inputSchema: { type: "object", properties: ORG_AND_INCIDENT, required: ["organizationId", "incidentId"] },
+    inputSchema: { type: "object", properties: ORG_AND_INCIDENT, required: ["tenantId", "incidentId"] },
     annotations: { readOnlyHint: false },
   },
   {
@@ -80,7 +80,7 @@ export const TOOLS = [
         decision: { type: "string", enum: ["APPROVE", "REJECT"] },
         reason: { type: "string", description: "Optional note recorded on the approval." },
       },
-      required: ["organizationId", "incidentId", "approvalId", "decision"],
+      required: ["tenantId", "incidentId", "approvalId", "decision"],
     },
     annotations: { readOnlyHint: false, destructiveHint: true },
   },
@@ -103,9 +103,9 @@ export function textResult(value: unknown, isError = false): ToolResult {
 async function getMembership(
   organizationRepository: OrganizationRepository,
   userId: string,
-  organizationId: string,
+  tenantId: string,
 ): Promise<Membership | null> {
-  return organizationRepository.findMembership(userId, organizationId);
+  return organizationRepository.findMembership(userId, tenantId);
 }
 
 /** Runs a mutating incident-action function and turns its thrown AppError into a tool-level
@@ -142,16 +142,16 @@ export async function callIncidentTool(
     case "list_incidents": {
       const parsed = z
         .object({
-          organizationId: z.string(),
+          tenantId: z.string(),
           status: IncidentStatus.optional(),
           limit: z.number().int().positive().max(100).optional(),
         })
         .safeParse(args);
       if (!parsed.success) return textResult({ error: "Invalid arguments" }, true);
-      if (!(await getMembership(organizationRepository, userId, parsed.data.organizationId))) {
+      if (!(await getMembership(organizationRepository, userId, parsed.data.tenantId))) {
         return textResult({ error: "Organization not found" }, true);
       }
-      const incidents = new IncidentRepository(db, parsed.data.organizationId);
+      const incidents = new IncidentRepository(db, parsed.data.tenantId);
       let list = await incidents.list();
       if (parsed.data.status) list = list.filter((i) => i.status === parsed.data.status);
       list = list.slice(0, parsed.data.limit ?? 20);
@@ -168,24 +168,24 @@ export async function callIncidentTool(
     }
 
     case "get_incident": {
-      const parsed = z.object({ organizationId: z.string(), incidentId: z.string() }).safeParse(args);
+      const parsed = z.object({ tenantId: z.string(), incidentId: z.string() }).safeParse(args);
       if (!parsed.success) return textResult({ error: "Invalid arguments" }, true);
-      if (!(await getMembership(organizationRepository, userId, parsed.data.organizationId))) {
+      if (!(await getMembership(organizationRepository, userId, parsed.data.tenantId))) {
         return textResult({ error: "Organization not found" }, true);
       }
-      const incidents = new IncidentRepository(db, parsed.data.organizationId);
+      const incidents = new IncidentRepository(db, parsed.data.tenantId);
       const incident = await incidents.findById(parsed.data.incidentId);
       if (!incident) return textResult({ error: "Incident not found" }, true);
       return textResult(incident);
     }
 
     case "get_rca": {
-      const parsed = z.object({ organizationId: z.string(), incidentId: z.string() }).safeParse(args);
+      const parsed = z.object({ tenantId: z.string(), incidentId: z.string() }).safeParse(args);
       if (!parsed.success) return textResult({ error: "Invalid arguments" }, true);
-      if (!(await getMembership(organizationRepository, userId, parsed.data.organizationId))) {
+      if (!(await getMembership(organizationRepository, userId, parsed.data.tenantId))) {
         return textResult({ error: "Organization not found" }, true);
       }
-      const incidents = new IncidentRepository(db, parsed.data.organizationId);
+      const incidents = new IncidentRepository(db, parsed.data.tenantId);
       const incident = await incidents.findById(parsed.data.incidentId);
       if (!incident) return textResult({ error: "Incident not found" }, true);
       const rca = await new RootCauseAnalysisRepository(db).findLatestByIncident(incident.id);
@@ -194,18 +194,18 @@ export async function callIncidentTool(
     }
 
     case "trigger_investigation": {
-      const parsed = z.object({ organizationId: z.string(), incidentId: z.string() }).safeParse(args);
+      const parsed = z.object({ tenantId: z.string(), incidentId: z.string() }).safeParse(args);
       if (!parsed.success) return textResult({ error: "Invalid arguments" }, true);
-      if (!(await getMembership(organizationRepository, userId, parsed.data.organizationId))) {
+      if (!(await getMembership(organizationRepository, userId, parsed.data.tenantId))) {
         return textResult({ error: "Organization not found" }, true);
       }
       return runAction(() => investigateIncident({ db, investigationQueue: deps.investigationQueue }, parsed.data));
     }
 
     case "propose_remediation": {
-      const parsed = z.object({ organizationId: z.string(), incidentId: z.string() }).safeParse(args);
+      const parsed = z.object({ tenantId: z.string(), incidentId: z.string() }).safeParse(args);
       if (!parsed.success) return textResult({ error: "Invalid arguments" }, true);
-      if (!(await getMembership(organizationRepository, userId, parsed.data.organizationId))) {
+      if (!(await getMembership(organizationRepository, userId, parsed.data.tenantId))) {
         return textResult({ error: "Organization not found" }, true);
       }
       return runAction(() =>
@@ -216,7 +216,7 @@ export async function callIncidentTool(
     case "decide_approval": {
       const parsed = z
         .object({
-          organizationId: z.string(),
+          tenantId: z.string(),
           incidentId: z.string(),
           approvalId: z.string(),
           decision: z.enum(["APPROVE", "REJECT"]),
@@ -224,7 +224,7 @@ export async function callIncidentTool(
         })
         .safeParse(args);
       if (!parsed.success) return textResult({ error: "Invalid arguments" }, true);
-      const membership = await getMembership(organizationRepository, userId, parsed.data.organizationId);
+      const membership = await getMembership(organizationRepository, userId, parsed.data.tenantId);
       if (!membership) return textResult({ error: "Organization not found" }, true);
       // Same bar as the dashboard's requireMinimumRole("ADMIN") on this route — deciding an
       // approval can execute a real, possibly mutating action, so a plain MEMBER (who can

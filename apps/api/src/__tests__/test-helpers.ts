@@ -123,7 +123,7 @@ export function cookieFrom(response: Response): string {
 export interface TestRequestOptions {
   method?: string;
   cookie?: string;
-  organizationId?: string;
+  tenantId?: string;
   body?: unknown;
 }
 
@@ -137,7 +137,7 @@ export async function req(
   const headers: Record<string, string> = {};
   if (options.body !== undefined) headers["content-type"] = "application/json";
   if (options.cookie) headers.cookie = options.cookie;
-  if (options.organizationId) headers["x-organization-id"] = options.organizationId;
+  if (options.tenantId) headers["x-tenant-id"] = options.tenantId;
 
   return app.request(path, {
     method: options.method ?? "GET",
@@ -154,12 +154,12 @@ export async function jsonOf<T = any>(response: Response): Promise<T> {
 }
 
 /** Signs up a fresh user, creates an organization, and returns everything a route test
- *  needs: the session cookie and the X-Organization-Id header value. */
+ *  needs: the session cookie and the X-Tenant-Id header value. */
 export async function signupWithOrg(
   app: Hono<AppEnv>,
   email: string,
   orgName: string,
-): Promise<{ cookie: string; organizationId: string }> {
+): Promise<{ cookie: string; tenantId: string }> {
   const signup = await req(app, "/api/auth/signup", {
     method: "POST",
     body: { email, password: "correct horse battery staple" },
@@ -168,5 +168,5 @@ export async function signupWithOrg(
 
   const org = await req(app, "/api/organizations", { method: "POST", cookie, body: { name: orgName } });
   const orgBody = (await org.json()) as { organization: { id: string } };
-  return { cookie, organizationId: orgBody.organization.id };
+  return { cookie, tenantId: orgBody.organization.id };
 }

@@ -35,11 +35,11 @@ const fixtureProvider: MapServerProvider = {
 describe("map server routes", () => {
   let app: Hono<AppEnv>;
   let cookie: string;
-  let organizationId: string;
+  let tenantId: string;
 
   beforeEach(async () => {
     ({ app } = buildTestApp());
-    ({ cookie, organizationId } = await signupWithOrg(app, "owner@example.com", "Acme"));
+    ({ cookie, tenantId } = await signupWithOrg(app, "owner@example.com", "Acme"));
   });
 
   afterEach(() => {
@@ -47,7 +47,7 @@ describe("map server routes", () => {
   });
 
   it("the catalog lists every MapServerType, unavailable by default", async () => {
-    const res = await req(app, "/api/map-servers/catalog", { cookie, organizationId });
+    const res = await req(app, "/api/map-servers/catalog", { cookie, tenantId });
     expect(res.status).toBe(200);
     const body = await jsonOf(res);
     const catalog = body.catalog as { type: string; available: boolean }[];
@@ -58,7 +58,7 @@ describe("map server routes", () => {
     const res = await req(app, "/api/map-servers", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { type: "FABRIC", name: "Prod Fabric", environments: ["prod"], config: {} },
     });
     expect(res.status).toBe(201);
@@ -71,12 +71,12 @@ describe("map server routes", () => {
     const created = await req(app, "/api/map-servers", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { type: "FABRIC", name: "Prod Fabric", environments: ["prod"], config: {} },
     });
     const id = (await jsonOf(created)).mapServer.id;
 
-    const tested = await req(app, `/api/map-servers/${id}/test`, { method: "POST", cookie, organizationId });
+    const tested = await req(app, `/api/map-servers/${id}/test`, { method: "POST", cookie, tenantId });
     expect(tested.status).toBe(200);
     const testedBody = await jsonOf(tested);
     expect(testedBody.mapServer.status).toBe("DISCONNECTED");
@@ -88,7 +88,7 @@ describe("map server routes", () => {
     const res = await req(app, "/api/map-servers", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { type: "DATABRICKS", name: "Test Databricks", environments: [], config: {} },
     });
     expect((await jsonOf(res)).mapServer.isMock).toBe(true);
@@ -100,7 +100,7 @@ describe("map server routes", () => {
     const credential = await req(app, "/api/credentials", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: {
         name: "Databricks token",
         provider: "databricks",
@@ -113,12 +113,12 @@ describe("map server routes", () => {
     const created = await req(app, "/api/map-servers", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { type: "DATABRICKS", name: "Test Databricks", credentialId, environments: ["prod"], config: {} },
     });
     const id = (await jsonOf(created)).mapServer.id;
 
-    const tested = await req(app, `/api/map-servers/${id}/test`, { method: "POST", cookie, organizationId });
+    const tested = await req(app, `/api/map-servers/${id}/test`, { method: "POST", cookie, tenantId });
     const testedBody = await jsonOf(tested);
     expect(testedBody.mapServer.status).toBe("CONNECTED");
     expect(testedBody.detail).toBe("fixture always healthy");
@@ -128,7 +128,7 @@ describe("map server routes", () => {
     const res = await req(app, "/api/map-servers", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { type: "NOT_A_REAL_TYPE", name: "x", environments: [], config: {} },
     });
     expect(res.status).toBe(400);
@@ -139,7 +139,7 @@ describe("map server routes", () => {
     const cred = await req(app, "/api/credentials", {
       method: "POST",
       cookie: otherCred.cookie,
-      organizationId: otherCred.organizationId,
+      tenantId: otherCred.tenantId,
       body: { name: "Not yours", provider: "aws", authenticationType: "API_KEY", payload: { apiKey: "x" } },
     });
     const credentialId = (await jsonOf(cred)).credential.id;
@@ -147,7 +147,7 @@ describe("map server routes", () => {
     const res = await req(app, "/api/map-servers", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { type: "AWS", name: "x", credentialId, environments: [], config: {} },
     });
     expect(res.status).toBe(400);
@@ -157,11 +157,11 @@ describe("map server routes", () => {
 describe("map server capability toggling (Fabric, the first real registered provider)", () => {
   let app: Hono<AppEnv>;
   let cookie: string;
-  let organizationId: string;
+  let tenantId: string;
 
   beforeEach(async () => {
     ({ app } = buildTestApp());
-    ({ cookie, organizationId } = await signupWithOrg(app, "owner@example.com", "Acme"));
+    ({ cookie, tenantId } = await signupWithOrg(app, "owner@example.com", "Acme"));
     registerMapServer(fabricProvider);
   });
 
@@ -173,12 +173,12 @@ describe("map server capability toggling (Fabric, the first real registered prov
     const created = await req(app, "/api/map-servers", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { type: "FABRIC", name: "Prod Fabric", environments: ["prod"], config: {} },
     });
     const id = (await jsonOf(created)).mapServer.id;
 
-    const detail = await req(app, `/api/map-servers/${id}`, { cookie, organizationId });
+    const detail = await req(app, `/api/map-servers/${id}`, { cookie, tenantId });
     const body = await jsonOf(detail);
     expect(body.capabilities).toHaveLength(5);
     expect(body.capabilities.every((c: { enabled: boolean }) => c.enabled === false)).toBe(true);
@@ -195,7 +195,7 @@ describe("map server capability toggling (Fabric, the first real registered prov
     const created = await req(app, "/api/map-servers", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { type: "FABRIC", name: "Prod Fabric", environments: ["prod"], config: {} },
     });
     const id = (await jsonOf(created)).mapServer.id;
@@ -203,13 +203,13 @@ describe("map server capability toggling (Fabric, the first real registered prov
     const res = await req(app, `/api/map-servers/${id}/capabilities/get_workspace`, {
       method: "PATCH",
       cookie,
-      organizationId,
+      tenantId,
       body: { enabled: true },
     });
     expect(res.status).toBe(200);
     expect((await jsonOf(res)).capability.enabled).toBe(true);
 
-    const detail = await req(app, `/api/map-servers/${id}`, { cookie, organizationId });
+    const detail = await req(app, `/api/map-servers/${id}`, { cookie, tenantId });
     const capabilities = (await jsonOf(detail)).capabilities as { key: string; enabled: boolean }[];
     expect(capabilities.find((c) => c.key === "get_workspace")!.enabled).toBe(true);
     expect(capabilities.find((c) => c.key === "get_pipeline")!.enabled).toBe(false);
@@ -219,7 +219,7 @@ describe("map server capability toggling (Fabric, the first real registered prov
     const created = await req(app, "/api/map-servers", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { type: "FABRIC", name: "Prod Fabric", environments: [], config: {} },
     });
     const id = (await jsonOf(created)).mapServer.id;
@@ -227,7 +227,7 @@ describe("map server capability toggling (Fabric, the first real registered prov
     const res = await req(app, `/api/map-servers/${id}/capabilities/not_a_real_capability`, {
       method: "PATCH",
       cookie,
-      organizationId,
+      tenantId,
       body: { enabled: true },
     });
     expect(res.status).toBe(404);
@@ -237,12 +237,12 @@ describe("map server capability toggling (Fabric, the first real registered prov
     const created = await req(app, "/api/map-servers", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { type: "SPLUNK", name: "Splunk", environments: [], config: {} },
     });
     const id = (await jsonOf(created)).mapServer.id;
 
-    const detail = await req(app, `/api/map-servers/${id}`, { cookie, organizationId });
+    const detail = await req(app, `/api/map-servers/${id}`, { cookie, tenantId });
     expect((await jsonOf(detail)).capabilities).toHaveLength(0);
   });
 });

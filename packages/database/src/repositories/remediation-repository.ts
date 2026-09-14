@@ -112,7 +112,7 @@ function toVerification(row: {
 }
 
 /**
- * Not a TenantScopedRepository — none of these four tables carry organizationId directly
+ * Not a TenantScopedRepository — none of these four tables carry tenantId directly
  * (Resolution belongs to Incident, RemediationAction to Resolution, Approval/Verification to
  * RemediationAction). Same trust relationship as IncidentEvidenceRepository/
  * RootCauseAnalysisRepository: every call site here is reached only after the caller has

@@ -7,7 +7,7 @@ describe("writeAuditLog", () => {
     const db = { auditLog: { create } };
 
     await writeAuditLog(db, {
-      organizationId: "org-1",
+      tenantId: "org-1",
       actorType: "user",
       actorId: "user-1",
       action: "credential.created",
@@ -16,7 +16,7 @@ describe("writeAuditLog", () => {
 
     expect(create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        organizationId: "org-1",
+        tenantId: "org-1",
         action: "credential.created",
         metadata: { provider: "jira" },
       }),
@@ -28,7 +28,7 @@ describe("writeAuditLog", () => {
     const db = { auditLog: { create } };
 
     await writeAuditLog(db, {
-      organizationId: "org-1",
+      tenantId: "org-1",
       actorType: "user",
       action: "credential.created",
       metadata: { password: "hunter2", apiKey: "sk-live-abc", provider: "aws" },

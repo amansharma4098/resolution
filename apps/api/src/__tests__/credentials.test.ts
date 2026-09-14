@@ -6,18 +6,18 @@ import type { AppEnv } from "../types";
 describe("credential routes", () => {
   let app: Hono<AppEnv>;
   let cookie: string;
-  let organizationId: string;
+  let tenantId: string;
 
   beforeEach(async () => {
     ({ app } = buildTestApp());
-    ({ cookie, organizationId } = await signupWithOrg(app, "owner@example.com", "Acme"));
+    ({ cookie, tenantId } = await signupWithOrg(app, "owner@example.com", "Acme"));
   });
 
   it("creates a credential and never returns the secret or encryptedData", async () => {
     const res = await req(app, "/api/credentials", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: {
         name: "Fabric service principal",
         provider: "microsoft-fabric",
@@ -36,13 +36,13 @@ describe("credential routes", () => {
     const res = await req(app, "/api/credentials", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { name: "Bad", provider: "aws", authenticationType: "API_KEY", payload: { wrongField: "x" } },
     });
     expect(res.status).toBe(400);
   });
 
-  it("requires the X-Organization-Id header", async () => {
+  it("requires the X-Tenant-Id header", async () => {
     const res = await req(app, "/api/credentials", { cookie });
     expect(res.status).toBe(404);
   });
@@ -57,7 +57,7 @@ describe("credential routes", () => {
     const res = await req(app, "/api/credentials/00000000-0000-0000-0000-000000000000", {
       method: "DELETE",
       cookie,
-      organizationId,
+      tenantId,
     });
     // Owner has ADMIN+ so this reaches the handler and 404s on the nonexistent id —
     // proving the role gate passed through rather than blocking the owner.
@@ -68,12 +68,12 @@ describe("credential routes", () => {
     const created = await req(app, "/api/credentials", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { name: "Datadog key", provider: "datadog", authenticationType: "API_KEY", payload: { apiKey: "dd-key-123" } },
     });
     const id = (await jsonOf(created)).credential.id;
 
-    const tested = await req(app, `/api/credentials/${id}/test`, { method: "POST", cookie, organizationId });
+    const tested = await req(app, `/api/credentials/${id}/test`, { method: "POST", cookie, tenantId });
     expect(tested.status).toBe(200);
     expect((await jsonOf(tested)).credential.status).toBe("VALID");
   });
@@ -82,7 +82,7 @@ describe("credential routes", () => {
     const created = await req(app, "/api/credentials", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: {
         name: "Datadog key",
         provider: "datadog",
@@ -95,7 +95,7 @@ describe("credential routes", () => {
     const rotated = await req(app, `/api/credentials/${id}/rotate`, {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { payload: { apiKey: "dd-key-newvalue" } },
     });
     expect(rotated.status).toBe(200);
@@ -108,7 +108,7 @@ describe("credential routes", () => {
     const created = await req(app, "/api/credentials", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { name: "Secret", provider: "aws", authenticationType: "API_KEY", payload: { apiKey: "aws-key-0000" } },
     });
     const id = (await jsonOf(created)).credential.id;
@@ -116,7 +116,7 @@ describe("credential routes", () => {
     const other = await signupWithOrg(app, "other@example.com", "Other Org");
     const res = await req(app, `/api/credentials/${id}`, {
       cookie: other.cookie,
-      organizationId: other.organizationId,
+      tenantId: other.tenantId,
     });
     expect(res.status).toBe(404);
   });
@@ -125,15 +125,15 @@ describe("credential routes", () => {
     const created = await req(app, "/api/credentials", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { name: "To delete", provider: "aws", authenticationType: "API_KEY", payload: { apiKey: "aws-key-1111" } },
     });
     const id = (await jsonOf(created)).credential.id;
 
-    const del = await req(app, `/api/credentials/${id}`, { method: "DELETE", cookie, organizationId });
+    const del = await req(app, `/api/credentials/${id}`, { method: "DELETE", cookie, tenantId });
     expect(del.status).toBe(204);
 
-    const get = await req(app, `/api/credentials/${id}`, { cookie, organizationId });
+    const get = await req(app, `/api/credentials/${id}`, { cookie, tenantId });
     expect(get.status).toBe(404);
   });
 });

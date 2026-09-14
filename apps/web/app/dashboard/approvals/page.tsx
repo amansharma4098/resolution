@@ -23,17 +23,17 @@ interface PendingApproval {
  *  (it needs the full RCA/evidence context to decide responsibly); this page is purely "what
  *  needs my attention right now", so each row links straight there. */
 export default function ApprovalsPage() {
-  const { currentOrganizationId } = useSession();
+  const { currentTenantId } = useSession();
   const [pending, setPending] = useState<PendingApproval[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!currentOrganizationId) return;
+    if (!currentTenantId) return;
     setLoading(true);
     try {
       const res = await apiRequest<{ pending: PendingApproval[] }>("/api/incidents/approvals/pending", {
-        organizationId: currentOrganizationId,
+        tenantId: currentTenantId,
       });
       setPending(res.pending);
       setError(null);
@@ -42,7 +42,7 @@ export default function ApprovalsPage() {
     } finally {
       setLoading(false);
     }
-  }, [currentOrganizationId]);
+  }, [currentTenantId]);
 
   useEffect(() => {
     void load();

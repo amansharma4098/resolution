@@ -23,18 +23,18 @@ interface CredentialSummary {
 }
 
 export default function CredentialsPage() {
-  const { currentOrganizationId } = useSession();
+  const { currentTenantId } = useSession();
   const [credentials, setCredentials] = useState<CredentialSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
 
   const load = useCallback(async () => {
-    if (!currentOrganizationId) return;
+    if (!currentTenantId) return;
     setLoading(true);
     try {
       const res = await apiRequest<{ credentials: CredentialSummary[] }>("/api/credentials", {
-        organizationId: currentOrganizationId,
+        tenantId: currentTenantId,
       });
       setCredentials(res.credentials);
     } catch (err) {
@@ -42,24 +42,24 @@ export default function CredentialsPage() {
     } finally {
       setLoading(false);
     }
-  }, [currentOrganizationId]);
+  }, [currentTenantId]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   async function handleAction(action: "test" | "delete", id: string) {
-    if (!currentOrganizationId) return;
+    if (!currentTenantId) return;
     try {
       if (action === "test") {
         await apiRequest(`/api/credentials/${id}/test`, {
           method: "POST",
-          organizationId: currentOrganizationId,
+          tenantId: currentTenantId,
         });
       } else {
         await apiRequest(`/api/credentials/${id}`, {
           method: "DELETE",
-          organizationId: currentOrganizationId,
+          tenantId: currentTenantId,
         });
       }
       await load();
@@ -144,7 +144,7 @@ function CreateCredentialForm({
   onCreated: () => void;
   onError: (msg: string) => void;
 }) {
-  const { currentOrganizationId } = useSession();
+  const { currentTenantId } = useSession();
   const [name, setName] = useState("");
   const [provider, setProvider] = useState("");
   const [authenticationType, setAuthenticationType] = useState<AuthenticationType>("API_KEY");
@@ -154,14 +154,14 @@ function CreateCredentialForm({
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!currentOrganizationId) return;
+    if (!currentTenantId) return;
     setSubmitting(true);
     try {
       const payload =
         authenticationType === "CUSTOM" ? JSON.parse(customJson) : { ...fieldValues };
       await apiRequest("/api/credentials", {
         method: "POST",
-        organizationId: currentOrganizationId,
+        tenantId: currentTenantId,
         body: { name, provider, authenticationType, payload },
       });
       onCreated();

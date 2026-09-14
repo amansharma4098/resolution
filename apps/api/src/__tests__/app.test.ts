@@ -191,7 +191,7 @@ describe("organization routes", () => {
     await req(app, "/api/organizations/members", {
       method: "POST",
       cookie: ownerCookie,
-      organizationId: orgId,
+      tenantId: orgId,
       body: { email: "resmode-member@example.com", role: "MEMBER" },
     });
 

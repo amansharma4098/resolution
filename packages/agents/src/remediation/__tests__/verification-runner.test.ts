@@ -64,7 +64,7 @@ const provider: MapServerProvider = {
 };
 
 const contextFor = async () => ({
-  organizationId: "org1",
+  tenantId: "org1",
   mapServerId: "ms1",
   environment: "default",
   credential: {},

@@ -28,18 +28,18 @@ describe("jira webhook", () => {
   let app: Hono<AppEnv>;
   let db: FakeDb;
   let cookie: string;
-  let organizationId: string;
+  let tenantId: string;
   let integrationId: string;
   let secret: string;
 
   beforeEach(async () => {
     ({ app, db } = buildTestApp());
-    ({ cookie, organizationId } = await signupWithOrg(app, "owner@example.com", "Acme"));
+    ({ cookie, tenantId } = await signupWithOrg(app, "owner@example.com", "Acme"));
 
     const created = await req(app, "/api/integrations", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { type: "JIRA", name: "Team Jira", config: { baseUrl: "https://acme.atlassian.net" } },
     });
     const body = await jsonOf(created);
@@ -50,7 +50,7 @@ describe("jira webhook", () => {
   it("returns the webhook secret only once, at creation", async () => {
     expect(secret).toMatch(/^[0-9a-f]{64}$/);
 
-    const list = await req(app, "/api/integrations", { cookie, organizationId });
+    const list = await req(app, "/api/integrations", { cookie, tenantId });
     const masked = (await jsonOf(list)).integrations[0].config.webhookSecret;
     expect(masked).not.toBe(secret);
     expect(masked).toMatch(/^••••/);
@@ -69,7 +69,7 @@ describe("jira webhook", () => {
     expect(res.status).toBe(202);
     expect((await jsonOf(res)).status).toBe("accepted");
 
-    const list = await req(app, "/api/incidents", { cookie, organizationId });
+    const list = await req(app, "/api/incidents", { cookie, tenantId });
     const incidents = (await jsonOf(list)).incidents;
     expect(incidents).toHaveLength(1);
     expect(incidents[0]).toMatchObject({
@@ -121,7 +121,7 @@ describe("jira webhook", () => {
     });
     expect(second.status).toBe(202);
 
-    const list = await req(app, "/api/incidents", { cookie, organizationId });
+    const list = await req(app, "/api/incidents", { cookie, tenantId });
     expect((await jsonOf(list)).incidents).toHaveLength(1);
   });
 
@@ -154,7 +154,7 @@ describe("jira webhook", () => {
     });
     expect(updated.status).toBe(202);
 
-    const list = await req(app, "/api/incidents", { cookie, organizationId });
+    const list = await req(app, "/api/incidents", { cookie, tenantId });
     expect((await jsonOf(list)).incidents).toHaveLength(1);
   });
 
@@ -166,7 +166,7 @@ describe("jira webhook", () => {
     });
     expect(res.status).toBe(202);
 
-    const list = await req(app, "/api/incidents", { cookie, organizationId });
+    const list = await req(app, "/api/incidents", { cookie, tenantId });
     expect((await jsonOf(list)).incidents).toHaveLength(0);
   });
 
@@ -176,7 +176,7 @@ describe("jira webhook", () => {
       headers: { "content-type": "application/json", "x-webhook-secret": secret },
       body: JSON.stringify(jiraPayload()),
     });
-    const list = await req(app, "/api/incidents", { cookie, organizationId });
+    const list = await req(app, "/api/incidents", { cookie, tenantId });
     const incidentId = (await jsonOf(list)).incidents[0].id;
 
     const events = db._debug.incidentEvents.filter((e) => e.incidentId === incidentId);
@@ -193,7 +193,7 @@ describe("jira webhook", () => {
     });
 
     const other = await signupWithOrg(app, "other@example.com", "Other Org");
-    const list = await req(app, "/api/incidents", { cookie: other.cookie, organizationId: other.organizationId });
+    const list = await req(app, "/api/incidents", { cookie: other.cookie, tenantId: other.tenantId });
     expect((await jsonOf(list)).incidents).toHaveLength(0);
   });
 });

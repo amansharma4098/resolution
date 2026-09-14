@@ -18,7 +18,7 @@ export interface AuditLogWriter {
 
 export interface AuditLogEntry {
   // Nullable: account-level events (signup, login) have no organization yet.
-  organizationId?: string | null;
+  tenantId?: string | null;
   actorType: "user" | "agent" | "system";
   actorId?: string | null;
   action: string;

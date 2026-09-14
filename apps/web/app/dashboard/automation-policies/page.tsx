@@ -50,7 +50,7 @@ interface CapabilityOption {
 }
 
 export default function AutomationPoliciesPage() {
-  const { currentOrganizationId, currentOrganization, refresh } = useSession();
+  const { currentTenantId, currentOrganization, refresh } = useSession();
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [mapServers, setMapServers] = useState<MapServerSummary[]>([]);
   const [capabilityOptions, setCapabilityOptions] = useState<CapabilityOption[]>([]);
@@ -66,13 +66,13 @@ export default function AutomationPoliciesPage() {
   const [formFloor, setFormFloor] = useState<(typeof RESOLUTION_MODES)[number]>("RECOMMEND");
 
   const load = useCallback(async () => {
-    if (!currentOrganizationId) return;
+    if (!currentTenantId) return;
     setLoading(true);
     try {
       const [policiesRes, mapServersRes] = await Promise.all([
-        apiRequest<{ policies: Policy[] }>("/api/automation-policies", { organizationId: currentOrganizationId }),
+        apiRequest<{ policies: Policy[] }>("/api/automation-policies", { tenantId: currentTenantId }),
         apiRequest<{ mapServers: MapServerSummary[] }>("/api/map-servers", {
-          organizationId: currentOrganizationId,
+          tenantId: currentTenantId,
         }),
       ]);
       setPolicies(policiesRes.policies);
@@ -83,7 +83,7 @@ export default function AutomationPoliciesPage() {
     } finally {
       setLoading(false);
     }
-  }, [currentOrganizationId]);
+  }, [currentTenantId]);
 
   useEffect(() => {
     void load();
@@ -94,25 +94,25 @@ export default function AutomationPoliciesPage() {
   // the org hasn't configured one of that type yet.
   useEffect(() => {
     const match = mapServers.find((s) => s.type === formType);
-    if (!match || !currentOrganizationId) {
+    if (!match || !currentTenantId) {
       setCapabilityOptions([]);
       return;
     }
     apiRequest<{ capabilities: CapabilityOption[] }>(`/api/map-servers/${match.id}`, {
-      organizationId: currentOrganizationId,
+      tenantId: currentTenantId,
     })
       .then((res) => setCapabilityOptions(res.capabilities))
       .catch(() => setCapabilityOptions([]));
-  }, [formType, mapServers, currentOrganizationId]);
+  }, [formType, mapServers, currentTenantId]);
 
   const submit = useCallback(
     async (e: FormEvent) => {
       e.preventDefault();
-      if (!currentOrganizationId || !formCapability) return;
+      if (!currentTenantId || !formCapability) return;
       try {
         await apiRequest("/api/automation-policies", {
           method: "PUT",
-          organizationId: currentOrganizationId,
+          tenantId: currentTenantId,
           body: {
             mapServerType: formType,
             capabilityKey: formCapability,
@@ -128,30 +128,30 @@ export default function AutomationPoliciesPage() {
         setError(err instanceof ApiError ? err.message : "Failed to save policy");
       }
     },
-    [currentOrganizationId, formType, formCapability, formRisk, formBehavior, formFloor, load],
+    [currentTenantId, formType, formCapability, formRisk, formBehavior, formFloor, load],
   );
 
   const remove = useCallback(
     async (id: string) => {
-      if (!currentOrganizationId) return;
+      if (!currentTenantId) return;
       try {
-        await apiRequest(`/api/automation-policies/${id}`, { method: "DELETE", organizationId: currentOrganizationId });
+        await apiRequest(`/api/automation-policies/${id}`, { method: "DELETE", tenantId: currentTenantId });
         await load();
       } catch (err) {
         setError(err instanceof ApiError ? err.message : "Failed to delete policy");
       }
     },
-    [currentOrganizationId, load],
+    [currentTenantId, load],
   );
 
   const changeResolutionMode = useCallback(
     async (mode: string) => {
-      if (!currentOrganizationId) return;
+      if (!currentTenantId) return;
       setSavingMode(true);
       try {
-        await apiRequest(`/api/organizations/${currentOrganizationId}`, {
+        await apiRequest(`/api/organizations/${currentTenantId}`, {
           method: "PATCH",
-          organizationId: currentOrganizationId,
+          tenantId: currentTenantId,
           body: { resolutionMode: mode },
         });
         await refresh();
@@ -161,7 +161,7 @@ export default function AutomationPoliciesPage() {
         setSavingMode(false);
       }
     },
-    [currentOrganizationId, refresh],
+    [currentTenantId, refresh],
   );
 
   if (loading) return <p className="text-sm text-subink">Loading…</p>;

@@ -1,8 +1,8 @@
 // AI Incident Resolution Platform — core schema.
 // See ARCHITECTURE.md §8 for the tenant-isolation contract: every tenant-owned model
-// carries organizationId, and it is only ever set server-side from the authenticated
+// carries tenantId, and it is only ever set server-side from the authenticated
 // session — repositories in packages/database/repositories/* enforce this, never trust
-// a client-supplied organizationId.
+// a client-supplied tenantId.
 //
 // Datasource: Cloudflare D1 (SQLite dialect) — see ARCHITECTURE.md §2. SQLite has no
 // native enum type, so every field that would be a Prisma `enum` on Postgres is a `String`
@@ -117,16 +117,16 @@ model Organization {
 
 model OrganizationMember {
   id             String   @id @default(uuid())
-  organizationId String
+  tenantId String
   userId         String
   // Role: OWNER | ADMIN | MEMBER | VIEWER — see packages/security/src/rbac.ts
   role           String   @default("MEMBER")
   createdAt      DateTime @default(now())
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([organizationId, userId])
+  @@unique([tenantId, userId])
   @@index([userId])
 }
 
@@ -134,7 +134,7 @@ model OrganizationMember {
 
 model Credential {
   id   String @id @default(uuid())
-  organizationId String
+  tenantId String
   name           String
   provider       String // e.g. "microsoft-fabric", "jira", "aws" — free-form, validated by the map-server/integration registry
   // AuthenticationType: OAUTH | API_KEY | CLIENT_SECRET | SERVICE_PRINCIPAL | BASIC_AUTH |
@@ -147,18 +147,18 @@ model Credential {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   mapServers   MapServer[]
 
-  @@index([organizationId])
-  @@index([organizationId, provider])
+  @@index([tenantId])
+  @@index([tenantId, provider])
 }
 
 // ─────────────────────────── Integrations (incident sources) ───────────────────────────
 
 model Integration {
   id             String @id @default(uuid())
-  organizationId String
+  tenantId String
   // IncidentSourceType: JIRA | SERVICENOW | PAGERDUTY | WEBHOOK | DATADOG
   type         String
   name         String
@@ -169,18 +169,18 @@ model Integration {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   incidents    Incident[]
 
-  @@index([organizationId])
-  @@index([organizationId, type])
+  @@index([tenantId])
+  @@index([tenantId, type])
 }
 
 // ─────────────────────────── Map Servers ───────────────────────────
 
 model MapServer {
   id             String @id @default(uuid())
-  organizationId String
+  tenantId String
   // MapServerType: FABRIC | DATABRICKS | SNOWFLAKE | AZURE | AWS | GCP | KUBERNETES |
   // DATADOG | SPLUNK | DYNATRACE | NEW_RELIC | AIRFLOW | MCP | CUSTOM — see packages/shared
   type         String
@@ -195,12 +195,12 @@ model MapServer {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   credential   Credential?           @relation(fields: [credentialId], references: [id])
   capabilities MapServerCapability[]
 
-  @@index([organizationId])
-  @@index([organizationId, type])
+  @@index([tenantId])
+  @@index([tenantId, type])
 }
 
 model MapServerCapability {
@@ -224,7 +224,7 @@ model MapServerCapability {
 
 model Incident {
   id             String  @id @default(uuid())
-  organizationId String
+  tenantId String
   integrationId  String?
   externalId     String // ID in the source system
   // IncidentSourceType: JIRA | SERVICENOW | PAGERDUTY | WEBHOOK | DATADOG
@@ -248,7 +248,7 @@ model Incident {
   updatedAt      DateTime  @updatedAt
   resolvedAt     DateTime?
 
-  organization    Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization    Organization        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   integration     Integration?        @relation(fields: [integrationId], references: [id])
   events          IncidentEvent[]
   evidence        IncidentEvidence[]
@@ -257,9 +257,9 @@ model Incident {
   resolutions     Resolution[]
   agentExecutions AgentExecution[]
 
-  @@unique([organizationId, source, externalId])
-  @@index([organizationId, status])
-  @@index([organizationId, createdAt])
+  @@unique([tenantId, source, externalId])
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
 }
 
 model IncidentEvent {
@@ -415,7 +415,7 @@ model Verification {
 
 model KnowledgeDocument {
   id             String   @id @default(uuid())
-  organizationId String
+  tenantId String
   title          String
   sourceType     String // "incident" | "runbook" | "upload" | "manual"
   sourceId       String? // e.g. incidentId when auto-derived
@@ -423,15 +423,15 @@ model KnowledgeDocument {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   embeddings   KnowledgeEmbedding[]
 
-  @@index([organizationId])
+  @@index([tenantId])
 }
 
 model KnowledgeEmbedding {
   id                  String   @id @default(uuid())
-  organizationId      String // duplicated onto the row so ownership is checkable without a join; the actual vector lives in Vectorize under this same id
+  tenantId      String // duplicated onto the row so ownership is checkable without a join; the actual vector lives in Vectorize under this same id
   knowledgeDocumentId String
   chunkIndex           Int
   chunkText            String
@@ -439,23 +439,23 @@ model KnowledgeEmbedding {
 
   document KnowledgeDocument @relation(fields: [knowledgeDocumentId], references: [id], onDelete: Cascade)
 
-  @@index([organizationId])
+  @@index([tenantId])
   @@index([knowledgeDocumentId])
 }
 
 model Runbook {
   id             String   @id @default(uuid())
-  organizationId String
+  tenantId String
   title          String
   description    String?
   service        String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   steps        RunbookStep[]
 
-  @@index([organizationId])
+  @@index([tenantId])
 }
 
 model RunbookStep {
@@ -474,7 +474,7 @@ model RunbookStep {
 
 model AutomationPolicy {
   id             String @id @default(uuid())
-  organizationId String
+  tenantId String
   // MapServerType — see packages/shared
   mapServerType String
   capabilityKey String
@@ -487,10 +487,10 @@ model AutomationPolicy {
   createdAt           DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  @@unique([organizationId, mapServerType, capabilityKey])
-  @@index([organizationId])
+  @@unique([tenantId, mapServerType, capabilityKey])
+  @@index([tenantId])
 }
 
 model AuditLog {
@@ -498,7 +498,7 @@ model AuditLog {
   // Nullable: most audit entries are org-scoped (credential created, remediation
   // executed), but account-level events (signup, login) have no organization yet —
   // see apps/api/src/routes/auth.ts. Every org-scoped write path still always sets it.
-  organizationId String?
+  tenantId String?
   actorType      String // "user" | "agent" | "system"
   actorId        String? // userId or agent name
   action         String // e.g. "credential.created", "remediation.executed", "user.login"
@@ -508,11 +508,11 @@ model AuditLog {
   metadata       String     @default("{}")
   createdAt      DateTime @default(now())
 
-  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user         User?         @relation(fields: [actorId], references: [id])
 
-  @@index([organizationId, createdAt])
-  @@index([organizationId, action])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, action])
 }
 
 model AgentExecution {
@@ -538,7 +538,7 @@ model AgentExecution {
 
 model WebhookEvent {
   id             String @id @default(uuid())
-  organizationId String?
+  tenantId String?
   // IncidentSourceType: JIRA | SERVICENOW | PAGERDUTY | WEBHOOK | DATADOG
   source      String
   externalId  String
@@ -547,15 +547,15 @@ model WebhookEvent {
   payload     String
   createdAt   DateTime @default(now())
 
-  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([source, externalId, eventHash])
-  @@index([organizationId, createdAt])
+  @@index([tenantId, createdAt])
 }
 
 model Notification {
   id             String @id @default(uuid())
-  organizationId String
+  tenantId String
   userId         String?
   // NotificationChannel: EMAIL | SLACK | TEAMS | IN_APP
   channel   String
@@ -564,29 +564,29 @@ model Notification {
   read      Boolean  @default(false)
   createdAt DateTime @default(now())
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user         User?        @relation(fields: [userId], references: [id])
 
-  @@index([organizationId, createdAt])
+  @@index([tenantId, createdAt])
 }
 
 model UsageMetric {
   id             String   @id @default(uuid())
-  organizationId String
+  tenantId String
   metric         String // e.g. "incidents.investigated", "remediations.executed"
   value          Float
   periodStart    DateTime
   periodEnd      DateTime
   createdAt      DateTime @default(now())
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  @@index([organizationId, metric, periodStart])
+  @@index([tenantId, metric, periodStart])
 }
 
 model Subscription {
   id             String @id @default(uuid())
-  organizationId String @unique
+  tenantId String @unique
   // SubscriptionPlan: FREE | TEAM | ENTERPRISE
   plan String @default("FREE")
   // SubscriptionStatus: ACTIVE | TRIALING | PAST_DUE | CANCELED
@@ -597,5 +597,5 @@ model Subscription {
   createdAt                      DateTime  @default(now())
   updatedAt                      DateTime  @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 }

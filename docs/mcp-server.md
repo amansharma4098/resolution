@@ -46,7 +46,7 @@ incidents without opening the dashboard, the mirror image of §1.
   not tied to one organization) — shown once at creation, never retrievable again. Point
   your MCP client at `<API base URL>/api/mcp` with `Authorization: Bearer <key>`.
 - **Tools** (all read-only — see below): `list_incidents`, `get_incident`, `get_rca`. Each
-  takes an `organizationId` argument; the server checks you're actually a member of that
+  takes an `tenantId` argument; the server checks you're actually a member of that
   organization on every call (same membership check as the dashboard, not a role check — a
   MEMBER can use these the same as an OWNER, since they're read-only). A non-member gets
   "not found," never "forbidden" — org existence isn't disclosed to someone with no access.

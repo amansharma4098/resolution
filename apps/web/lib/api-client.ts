@@ -20,13 +20,13 @@ export class ApiError extends Error {
 export interface ApiRequestOptions {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
-  organizationId?: string;
+  tenantId?: string;
 }
 
 export async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (options.organizationId) {
-    headers["X-Organization-Id"] = options.organizationId;
+  if (options.tenantId) {
+    headers["X-Tenant-Id"] = options.tenantId;
   }
 
   const res = await fetch(`${API_URL}${path}`, {

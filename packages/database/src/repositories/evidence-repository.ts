@@ -36,7 +36,7 @@ function toPublic(row: {
 }
 
 /**
- * Not a TenantScopedRepository — IncidentEvidence has no organizationId column of its own
+ * Not a TenantScopedRepository — IncidentEvidence has no tenantId column of its own
  * (schema.prisma: it belongs to an Incident, which does). Every call site here is reached
  * only after the caller has already loaded the parent Incident through an org-scoped
  * IncidentRepository — that lookup is the actual tenant-isolation boundary for this table,

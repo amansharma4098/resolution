@@ -11,8 +11,8 @@ investigation, propose a remediation, and approve/reject one.
 - **Auth**: the browser session cookie, not a bearer API key — this is a dashboard feature,
   reached from inside the product.
 - **Scoping**: the chat is scoped to whichever organization is currently selected in the
-  dashboard (the same `X-Organization-Id` header every other route reads). The model is
-  never shown `organizationId` as a tool argument it has to supply — the server strips it
+  dashboard (the same `X-Tenant-Id` header every other route reads). The model is
+  never shown `tenantId` as a tool argument it has to supply — the server strips it
   from the tool schemas it hands the model and injects the real one on every call,
   overriding anything the model puts there. One less thing that can go wrong from a model
   hallucinating or mistyping an id.

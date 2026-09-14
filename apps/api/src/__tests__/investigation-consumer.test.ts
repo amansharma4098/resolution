@@ -46,7 +46,7 @@ describe("processInvestigationMessage", () => {
     const org = await db.organization.create({ data: { name: "Acme", slug: "acme" } });
     const incident = await db.incident.create({
       data: {
-        organizationId: org.id,
+        tenantId: org.id,
         externalId: "OPS-1",
         source: "JIRA",
         title: "Nightly pipeline failing",
@@ -64,7 +64,7 @@ describe("processInvestigationMessage", () => {
     const { db, prismaDb, org, incident } = await setup();
 
     const mapServer = await db.mapServer.create({
-      data: { organizationId: org.id, type: "FABRIC", name: "Prod Fabric", environments: ["prod"] },
+      data: { tenantId: org.id, type: "FABRIC", name: "Prod Fabric", environments: ["prod"] },
     });
     await db.mapServerCapability.create({
       data: { mapServerId: mapServer.id, key: "get_workspace", riskLevel: "LOW", mutating: false, enabled: true },
@@ -78,7 +78,7 @@ describe("processInvestigationMessage", () => {
     await processInvestigationMessage(
       prismaDb,
       { mockMode: true, secretProvider },
-      { incidentId: incident.id, organizationId: org.id },
+      { incidentId: incident.id, tenantId: org.id },
     );
 
     const updated = db._debug.incidents.find((i) => i.id === incident.id)!;
@@ -109,7 +109,7 @@ describe("processInvestigationMessage", () => {
     await processInvestigationMessage(
       prismaDb,
       { mockMode: true, secretProvider },
-      { incidentId: incident.id, organizationId: org.id },
+      { incidentId: incident.id, tenantId: org.id },
     );
 
     const updated = db._debug.incidents.find((i) => i.id === incident.id)!;
@@ -126,7 +126,7 @@ describe("processInvestigationMessage", () => {
     await processInvestigationMessage(
       prismaDb,
       { mockMode: true, secretProvider },
-      { incidentId: incident.id, organizationId: org.id },
+      { incidentId: incident.id, tenantId: org.id },
     );
 
     expect(db._debug.rootCauseAnalyses).toHaveLength(0);
@@ -153,7 +153,7 @@ describe("processInvestigationMessage", () => {
     await processInvestigationMessage(
       prismaDb,
       { mockMode: true, secretProvider, llmClient: stuckLlmClient },
-      { incidentId: incident.id, organizationId: org.id },
+      { incidentId: incident.id, tenantId: org.id },
     );
 
     expect(db._debug.incidents.find((i) => i.id === incident.id)!.status).toBe("ESCALATED");

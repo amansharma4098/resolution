@@ -6,15 +6,15 @@ import type { AppEnv } from "../types";
 describe("automation policy routes", () => {
   let app: Hono<AppEnv>;
   let cookie: string;
-  let organizationId: string;
+  let tenantId: string;
 
   beforeEach(async () => {
     ({ app } = buildTestApp());
-    ({ cookie, organizationId } = await signupWithOrg(app, "owner@example.com", "Acme"));
+    ({ cookie, tenantId } = await signupWithOrg(app, "owner@example.com", "Acme"));
   });
 
   it("starts empty — every capability falls back to the policy engine's own default", async () => {
-    const res = await req(app, "/api/automation-policies", { cookie, organizationId });
+    const res = await req(app, "/api/automation-policies", { cookie, tenantId });
     expect(res.status).toBe(200);
     expect((await jsonOf(res)).policies).toEqual([]);
   });
@@ -23,7 +23,7 @@ describe("automation policy routes", () => {
     const res = await req(app, "/api/automation-policies", {
       method: "PUT",
       cookie,
-      organizationId,
+      tenantId,
       body: {
         mapServerType: "FABRIC",
         capabilityKey: "retry_pipeline",
@@ -41,7 +41,7 @@ describe("automation policy routes", () => {
       resolutionModeFloor: "AUTONOMOUS",
     });
 
-    const list = await req(app, "/api/automation-policies", { cookie, organizationId });
+    const list = await req(app, "/api/automation-policies", { cookie, tenantId });
     expect((await jsonOf(list)).policies).toHaveLength(1);
   });
 
@@ -53,16 +53,16 @@ describe("automation policy routes", () => {
       behavior: "AUTO" as const,
       resolutionModeFloor: "AUTONOMOUS" as const,
     };
-    await req(app, "/api/automation-policies", { method: "PUT", cookie, organizationId, body });
+    await req(app, "/api/automation-policies", { method: "PUT", cookie, tenantId, body });
     const second = await req(app, "/api/automation-policies", {
       method: "PUT",
       cookie,
-      organizationId,
+      tenantId,
       body: { ...body, behavior: "DENY" },
     });
     expect((await jsonOf(second)).policy.behavior).toBe("DENY");
 
-    const list = await req(app, "/api/automation-policies", { cookie, organizationId });
+    const list = await req(app, "/api/automation-policies", { cookie, tenantId });
     expect((await jsonOf(list)).policies).toHaveLength(1);
   });
 
@@ -71,7 +71,7 @@ describe("automation policy routes", () => {
     const added = await req(app, "/api/organizations/members", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { email: memberEmail, role: "MEMBER" },
     });
     const { temporaryPassword } = await jsonOf(added);
@@ -85,7 +85,7 @@ describe("automation policy routes", () => {
     const res = await req(app, "/api/automation-policies", {
       method: "PUT",
       cookie: memberCookie,
-      organizationId,
+      tenantId,
       body: {
         mapServerType: "FABRIC",
         capabilityKey: "retry_pipeline",
@@ -101,7 +101,7 @@ describe("automation policy routes", () => {
     const created = await req(app, "/api/automation-policies", {
       method: "PUT",
       cookie,
-      organizationId,
+      tenantId,
       body: {
         mapServerType: "FABRIC",
         capabilityKey: "retry_pipeline",
@@ -112,10 +112,10 @@ describe("automation policy routes", () => {
     });
     const id = (await jsonOf(created)).policy.id;
 
-    const del = await req(app, `/api/automation-policies/${id}`, { method: "DELETE", cookie, organizationId });
+    const del = await req(app, `/api/automation-policies/${id}`, { method: "DELETE", cookie, tenantId });
     expect(del.status).toBe(204);
 
-    const list = await req(app, "/api/automation-policies", { cookie, organizationId });
+    const list = await req(app, "/api/automation-policies", { cookie, tenantId });
     expect((await jsonOf(list)).policies).toHaveLength(0);
   });
 
@@ -123,7 +123,7 @@ describe("automation policy routes", () => {
     const res = await req(app, "/api/automation-policies/00000000-0000-0000-0000-000000000000", {
       method: "DELETE",
       cookie,
-      organizationId,
+      tenantId,
     });
     expect(res.status).toBe(404);
   });

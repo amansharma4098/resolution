@@ -18,7 +18,7 @@ interface AuditEntry {
 }
 
 export default function AuditLogPage() {
-  const { currentOrganizationId } = useSession();
+  const { currentTenantId } = useSession();
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [nextBefore, setNextBefore] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -26,11 +26,11 @@ export default function AuditLogPage() {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!currentOrganizationId) return;
+    if (!currentTenantId) return;
     setLoading(true);
     try {
       const res = await apiRequest<{ entries: AuditEntry[]; nextBefore: string | null }>("/api/audit-logs", {
-        organizationId: currentOrganizationId,
+        tenantId: currentTenantId,
       });
       setEntries(res.entries);
       setNextBefore(res.nextBefore);
@@ -40,19 +40,19 @@ export default function AuditLogPage() {
     } finally {
       setLoading(false);
     }
-  }, [currentOrganizationId]);
+  }, [currentTenantId]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   const loadMore = useCallback(async () => {
-    if (!currentOrganizationId || !nextBefore) return;
+    if (!currentTenantId || !nextBefore) return;
     setLoadingMore(true);
     try {
       const res = await apiRequest<{ entries: AuditEntry[]; nextBefore: string | null }>(
         `/api/audit-logs?before=${encodeURIComponent(nextBefore)}`,
-        { organizationId: currentOrganizationId },
+        { tenantId: currentTenantId },
       );
       setEntries((prev) => [...prev, ...res.entries]);
       setNextBefore(res.nextBefore);
@@ -61,7 +61,7 @@ export default function AuditLogPage() {
     } finally {
       setLoadingMore(false);
     }
-  }, [currentOrganizationId, nextBefore]);
+  }, [currentTenantId, nextBefore]);
 
   return (
     <div className="flex flex-col gap-6">

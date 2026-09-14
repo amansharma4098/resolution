@@ -130,7 +130,7 @@ export interface Capability<Input = unknown, Output = unknown> {
 }
 
 export interface MapServerContext {
-  organizationId: string;
+  tenantId: string;
   mapServerId: string;
   environment: string;
   credential: ResolvedCredential;   // decrypted only inside the provider's own process, never returned
@@ -170,7 +170,7 @@ walkthrough: `docs/map-server.md`.
 
 ```
 Credential {
-  id, organizationId, name, provider, authenticationType,
+  id, tenantId, name, provider, authenticationType,
   encryptedData, createdAt, updatedAt, lastValidatedAt, status
 }
 ```
@@ -186,8 +186,8 @@ Credential {
 ```typescript
 // packages/credentials/src/secret-provider.ts
 export interface SecretProvider {
-  encrypt(plaintext: Record<string, unknown>, context: { organizationId: string }): Promise<string>;
-  decrypt(ciphertext: string, context: { organizationId: string }): Promise<Record<string, unknown>>;
+  encrypt(plaintext: Record<string, unknown>, context: { tenantId: string }): Promise<string>;
+  decrypt(ciphertext: string, context: { tenantId: string }): Promise<Record<string, unknown>>;
 }
 ```
 
@@ -198,7 +198,7 @@ new payload, calls `encrypt()` again, and updates the row (resetting `status` to
 
 Implemented: `EncryptedDbSecretProvider` (default — real envelope encryption entirely in
 Postgres: a random per-credential data key encrypts the payload, wrapped by a root key from
-`ENCRYPTION_MASTER_KEY`, both AES-256-GCM with `organizationId` as AAD so a blob can't be
+`ENCRYPTION_MASTER_KEY`, both AES-256-GCM with `tenantId` as AAD so a blob can't be
 decrypted under the wrong org's context). Selected via `SECRET_PROVIDER` env var.
 `AwsSecretsManagerProvider` / `AzureKeyVaultProvider` / `GcpSecretManagerProvider` are
 designed for behind the same interface but not implemented yet (Phase 12 — production
@@ -248,7 +248,7 @@ planned.
 ## 7. Automation policy
 
 ```
-AutomationPolicy { id, organizationId, mapServerType, capabilityKey, riskLevel,
+AutomationPolicy { id, tenantId, mapServerType, capabilityKey, riskLevel,
   behavior: AUTO | APPROVAL | DENY, resolutionModeFloor, createdAt, updatedAt }
 ```
 
@@ -273,7 +273,7 @@ re-queued delayed message — see ARCHITECTURE.md §10 and remediation-consumer.
 ## 8. Data model
 
 Cloudflare D1 (SQLite) via Prisma, UUID primary keys, every tenant-owned table carries
-`organizationId` with a composite index `(organizationId, createdAt)` or similar per
+`tenantId` with a composite index `(tenantId, createdAt)` or similar per
 access pattern. Full schema: `packages/database/prisma/schema.prisma`. Model list:
 
 SQLite has no native `enum` or `Json` column type, so two things differ from a typical
@@ -300,7 +300,7 @@ Normalized incident shape (every source maps into this on ingestion):
 
 ```typescript
 interface NormalizedIncident {
-  id: string; organizationId: string; externalId: string; source: IncidentSource;
+  id: string; tenantId: string; externalId: string; source: IncidentSource;
   title: string; description: string; severity: Severity; priority: Priority;
   status: IncidentStatus; service?: string; environment?: string; resource?: string;
   affectedSystem?: MapServerType; createdAt: Date; metadata: Record<string, unknown>;
@@ -308,9 +308,9 @@ interface NormalizedIncident {
 ```
 
 Tenant isolation: every repository method in `packages/database/repositories/*` takes an
-`organizationId` derived from the authenticated session in `apps/api` middleware — it is
+`tenantId` derived from the authenticated session in `apps/api` middleware — it is
 never accepted as a client-supplied field, and every Prisma query in a repository has
-`where: { organizationId, ... }` enforced by a lint rule / repository base class, not by
+`where: { tenantId, ... }` enforced by a lint rule / repository base class, not by
 convention alone.
 
 ## 9. API contracts
@@ -372,7 +372,7 @@ ingestion's 10) and its retries fewer (2, vs. 3) — each message drives a real,
 billed LLM run, not a cheap idempotent insert.
 
 Idempotency: webhook events keyed by `(source, externalId, eventHash)` in `WebhookEvent`;
-`Incident` itself is also keyed by `(organizationId, source, externalId)`, so even a
+`Incident` itself is also keyed by `(tenantId, source, externalId)`, so even a
 duplicate delivery that somehow got past the `WebhookEvent` check can't create a second
 Incident row. Remediation actions (Phase 8) will be keyed by
 `(incidentId, capabilityKey, runId)` — a remediation must never be re-executed without
@@ -401,7 +401,7 @@ tool-call output before it's trusted. Full detail: `docs/security.md`,
 
 ## 12. Knowledge system
 
-PostgreSQL + `pgvector` on Neon. `KnowledgeEmbedding.organizationId` is part of every
+PostgreSQL + `pgvector` on Neon. `KnowledgeEmbedding.tenantId` is part of every
 similarity-search query — there is no cross-org fallback path. Sources: past incidents
 (auto-embedded on resolution), runbooks, uploaded docs, manually authored knowledge.
 

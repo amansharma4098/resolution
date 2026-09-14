@@ -40,7 +40,7 @@ Only `externalId` and `title` are required; the rest default (`severity: MEDIUM`
 `priority: P3`, `description: ""`, `metadata: {}`).
 
 - **`externalId` is required, not generated** — it's what makes a redelivery idempotent
-  (`Incident`'s unique `(organizationId, source, externalId)`, same as Jira's issue key or
+  (`Incident`'s unique `(tenantId, source, externalId)`, same as Jira's issue key or
   ServiceNow's incident number). Send a stable id from your own system, or replays will
   create duplicate incidents.
 - **Validated synchronously, not just enqueued** — unlike Jira/ServiceNow (whose shape is a

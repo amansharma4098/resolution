@@ -5,7 +5,7 @@ import type { EncryptionContext, SecretProvider } from "./secret-provider";
  * external KMS required. Real envelope encryption, not a placeholder: each credential gets
  * its own random 256-bit data key, which encrypts the payload; the data key itself is then
  * encrypted ("wrapped") by the deployment's root key. Both layers use AES-256-GCM with the
- * organizationId as additional authenticated data (AAD) — decryption fails closed if either
+ * tenantId as additional authenticated data (AAD) — decryption fails closed if either
  * the ciphertext is tampered with or it's decrypted under the wrong org's context.
  *
  * Built on the Web Crypto API (`crypto.subtle`) rather than Node's `node:crypto` — this is
@@ -67,7 +67,7 @@ async function importAesGcmKey(rawKey: Uint8Array) {
 
 /** AES-256-GCM seal: IV || ciphertext-with-appended-tag (Web Crypto appends the 16-byte
  *  auth tag to the ciphertext output itself, unlike Node's crypto which returns it
- *  separately via getAuthTag()). `aad` binds the blob to context (here, organizationId). */
+ *  separately via getAuthTag()). `aad` binds the blob to context (here, tenantId). */
 async function seal(plaintext: Uint8Array, rawKey: Uint8Array, aad: Uint8Array): Promise<string> {
   const key = await importAesGcmKey(rawKey);
   const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
@@ -78,7 +78,7 @@ async function seal(plaintext: Uint8Array, rawKey: Uint8Array, aad: Uint8Array):
 }
 
 /** Throws if the AAD, key, or ciphertext don't match — i.e. the blob was tampered with or
- *  is being opened under the wrong organizationId. */
+ *  is being opened under the wrong tenantId. */
 async function open(sealed: string, rawKey: Uint8Array, aad: Uint8Array): Promise<Uint8Array> {
   const raw = fromBase64(sealed);
   const iv = raw.subarray(0, IV_BYTES);
@@ -107,7 +107,7 @@ export class EncryptedDbSecretProvider implements SecretProvider {
 
   async encrypt(plaintext: Record<string, unknown>, context: EncryptionContext): Promise<string> {
     const dataKey = crypto.getRandomValues(new Uint8Array(DATA_KEY_BYTES));
-    const aad = new TextEncoder().encode(context.organizationId);
+    const aad = new TextEncoder().encode(context.tenantId);
 
     const payload = await seal(
       new TextEncoder().encode(JSON.stringify(plaintext)),
@@ -134,7 +134,7 @@ export class EncryptedDbSecretProvider implements SecretProvider {
       throw new Error(`Unsupported credential envelope version: ${blob.v}`);
     }
 
-    const aad = new TextEncoder().encode(context.organizationId);
+    const aad = new TextEncoder().encode(context.tenantId);
     const dataKey = await open(blob.wrappedDataKey, this.rootKey, aad);
     const plaintext = await open(blob.payload, dataKey, aad);
     return JSON.parse(new TextDecoder().decode(plaintext));

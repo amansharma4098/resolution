@@ -25,7 +25,7 @@ export interface CreateMapServerInput {
  *  underlying JSON-text String columns; see packages/database/src/json-field.ts. */
 export interface MapServer {
   id: string;
-  organizationId: string;
+  tenantId: string;
   type: MapServerType;
   name: string;
   credentialId: string | null;
@@ -40,7 +40,7 @@ export interface MapServer {
 
 function toPublic(row: {
   id: string;
-  organizationId: string;
+  tenantId: string;
   type: string;
   name: string;
   credentialId: string | null;
@@ -65,9 +65,9 @@ function toPublic(row: {
 export class MapServerRepository extends TenantScopedRepository {
   constructor(
     private readonly db: PrismaClient,
-    organizationId: string,
+    tenantId: string,
   ) {
-    super(organizationId);
+    super(tenantId);
   }
 
   async create(input: CreateMapServerInput): Promise<MapServer> {
@@ -79,7 +79,7 @@ export class MapServerRepository extends TenantScopedRepository {
         environments: serializeJsonField(input.environments),
         config: serializeJsonField(input.config),
         isMock: input.isMock,
-        organizationId: this.organizationId,
+        tenantId: this.tenantId,
       },
     });
     return toPublic(row);
@@ -180,7 +180,7 @@ export class MapServerRepository extends TenantScopedRepository {
   }
 
   /** No org-scoping needed beyond the caller already having proven ownership of
-   *  `mapServerId` via `findById` — capabilities have no organizationId of their own
+   *  `mapServerId` via `findById` — capabilities have no tenantId of their own
    *  (they belong to a MapServer, which does). */
   async listCapabilities(mapServerId: string): Promise<MapServerCapabilityRow[]> {
     return this.db.mapServerCapability.findMany({

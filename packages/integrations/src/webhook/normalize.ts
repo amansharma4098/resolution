@@ -7,7 +7,7 @@ import { Severity, Priority, type NormalizedIncident } from "@resolution/shared"
  * have a bespoke connector (an in-house tool, a script, a monitoring system with a
  * configurable webhook body). `externalId` is required rather than generated, the same way
  * Jira's issue key / ServiceNow's incident number are the caller's own identifier — it's
- * what makes redelivery idempotent (Incident's unique (organizationId, source, externalId)
+ * what makes redelivery idempotent (Incident's unique (tenantId, source, externalId)
  * — see IncidentRepository.findByExternalId), so a caller that doesn't send a stable one
  * would get a duplicate Incident on every retry.
  */
@@ -35,7 +35,7 @@ export type GenericWebhookPayload = z.infer<typeof GenericWebhookPayloadSchema>;
  */
 export function normalizeGenericWebhook(
   payload: GenericWebhookPayload,
-): Omit<NormalizedIncident, "id" | "organizationId" | "createdAt"> {
+): Omit<NormalizedIncident, "id" | "tenantId" | "createdAt"> {
   return {
     externalId: payload.externalId,
     source: "WEBHOOK",

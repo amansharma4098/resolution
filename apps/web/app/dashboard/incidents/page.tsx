@@ -20,17 +20,17 @@ interface IncidentSummary {
 }
 
 export default function IncidentsPage() {
-  const { currentOrganizationId } = useSession();
+  const { currentTenantId } = useSession();
   const [incidents, setIncidents] = useState<IncidentSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!currentOrganizationId) return;
+    if (!currentTenantId) return;
     setLoading(true);
     try {
       const res = await apiRequest<{ incidents: IncidentSummary[] }>("/api/incidents", {
-        organizationId: currentOrganizationId,
+        tenantId: currentTenantId,
       });
       setIncidents(res.incidents);
     } catch (err) {
@@ -38,7 +38,7 @@ export default function IncidentsPage() {
     } finally {
       setLoading(false);
     }
-  }, [currentOrganizationId]);
+  }, [currentTenantId]);
 
   useEffect(() => {
     void load();

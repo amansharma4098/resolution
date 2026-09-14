@@ -11,7 +11,7 @@ export interface Variables {
   /** Set only by authenticateApiKey — identifies which key authenticated this request, for
    *  audit logging. Never set by the session-cookie authenticate(). */
   apiKeyId?: string;
-  organizationId?: string;
+  tenantId?: string;
   role?: Role;
   /** Set only by requireSuperAdmin — platform-level, not tenant-scoped. Never set by
    *  resolveTenantContext, and never inferred from `role` (a tenant's OWNER is not

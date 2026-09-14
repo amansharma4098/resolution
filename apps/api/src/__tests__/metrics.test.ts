@@ -48,7 +48,7 @@ describe("metrics routes", () => {
   let app: Hono<AppEnv>;
   let db: FakeDb;
   let cookie: string;
-  let organizationId: string;
+  let tenantId: string;
 
   afterEach(() => {
     __resetRegistryForTests();
@@ -56,11 +56,11 @@ describe("metrics routes", () => {
 
   beforeEach(async () => {
     ({ app, db } = buildTestApp({ chainInvestigation: true, chainRemediation: true }));
-    ({ cookie, organizationId } = await signupWithOrg(app, "owner@example.com", "Acme"));
+    ({ cookie, tenantId } = await signupWithOrg(app, "owner@example.com", "Acme"));
   });
 
   it("starts at zero for a fresh org", async () => {
-    const res = await req(app, "/api/metrics", { cookie, organizationId });
+    const res = await req(app, "/api/metrics", { cookie, tenantId });
     expect(res.status).toBe(200);
     const body = await jsonOf(res);
     expect(body.incidents.total).toBe(0);
@@ -70,7 +70,7 @@ describe("metrics routes", () => {
 
   it("counts incidents by status and tallies a full AUTO remediation end to end", async () => {
     registerMapServer(k8sProvider);
-    await req(app, `/api/organizations/${organizationId}`, {
+    await req(app, `/api/organizations/${tenantId}`, {
       method: "PATCH",
       cookie,
       body: { resolutionMode: "AUTONOMOUS" },
@@ -78,27 +78,27 @@ describe("metrics routes", () => {
     const integ = await req(app, "/api/integrations", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { type: "JIRA", name: "Jira", config: { baseUrl: "https://acme.atlassian.net" } },
     });
     const integration = (await jsonOf(integ)).integration;
     const msRes = await req(app, "/api/map-servers", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { type: "KUBERNETES", name: "Prod K8s", environments: ["prod"], config: {} },
     });
     const mapServer = (await jsonOf(msRes)).mapServer;
     await req(app, `/api/map-servers/${mapServer.id}/capabilities/restart_pod`, {
       method: "PATCH",
       cookie,
-      organizationId,
+      tenantId,
       body: { enabled: true },
     });
     await req(app, "/api/automation-policies", {
       method: "PUT",
       cookie,
-      organizationId,
+      tenantId,
       body: {
         mapServerType: "KUBERNETES",
         capabilityKey: "restart_pod",
@@ -118,7 +118,7 @@ describe("metrics routes", () => {
     expect(incident.status).toBe("RESOLVED");
     expect(incident.resolvedAt).not.toBeNull();
 
-    const res = await req(app, "/api/metrics", { cookie, organizationId });
+    const res = await req(app, "/api/metrics", { cookie, tenantId });
     const body = await jsonOf(res);
     expect(body.incidents.total).toBe(1);
     expect(body.incidents.byStatus.RESOLVED).toBe(1);
@@ -133,7 +133,7 @@ describe("metrics routes", () => {
     const integ = await req(app, "/api/integrations", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { type: "JIRA", name: "Jira", config: { baseUrl: "https://acme.atlassian.net" } },
     });
     const integration = (await jsonOf(integ)).integration;
@@ -144,7 +144,7 @@ describe("metrics routes", () => {
     });
 
     const other = await signupWithOrg(app, "other@example.com", "Other Org");
-    const res = await req(app, "/api/metrics", { cookie: other.cookie, organizationId: other.organizationId });
+    const res = await req(app, "/api/metrics", { cookie: other.cookie, tenantId: other.tenantId });
     expect((await jsonOf(res)).incidents.total).toBe(0);
   });
 });

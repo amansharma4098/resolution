@@ -3,7 +3,7 @@ import { NormalizedIncident } from "../incident";
 
 const base = {
   id: "550e8400-e29b-41d4-a716-446655440000",
-  organizationId: "550e8400-e29b-41d4-a716-446655440001",
+  tenantId: "550e8400-e29b-41d4-a716-446655440001",
   externalId: "JIRA-123",
   source: "JIRA" as const,
   title: "Pipeline failing",

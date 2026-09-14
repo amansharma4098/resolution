@@ -76,7 +76,7 @@ async function setup() {
   });
   const incident = await db.incident.create({
     data: {
-      organizationId: org.id,
+      tenantId: org.id,
       externalId: "OPS-1",
       source: "JIRA",
       title: "Nightly pipeline failing",
@@ -107,7 +107,7 @@ describe("processRemediationMessage", () => {
     await processRemediationMessage(
       prismaDb,
       { mockMode: true, secretProvider: secretProvider() },
-      { incidentId: incident.id, organizationId: org.id },
+      { incidentId: incident.id, tenantId: org.id },
     );
 
     expect(db._debug.resolutions).toHaveLength(0);
@@ -119,7 +119,7 @@ describe("processRemediationMessage", () => {
     await processRemediationMessage(
       prismaDb,
       { mockMode: true, secretProvider: secretProvider() },
-      { incidentId: incident.id, organizationId: org.id },
+      { incidentId: incident.id, tenantId: org.id },
     );
 
     expect(db._debug.resolutions).toHaveLength(0);
@@ -132,7 +132,7 @@ describe("processRemediationMessage", () => {
     registerMapServer(fixtureProvider());
     const { db, prismaDb, org, incident } = await setup();
     const mapServer = await db.mapServer.create({
-      data: { organizationId: org.id, type: "FABRIC", name: "Prod Fabric", environments: ["prod"] },
+      data: { tenantId: org.id, type: "FABRIC", name: "Prod Fabric", environments: ["prod"] },
     });
     await db.mapServerCapability.create({
       data: { mapServerId: mapServer.id, key: "retry_pipeline", riskLevel: "LOW", mutating: true, enabled: true },
@@ -141,7 +141,7 @@ describe("processRemediationMessage", () => {
     await processRemediationMessage(
       prismaDb,
       { mockMode: true, secretProvider: secretProvider() },
-      { incidentId: incident.id, organizationId: org.id },
+      { incidentId: incident.id, tenantId: org.id },
     );
 
     expect(db._debug.resolutions).toHaveLength(1);
@@ -157,7 +157,7 @@ describe("processRemediationMessage", () => {
     const { db, prismaDb, org, incident } = await setup();
     await db.organization.update({ where: { id: org.id }, data: { resolutionMode: "RECOMMEND" } });
     const mapServer = await db.mapServer.create({
-      data: { organizationId: org.id, type: "FABRIC", name: "Prod Fabric", environments: ["prod"] },
+      data: { tenantId: org.id, type: "FABRIC", name: "Prod Fabric", environments: ["prod"] },
     });
     await db.mapServerCapability.create({
       data: { mapServerId: mapServer.id, key: "retry_pipeline", riskLevel: "LOW", mutating: true, enabled: true },
@@ -166,7 +166,7 @@ describe("processRemediationMessage", () => {
     await processRemediationMessage(
       prismaDb,
       { mockMode: true, secretProvider: secretProvider() },
-      { incidentId: incident.id, organizationId: org.id },
+      { incidentId: incident.id, tenantId: org.id },
     );
 
     expect(db._debug.approvals).toHaveLength(1);
@@ -179,15 +179,15 @@ describe("processRemediationMessage", () => {
     const { db, prismaDb, org, incident } = await setup();
     await db.organization.update({ where: { id: org.id }, data: { resolutionMode: "AUTONOMOUS" } });
     const mapServer = await db.mapServer.create({
-      data: { organizationId: org.id, type: "FABRIC", name: "Prod Fabric", environments: ["prod"] },
+      data: { tenantId: org.id, type: "FABRIC", name: "Prod Fabric", environments: ["prod"] },
     });
     await db.mapServerCapability.create({
       data: { mapServerId: mapServer.id, key: "retry_pipeline", riskLevel: "LOW", mutating: true, enabled: true },
     });
     await db.automationPolicy.upsert({
       where: {
-        organizationId_mapServerType_capabilityKey: {
-          organizationId: org.id,
+        tenantId_mapServerType_capabilityKey: {
+          tenantId: org.id,
           mapServerType: "FABRIC",
           capabilityKey: "retry_pipeline",
         },
@@ -203,7 +203,7 @@ describe("processRemediationMessage", () => {
     await processRemediationMessage(
       prismaDb,
       { mockMode: true, secretProvider: secretProvider(), sleep: async () => {} },
-      { incidentId: incident.id, organizationId: org.id },
+      { incidentId: incident.id, tenantId: org.id },
     );
 
     expect(db._debug.remediationActions[0]!.status).toBe("SUCCEEDED");
@@ -222,15 +222,15 @@ describe("processRemediationMessage", () => {
     const { db, prismaDb, org, incident } = await setup();
     await db.organization.update({ where: { id: org.id }, data: { resolutionMode: "AUTONOMOUS" } });
     const mapServer = await db.mapServer.create({
-      data: { organizationId: org.id, type: "FABRIC", name: "Prod Fabric", environments: ["prod"] },
+      data: { tenantId: org.id, type: "FABRIC", name: "Prod Fabric", environments: ["prod"] },
     });
     await db.mapServerCapability.create({
       data: { mapServerId: mapServer.id, key: "retry_pipeline", riskLevel: "LOW", mutating: true, enabled: true },
     });
     await db.automationPolicy.upsert({
       where: {
-        organizationId_mapServerType_capabilityKey: {
-          organizationId: org.id,
+        tenantId_mapServerType_capabilityKey: {
+          tenantId: org.id,
           mapServerType: "FABRIC",
           capabilityKey: "retry_pipeline",
         },
@@ -242,7 +242,7 @@ describe("processRemediationMessage", () => {
     await processRemediationMessage(
       prismaDb,
       { mockMode: true, secretProvider: secretProvider(), sleep: async () => {} },
-      { incidentId: incident.id, organizationId: org.id },
+      { incidentId: incident.id, tenantId: org.id },
     );
 
     expect(db._debug.verifications.map((v) => v.status)).toEqual(["RETRYING", "PASSED"]);
@@ -255,15 +255,15 @@ describe("processRemediationMessage", () => {
     const { db, prismaDb, org, incident } = await setup();
     await db.organization.update({ where: { id: org.id }, data: { resolutionMode: "AUTONOMOUS" } });
     const mapServer = await db.mapServer.create({
-      data: { organizationId: org.id, type: "FABRIC", name: "Prod Fabric", environments: ["prod"] },
+      data: { tenantId: org.id, type: "FABRIC", name: "Prod Fabric", environments: ["prod"] },
     });
     await db.mapServerCapability.create({
       data: { mapServerId: mapServer.id, key: "retry_pipeline", riskLevel: "LOW", mutating: true, enabled: true },
     });
     await db.automationPolicy.upsert({
       where: {
-        organizationId_mapServerType_capabilityKey: {
-          organizationId: org.id,
+        tenantId_mapServerType_capabilityKey: {
+          tenantId: org.id,
           mapServerType: "FABRIC",
           capabilityKey: "retry_pipeline",
         },
@@ -275,7 +275,7 @@ describe("processRemediationMessage", () => {
     await processRemediationMessage(
       prismaDb,
       { mockMode: true, secretProvider: secretProvider(), sleep: async () => {} },
-      { incidentId: incident.id, organizationId: org.id },
+      { incidentId: incident.id, tenantId: org.id },
     );
 
     expect(db._debug.verifications[0]!.status).toBe("FAILED");
@@ -305,15 +305,15 @@ describe("processRemediationMessage", () => {
     const { db, prismaDb, org, incident } = await setup();
     await db.organization.update({ where: { id: org.id }, data: { resolutionMode: "AUTONOMOUS" } });
     const mapServer = await db.mapServer.create({
-      data: { organizationId: org.id, type: "FABRIC", name: "Prod Fabric", environments: ["prod"] },
+      data: { tenantId: org.id, type: "FABRIC", name: "Prod Fabric", environments: ["prod"] },
     });
     await db.mapServerCapability.create({
       data: { mapServerId: mapServer.id, key: "retry_pipeline", riskLevel: "LOW", mutating: true, enabled: true },
     });
     await db.automationPolicy.upsert({
       where: {
-        organizationId_mapServerType_capabilityKey: {
-          organizationId: org.id,
+        tenantId_mapServerType_capabilityKey: {
+          tenantId: org.id,
           mapServerType: "FABRIC",
           capabilityKey: "retry_pipeline",
         },
@@ -325,7 +325,7 @@ describe("processRemediationMessage", () => {
     await processRemediationMessage(
       prismaDb,
       { mockMode: true, secretProvider: secretProvider(), sleep: async () => {} },
-      { incidentId: incident.id, organizationId: org.id },
+      { incidentId: incident.id, tenantId: org.id },
     );
 
     expect(db._debug.verifications).toHaveLength(0);
@@ -343,15 +343,15 @@ describe("processRemediationMessage", () => {
     const { db, prismaDb, org, incident } = await setup();
     await db.organization.update({ where: { id: org.id }, data: { resolutionMode: "AUTONOMOUS" } });
     const mapServer = await db.mapServer.create({
-      data: { organizationId: org.id, type: "FABRIC", name: "Prod Fabric", environments: ["prod"] },
+      data: { tenantId: org.id, type: "FABRIC", name: "Prod Fabric", environments: ["prod"] },
     });
     await db.mapServerCapability.create({
       data: { mapServerId: mapServer.id, key: "retry_pipeline", riskLevel: "LOW", mutating: true, enabled: true },
     });
     await db.automationPolicy.upsert({
       where: {
-        organizationId_mapServerType_capabilityKey: {
-          organizationId: org.id,
+        tenantId_mapServerType_capabilityKey: {
+          tenantId: org.id,
           mapServerType: "FABRIC",
           capabilityKey: "retry_pipeline",
         },
@@ -363,7 +363,7 @@ describe("processRemediationMessage", () => {
     await processRemediationMessage(
       prismaDb,
       { mockMode: true, secretProvider: secretProvider(), sleep: async () => {} },
-      { incidentId: incident.id, organizationId: org.id },
+      { incidentId: incident.id, tenantId: org.id },
     );
 
     expect(db._debug.remediationActions[0]!.status).toBe("FAILED");

@@ -71,10 +71,10 @@ export function buildCredentialRoutes(deps: {
     const payload = validateCredentialPayload(body.authenticationType, body.payload);
 
     const encryptedData = await secretProvider.encrypt(payload, {
-      organizationId: c.get("organizationId")!,
+      tenantId: c.get("tenantId")!,
     });
 
-    const credentials = new CredentialRepository(db, c.get("organizationId")!);
+    const credentials = new CredentialRepository(db, c.get("tenantId")!);
     const credential = await credentials.create({
       name: body.name,
       provider: body.provider,
@@ -83,7 +83,7 @@ export function buildCredentialRoutes(deps: {
     });
 
     await writeAuditLog(auditLogWriter(db), {
-      organizationId: c.get("organizationId"),
+      tenantId: c.get("tenantId"),
       actorType: "user",
       actorId: c.get("userId"),
       action: "credential.created",
@@ -100,25 +100,25 @@ export function buildCredentialRoutes(deps: {
   });
 
   router.get("/", auth, tenantContext, async (c) => {
-    const credentials = new CredentialRepository(db, c.get("organizationId")!);
+    const credentials = new CredentialRepository(db, c.get("tenantId")!);
     const list = await credentials.list();
     return c.json({ credentials: list.map((cred) => toPublicCredential(cred, genericMaskedHint)) });
   });
 
   router.get("/:id", auth, tenantContext, async (c) => {
-    const credentials = new CredentialRepository(db, c.get("organizationId")!);
+    const credentials = new CredentialRepository(db, c.get("tenantId")!);
     const credential = await credentials.findById(c.req.param("id"));
     if (!credential) throw new NotFoundError("Credential not found");
     return c.json({ credential: toPublicCredential(credential, genericMaskedHint) });
   });
 
   router.delete("/:id", auth, tenantContext, requireAdmin, async (c) => {
-    const credentials = new CredentialRepository(db, c.get("organizationId")!);
+    const credentials = new CredentialRepository(db, c.get("tenantId")!);
     const deleted = await credentials.delete(c.req.param("id"));
     if (!deleted) throw new NotFoundError("Credential not found");
 
     await writeAuditLog(auditLogWriter(db), {
-      organizationId: c.get("organizationId"),
+      tenantId: c.get("tenantId"),
       actorType: "user",
       actorId: c.get("userId"),
       action: "credential.deleted",
@@ -137,7 +137,7 @@ export function buildCredentialRoutes(deps: {
   // still decrypts and still matches its own shape — that's what this does and all it
   // claims to do.
   router.post("/:id/test", auth, tenantContext, requireAdmin, async (c) => {
-    const credentials = new CredentialRepository(db, c.get("organizationId")!);
+    const credentials = new CredentialRepository(db, c.get("tenantId")!);
     const credential = await credentials.findById(c.req.param("id"));
     if (!credential) throw new NotFoundError("Credential not found");
 
@@ -145,7 +145,7 @@ export function buildCredentialRoutes(deps: {
     let detail = "Credential payload decrypts and matches its expected shape";
     try {
       const decrypted = await secretProvider.decrypt(credential.encryptedData, {
-        organizationId: c.get("organizationId")!,
+        tenantId: c.get("tenantId")!,
       });
       validateCredentialPayload(
         credential.authenticationType as keyof typeof CredentialPayloadSchemas,
@@ -159,7 +159,7 @@ export function buildCredentialRoutes(deps: {
     const updated = await credentials.updateStatus(credential.id, valid ? "VALID" : "INVALID");
 
     await writeAuditLog(auditLogWriter(db), {
-      organizationId: c.get("organizationId"),
+      tenantId: c.get("tenantId"),
       actorType: "user",
       actorId: c.get("userId"),
       action: "credential.tested",
@@ -173,7 +173,7 @@ export function buildCredentialRoutes(deps: {
   });
 
   router.post("/:id/rotate", auth, tenantContext, requireAdmin, async (c) => {
-    const credentials = new CredentialRepository(db, c.get("organizationId")!);
+    const credentials = new CredentialRepository(db, c.get("tenantId")!);
     const existing = await credentials.findById(c.req.param("id"));
     if (!existing) throw new NotFoundError("Credential not found");
 
@@ -183,14 +183,14 @@ export function buildCredentialRoutes(deps: {
       body.payload,
     );
     const encryptedData = await secretProvider.encrypt(payload, {
-      organizationId: c.get("organizationId")!,
+      tenantId: c.get("tenantId")!,
     });
 
     const updated = await credentials.updateEncryptedData(existing.id, encryptedData);
     if (!updated) throw new NotFoundError("Credential not found");
 
     await writeAuditLog(auditLogWriter(db), {
-      organizationId: c.get("organizationId"),
+      tenantId: c.get("tenantId"),
       actorType: "user",
       actorId: c.get("userId"),
       action: "credential.rotated",

@@ -35,17 +35,17 @@ export function buildAutomationPolicyRoutes(deps: {
   const requireAdmin = requireMinimumRole("ADMIN");
 
   router.get("/", auth, tenantContext, async (c) => {
-    const policies = new AutomationPolicyRepository(db, c.get("organizationId")!);
+    const policies = new AutomationPolicyRepository(db, c.get("tenantId")!);
     return c.json({ policies: await policies.list() });
   });
 
   router.put("/", auth, tenantContext, requireAdmin, async (c) => {
     const body = UpsertPolicyBody.parse(await c.req.json());
-    const policies = new AutomationPolicyRepository(db, c.get("organizationId")!);
+    const policies = new AutomationPolicyRepository(db, c.get("tenantId")!);
     const policy = await policies.upsert(body);
 
     await writeAuditLog(auditLogWriter(db), {
-      organizationId: c.get("organizationId"),
+      tenantId: c.get("tenantId"),
       actorType: "user",
       actorId: c.get("userId"),
       action: "automation_policy.upserted",
@@ -59,12 +59,12 @@ export function buildAutomationPolicyRoutes(deps: {
   });
 
   router.delete("/:id", auth, tenantContext, requireAdmin, async (c) => {
-    const policies = new AutomationPolicyRepository(db, c.get("organizationId")!);
+    const policies = new AutomationPolicyRepository(db, c.get("tenantId")!);
     const deleted = await policies.delete(c.req.param("id"));
     if (!deleted) throw new NotFoundError("Automation policy not found");
 
     await writeAuditLog(auditLogWriter(db), {
-      organizationId: c.get("organizationId"),
+      tenantId: c.get("tenantId"),
       actorType: "user",
       actorId: c.get("userId"),
       action: "automation_policy.deleted",

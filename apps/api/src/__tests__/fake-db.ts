@@ -48,7 +48,7 @@ export interface FakeOrganization {
 
 export interface FakeMembership {
   id: string;
-  organizationId: string;
+  tenantId: string;
   userId: string;
   role: string;
   createdAt: Date;
@@ -56,7 +56,7 @@ export interface FakeMembership {
 
 export interface FakeCredential {
   id: string;
-  organizationId: string;
+  tenantId: string;
   name: string;
   provider: string;
   authenticationType: string;
@@ -69,7 +69,7 @@ export interface FakeCredential {
 
 export interface FakeMapServer {
   id: string;
-  organizationId: string;
+  tenantId: string;
   type: string;
   name: string;
   credentialId: string | null;
@@ -95,7 +95,7 @@ export interface FakeMapServerCapability {
 
 export interface FakeIntegration {
   id: string;
-  organizationId: string;
+  tenantId: string;
   type: string;
   name: string;
   credentialId: string | null;
@@ -107,7 +107,7 @@ export interface FakeIntegration {
 
 export interface FakeIncident {
   id: string;
-  organizationId: string;
+  tenantId: string;
   integrationId: string | null;
   externalId: string;
   source: string;
@@ -158,7 +158,7 @@ export interface FakeRootCauseAnalysis {
 
 export interface FakeAuditLog {
   id: string;
-  organizationId: string | null;
+  tenantId: string | null;
   actorType: string;
   actorId: string | null;
   action: string;
@@ -171,7 +171,7 @@ export interface FakeAuditLog {
 
 export interface FakeAutomationPolicy {
   id: string;
-  organizationId: string;
+  tenantId: string;
   mapServerType: string;
   capabilityKey: string;
   riskLevel: string;
@@ -226,7 +226,7 @@ export interface FakeVerification {
 
 export interface FakeWebhookEvent {
   id: string;
-  organizationId: string | null;
+  tenantId: string | null;
   source: string;
   externalId: string;
   eventHash: string;
@@ -236,20 +236,20 @@ export interface FakeWebhookEvent {
 }
 
 interface OrgScopedWhere {
-  organizationId: string;
+  tenantId: string;
   id?: string;
 }
 
 /** Shared behavior for the three org-scoped, repository-backed collections below — create,
  *  list (org-filtered), findFirst (org+id filtered, mirroring TenantScopedRepository),
  *  update, delete. */
-function fakeTenantCollection<T extends { id: string; organizationId: string }>(rows: T[]) {
+function fakeTenantCollection<T extends { id: string; tenantId: string }>(rows: T[]) {
   return {
-    async findMany({ where }: { where: { organizationId: string } }) {
-      return rows.filter((r) => r.organizationId === where.organizationId);
+    async findMany({ where }: { where: { tenantId: string } }) {
+      return rows.filter((r) => r.tenantId === where.tenantId);
     },
     async findFirst({ where }: { where: OrgScopedWhere }) {
-      return rows.find((r) => r.organizationId === where.organizationId && r.id === where.id) ?? null;
+      return rows.find((r) => r.tenantId === where.tenantId && r.id === where.id) ?? null;
     },
     async update({ where, data }: { where: { id: string }; data: Partial<T> }) {
       const row = rows.find((r) => r.id === where.id);
@@ -299,33 +299,33 @@ export interface FakeDb {
   organizationMember: {
     create(args: { data: Partial<FakeMembership> }): Promise<FakeMembership>;
     findMany(args: {
-      where: { userId?: string; organizationId?: string };
+      where: { userId?: string; tenantId?: string };
       include?: { organization?: boolean; user?: boolean };
     }): Promise<
       (FakeMembership & { organization?: FakeOrganization; user?: FakeUser })[]
     >;
     findUnique(args: {
-      where: { organizationId_userId: { organizationId: string; userId: string } };
+      where: { tenantId_userId: { tenantId: string; userId: string } };
     }): Promise<FakeMembership | null>;
-    count(args: { where: { organizationId: string; role: string } }): Promise<number>;
+    count(args: { where: { tenantId: string; role: string } }): Promise<number>;
     update(args: {
-      where: { organizationId_userId: { organizationId: string; userId: string } };
+      where: { tenantId_userId: { tenantId: string; userId: string } };
       data: Partial<FakeMembership>;
     }): Promise<FakeMembership>;
     delete(args: {
-      where: { organizationId_userId: { organizationId: string; userId: string } };
+      where: { tenantId_userId: { tenantId: string; userId: string } };
     }): Promise<FakeMembership>;
   };
   credential: {
     create(args: { data: Partial<FakeCredential> }): Promise<FakeCredential>;
-    findMany(args: { where: { organizationId: string } }): Promise<FakeCredential[]>;
+    findMany(args: { where: { tenantId: string } }): Promise<FakeCredential[]>;
     findFirst(args: { where: OrgScopedWhere }): Promise<FakeCredential | null>;
     update(args: { where: { id: string }; data: Partial<FakeCredential> }): Promise<FakeCredential>;
     delete(args: { where: { id: string } }): Promise<FakeCredential>;
   };
   mapServer: {
     create(args: { data: Partial<FakeMapServer> }): Promise<FakeMapServer>;
-    findMany(args: { where: { organizationId: string } }): Promise<FakeMapServer[]>;
+    findMany(args: { where: { tenantId: string } }): Promise<FakeMapServer[]>;
     findFirst(args: { where: OrgScopedWhere }): Promise<FakeMapServer | null>;
     update(args: { where: { id: string }; data: Partial<FakeMapServer> }): Promise<FakeMapServer>;
     delete(args: { where: { id: string } }): Promise<FakeMapServer>;
@@ -343,7 +343,7 @@ export interface FakeDb {
   };
   integration: {
     create(args: { data: Partial<FakeIntegration> }): Promise<FakeIntegration>;
-    findMany(args: { where: { organizationId: string } }): Promise<FakeIntegration[]>;
+    findMany(args: { where: { tenantId: string } }): Promise<FakeIntegration[]>;
     findFirst(args: { where: OrgScopedWhere }): Promise<FakeIntegration | null>;
     findUnique(args: { where: { id: string } }): Promise<FakeIntegration | null>;
     update(args: { where: { id: string }; data: Partial<FakeIntegration> }): Promise<FakeIntegration>;
@@ -351,11 +351,11 @@ export interface FakeDb {
   };
   incident: {
     create(args: { data: Partial<FakeIncident> }): Promise<FakeIncident>;
-    findMany(args: { where: { organizationId: string } }): Promise<FakeIncident[]>;
+    findMany(args: { where: { tenantId: string } }): Promise<FakeIncident[]>;
     findFirst(args: { where: OrgScopedWhere }): Promise<FakeIncident | null>;
     findUnique(args: {
       where: {
-        organizationId_source_externalId: { organizationId: string; source: string; externalId: string };
+        tenantId_source_externalId: { tenantId: string; source: string; externalId: string };
       };
     }): Promise<FakeIncident | null>;
     update(args: { where: { id: string }; data: Partial<FakeIncident> }): Promise<FakeIncident>;
@@ -382,11 +382,11 @@ export interface FakeDb {
     }): Promise<FakeRootCauseAnalysis | null>;
   };
   automationPolicy: {
-    findMany(args: { where: { organizationId: string } }): Promise<FakeAutomationPolicy[]>;
+    findMany(args: { where: { tenantId: string } }): Promise<FakeAutomationPolicy[]>;
     findUnique(args: {
       where: {
-        organizationId_mapServerType_capabilityKey: {
-          organizationId: string;
+        tenantId_mapServerType_capabilityKey: {
+          tenantId: string;
           mapServerType: string;
           capabilityKey: string;
         };
@@ -395,8 +395,8 @@ export interface FakeDb {
     findFirst(args: { where: OrgScopedWhere }): Promise<FakeAutomationPolicy | null>;
     upsert(args: {
       where: {
-        organizationId_mapServerType_capabilityKey: {
-          organizationId: string;
+        tenantId_mapServerType_capabilityKey: {
+          tenantId: string;
           mapServerType: string;
           capabilityKey: string;
         };
@@ -444,7 +444,7 @@ export interface FakeDb {
   auditLog: {
     create(args: { data: Partial<FakeAuditLog> }): Promise<FakeAuditLog>;
     findMany(args: {
-      where: { organizationId: string; createdAt?: { lt: Date } };
+      where: { tenantId: string; createdAt?: { lt: Date } };
       orderBy?: { createdAt: "asc" | "desc" };
       take?: number;
     }): Promise<FakeAuditLog[]>;
@@ -652,8 +652,8 @@ export function createFakeDb(): FakeDb {
         return rows.map((o) => ({
           ...o,
           _count: {
-            members: memberships.filter((m) => m.organizationId === o.id).length,
-            incidents: incidents.filter((i) => i.organizationId === o.id).length,
+            members: memberships.filter((m) => m.tenantId === o.id).length,
+            incidents: incidents.filter((i) => i.tenantId === o.id).length,
           },
         }));
       },
@@ -662,7 +662,7 @@ export function createFakeDb(): FakeDb {
       async create({ data }: { data: Partial<FakeMembership> }) {
         const membership: FakeMembership = {
           id: randomUUID(),
-          organizationId: data.organizationId!,
+          tenantId: data.tenantId!,
           userId: data.userId!,
           role: data.role ?? "MEMBER",
           createdAt: new Date(),
@@ -674,19 +674,19 @@ export function createFakeDb(): FakeDb {
         where,
         include,
       }: {
-        where: { userId?: string; organizationId?: string };
+        where: { userId?: string; tenantId?: string };
         include?: { organization?: boolean; user?: boolean };
       }) {
         return memberships
           .filter(
             (m) =>
               (where.userId === undefined || m.userId === where.userId) &&
-              (where.organizationId === undefined || m.organizationId === where.organizationId),
+              (where.tenantId === undefined || m.tenantId === where.tenantId),
           )
           .map((m) => ({
             ...m,
             ...(include?.organization
-              ? { organization: organizations.find((o) => o.id === m.organizationId)! }
+              ? { organization: organizations.find((o) => o.id === m.tenantId)! }
               : {}),
             ...(include?.user ? { user: users.find((u) => u.id === m.userId)! } : {}),
           }));
@@ -694,27 +694,27 @@ export function createFakeDb(): FakeDb {
       async findUnique({
         where,
       }: {
-        where: { organizationId_userId: { organizationId: string; userId: string } };
+        where: { tenantId_userId: { tenantId: string; userId: string } };
       }) {
-        const { organizationId, userId } = where.organizationId_userId;
+        const { tenantId, userId } = where.tenantId_userId;
         return (
-          memberships.find((m) => m.organizationId === organizationId && m.userId === userId) ??
+          memberships.find((m) => m.tenantId === tenantId && m.userId === userId) ??
           null
         );
       },
-      async count({ where }: { where: { organizationId: string; role: string } }) {
-        return memberships.filter((m) => m.organizationId === where.organizationId && m.role === where.role)
+      async count({ where }: { where: { tenantId: string; role: string } }) {
+        return memberships.filter((m) => m.tenantId === where.tenantId && m.role === where.role)
           .length;
       },
       async update({
         where,
         data,
       }: {
-        where: { organizationId_userId: { organizationId: string; userId: string } };
+        where: { tenantId_userId: { tenantId: string; userId: string } };
         data: Partial<FakeMembership>;
       }) {
-        const { organizationId, userId } = where.organizationId_userId;
-        const membership = memberships.find((m) => m.organizationId === organizationId && m.userId === userId);
+        const { tenantId, userId } = where.tenantId_userId;
+        const membership = memberships.find((m) => m.tenantId === tenantId && m.userId === userId);
         if (!membership) throw new Error("fake membership not found");
         Object.assign(membership, data);
         return membership;
@@ -722,10 +722,10 @@ export function createFakeDb(): FakeDb {
       async delete({
         where,
       }: {
-        where: { organizationId_userId: { organizationId: string; userId: string } };
+        where: { tenantId_userId: { tenantId: string; userId: string } };
       }) {
-        const { organizationId, userId } = where.organizationId_userId;
-        const idx = memberships.findIndex((m) => m.organizationId === organizationId && m.userId === userId);
+        const { tenantId, userId } = where.tenantId_userId;
+        const idx = memberships.findIndex((m) => m.tenantId === tenantId && m.userId === userId);
         if (idx === -1) throw new Error("fake membership not found");
         return memberships.splice(idx, 1)[0]!;
       },
@@ -735,7 +735,7 @@ export function createFakeDb(): FakeDb {
       async create({ data }: { data: Partial<FakeCredential> }) {
         const row: FakeCredential = {
           id: randomUUID(),
-          organizationId: data.organizationId!,
+          tenantId: data.tenantId!,
           name: data.name!,
           provider: data.provider!,
           authenticationType: data.authenticationType!,
@@ -754,7 +754,7 @@ export function createFakeDb(): FakeDb {
       async create({ data }: { data: Partial<FakeMapServer> }) {
         const row: FakeMapServer = {
           id: randomUUID(),
-          organizationId: data.organizationId!,
+          tenantId: data.tenantId!,
           type: data.type!,
           name: data.name!,
           credentialId: data.credentialId ?? null,
@@ -815,7 +815,7 @@ export function createFakeDb(): FakeDb {
       async create({ data }: { data: Partial<FakeIntegration> }) {
         const row: FakeIntegration = {
           id: randomUUID(),
-          organizationId: data.organizationId!,
+          tenantId: data.tenantId!,
           type: data.type!,
           name: data.name!,
           credentialId: data.credentialId ?? null,
@@ -835,7 +835,7 @@ export function createFakeDb(): FakeDb {
       async create({ data }: { data: Partial<FakeIncident> }) {
         const row: FakeIncident = {
           id: randomUUID(),
-          organizationId: data.organizationId!,
+          tenantId: data.tenantId!,
           integrationId: data.integrationId ?? null,
           externalId: data.externalId!,
           source: data.source!,
@@ -856,23 +856,23 @@ export function createFakeDb(): FakeDb {
         incidents.push(row);
         return row;
       },
-      async findMany({ where }: { where: { organizationId: string } }) {
-        return incidents.filter((i) => i.organizationId === where.organizationId);
+      async findMany({ where }: { where: { tenantId: string } }) {
+        return incidents.filter((i) => i.tenantId === where.tenantId);
       },
       async findFirst({ where }: { where: OrgScopedWhere }) {
-        return incidents.find((i) => i.organizationId === where.organizationId && i.id === where.id) ?? null;
+        return incidents.find((i) => i.tenantId === where.tenantId && i.id === where.id) ?? null;
       },
       async findUnique({
         where,
       }: {
         where: {
-          organizationId_source_externalId: { organizationId: string; source: string; externalId: string };
+          tenantId_source_externalId: { tenantId: string; source: string; externalId: string };
         };
       }) {
-        const { organizationId, source, externalId } = where.organizationId_source_externalId;
+        const { tenantId, source, externalId } = where.tenantId_source_externalId;
         return (
           incidents.find(
-            (i) => i.organizationId === organizationId && i.source === source && i.externalId === externalId,
+            (i) => i.tenantId === tenantId && i.source === source && i.externalId === externalId,
           ) ?? null
         );
       },
@@ -968,25 +968,25 @@ export function createFakeDb(): FakeDb {
       },
     },
     automationPolicy: {
-      async findMany({ where }: { where: { organizationId: string } }) {
-        return automationPolicies.filter((p) => p.organizationId === where.organizationId);
+      async findMany({ where }: { where: { tenantId: string } }) {
+        return automationPolicies.filter((p) => p.tenantId === where.tenantId);
       },
       async findUnique({
         where,
       }: {
         where: {
-          organizationId_mapServerType_capabilityKey: {
-            organizationId: string;
+          tenantId_mapServerType_capabilityKey: {
+            tenantId: string;
             mapServerType: string;
             capabilityKey: string;
           };
         };
       }) {
-        const { organizationId, mapServerType, capabilityKey } = where.organizationId_mapServerType_capabilityKey;
+        const { tenantId, mapServerType, capabilityKey } = where.tenantId_mapServerType_capabilityKey;
         return (
           automationPolicies.find(
             (p) =>
-              p.organizationId === organizationId &&
+              p.tenantId === tenantId &&
               p.mapServerType === mapServerType &&
               p.capabilityKey === capabilityKey,
           ) ?? null
@@ -994,7 +994,7 @@ export function createFakeDb(): FakeDb {
       },
       async findFirst({ where }: { where: OrgScopedWhere }) {
         return (
-          automationPolicies.find((p) => p.organizationId === where.organizationId && p.id === where.id) ?? null
+          automationPolicies.find((p) => p.tenantId === where.tenantId && p.id === where.id) ?? null
         );
       },
       async upsert({
@@ -1003,8 +1003,8 @@ export function createFakeDb(): FakeDb {
         update,
       }: {
         where: {
-          organizationId_mapServerType_capabilityKey: {
-            organizationId: string;
+          tenantId_mapServerType_capabilityKey: {
+            tenantId: string;
             mapServerType: string;
             capabilityKey: string;
           };
@@ -1012,10 +1012,10 @@ export function createFakeDb(): FakeDb {
         create: Partial<FakeAutomationPolicy>;
         update: Partial<FakeAutomationPolicy>;
       }) {
-        const { organizationId, mapServerType, capabilityKey } = where.organizationId_mapServerType_capabilityKey;
+        const { tenantId, mapServerType, capabilityKey } = where.tenantId_mapServerType_capabilityKey;
         const existing = automationPolicies.find(
           (p) =>
-            p.organizationId === organizationId &&
+            p.tenantId === tenantId &&
             p.mapServerType === mapServerType &&
             p.capabilityKey === capabilityKey,
         );
@@ -1025,7 +1025,7 @@ export function createFakeDb(): FakeDb {
         }
         const row: FakeAutomationPolicy = {
           id: randomUUID(),
-          organizationId,
+          tenantId,
           mapServerType,
           capabilityKey,
           riskLevel: create.riskLevel!,
@@ -1162,7 +1162,7 @@ export function createFakeDb(): FakeDb {
       async create({ data }: { data: Partial<FakeWebhookEvent> }) {
         const row: FakeWebhookEvent = {
           id: randomUUID(),
-          organizationId: data.organizationId ?? null,
+          tenantId: data.tenantId ?? null,
           source: data.source!,
           externalId: data.externalId!,
           eventHash: data.eventHash!,
@@ -1190,7 +1190,7 @@ export function createFakeDb(): FakeDb {
       async create({ data }: { data: Partial<FakeAuditLog> }) {
         const row: FakeAuditLog = {
           id: randomUUID(),
-          organizationId: data.organizationId ?? null,
+          tenantId: data.tenantId ?? null,
           actorType: data.actorType!,
           actorId: data.actorId ?? null,
           action: data.action!,
@@ -1208,11 +1208,11 @@ export function createFakeDb(): FakeDb {
         orderBy,
         take,
       }: {
-        where: { organizationId: string; createdAt?: { lt: Date } };
+        where: { tenantId: string; createdAt?: { lt: Date } };
         orderBy?: { createdAt: "asc" | "desc" };
         take?: number;
       }) {
-        let rows = auditLogs.filter((a) => a.organizationId === where.organizationId);
+        let rows = auditLogs.filter((a) => a.tenantId === where.tenantId);
         if (where.createdAt?.lt) {
           const before = where.createdAt.lt;
           rows = rows.filter((a) => a.createdAt.getTime() < before.getTime());

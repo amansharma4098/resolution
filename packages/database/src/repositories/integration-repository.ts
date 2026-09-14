@@ -16,7 +16,7 @@ export interface CreateIntegrationInput {
  *  see packages/database/src/json-field.ts. */
 export interface Integration {
   id: string;
-  organizationId: string;
+  tenantId: string;
   type: IncidentSourceType;
   name: string;
   credentialId: string | null;
@@ -28,7 +28,7 @@ export interface Integration {
 
 function toPublic(row: {
   id: string;
-  organizationId: string;
+  tenantId: string;
   type: string;
   name: string;
   credentialId: string | null;
@@ -49,9 +49,9 @@ function toPublic(row: {
 export class IntegrationRepository extends TenantScopedRepository {
   constructor(
     private readonly db: PrismaClient,
-    organizationId: string,
+    tenantId: string,
   ) {
-    super(organizationId);
+    super(tenantId);
   }
 
   async create(input: CreateIntegrationInput): Promise<Integration> {
@@ -61,7 +61,7 @@ export class IntegrationRepository extends TenantScopedRepository {
         name: input.name,
         credentialId: input.credentialId,
         config: serializeJsonField(input.config),
-        organizationId: this.organizationId,
+        tenantId: this.tenantId,
       },
     });
     return toPublic(row);

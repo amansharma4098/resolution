@@ -21,7 +21,7 @@ export interface MemberWithUser extends Membership {
  * Organization is the tenant root, not a tenant-owned resource — so, like UserRepository,
  * this doesn't extend TenantScopedRepository. Every method takes the caller's userId (from
  * the session) and derives what they're allowed to see from OrganizationMember, never from
- * a client-supplied organizationId.
+ * a client-supplied tenantId.
  */
 export class OrganizationRepository {
   constructor(private readonly db: PrismaClient) {}
@@ -41,13 +41,13 @@ export class OrganizationRepository {
     slug: string;
     ownerUserId: string;
   }): Promise<Organization> {
-    const organizationId = crypto.randomUUID();
+    const tenantId = crypto.randomUUID();
     const [organization] = await this.db.$transaction([
       this.db.organization.create({
-        data: { id: organizationId, name: input.name, slug: input.slug },
+        data: { id: tenantId, name: input.name, slug: input.slug },
       }),
       this.db.organizationMember.create({
-        data: { organizationId, userId: input.ownerUserId, role: "OWNER" },
+        data: { tenantId, userId: input.ownerUserId, role: "OWNER" },
       }),
     ]);
     return organization;
@@ -83,15 +83,15 @@ export class OrganizationRepository {
    *  org-scoped request instead of trusting anything from the client. Returns null if
    *  the user has no membership (including if the org doesn't exist), which the caller
    *  treats as a 404, not a 403 — never confirm an org's existence to a non-member. */
-  async findMembership(userId: string, organizationId: string): Promise<Membership | null> {
+  async findMembership(userId: string, tenantId: string): Promise<Membership | null> {
     const membership = await this.db.organizationMember.findUnique({
-      where: { organizationId_userId: { organizationId, userId } },
+      where: { tenantId_userId: { tenantId, userId } },
     });
     return membership ? { ...membership, role: membership.role as Role } : null;
   }
 
-  findById(organizationId: string): Promise<Organization | null> {
-    return this.db.organization.findUnique({ where: { id: organizationId } });
+  findById(tenantId: string): Promise<Organization | null> {
+    return this.db.organization.findUnique({ where: { id: tenantId } });
   }
 
   async slugExists(slug: string): Promise<boolean> {
@@ -102,15 +102,15 @@ export class OrganizationRepository {
   /** The org's full member roster — for the Settings/Team screen. Every enterprise
    *  customer needs this: an OWNER/ADMIN brings teammates into their own tenant, never the
    *  other way around (no cross-tenant self-signup into someone else's org). */
-  async listMembers(organizationId: string): Promise<MemberWithUser[]> {
+  async listMembers(tenantId: string): Promise<MemberWithUser[]> {
     const members = await this.db.organizationMember.findMany({
-      where: { organizationId },
+      where: { tenantId },
       include: { user: true },
       orderBy: { createdAt: "asc" },
     });
     return members.map((m) => ({
       id: m.id,
-      organizationId: m.organizationId,
+      tenantId: m.tenantId,
       userId: m.userId,
       role: m.role as Role,
       createdAt: m.createdAt,
@@ -119,31 +119,31 @@ export class OrganizationRepository {
     }));
   }
 
-  async countOwners(organizationId: string): Promise<number> {
-    return this.db.organizationMember.count({ where: { organizationId, role: "OWNER" } });
+  async countOwners(tenantId: string): Promise<number> {
+    return this.db.organizationMember.count({ where: { tenantId, role: "OWNER" } });
   }
 
-  addMember(organizationId: string, userId: string, role: Role): Promise<OrganizationMember> {
-    return this.db.organizationMember.create({ data: { organizationId, userId, role } });
+  addMember(tenantId: string, userId: string, role: Role): Promise<OrganizationMember> {
+    return this.db.organizationMember.create({ data: { tenantId, userId, role } });
   }
 
   /** Returns false (never throws) if the membership doesn't exist — callers turn that into
    *  a 404. Callers are responsible for the "don't remove the last OWNER" check
    *  (countOwners) before calling this; it's a business rule, not a data-layer concern. */
-  async removeMember(organizationId: string, userId: string): Promise<boolean> {
-    const existing = await this.findMembership(userId, organizationId);
+  async removeMember(tenantId: string, userId: string): Promise<boolean> {
+    const existing = await this.findMembership(userId, tenantId);
     if (!existing) return false;
     await this.db.organizationMember.delete({
-      where: { organizationId_userId: { organizationId, userId } },
+      where: { tenantId_userId: { tenantId, userId } },
     });
     return true;
   }
 
-  async updateMemberRole(organizationId: string, userId: string, role: Role): Promise<Membership | null> {
-    const existing = await this.findMembership(userId, organizationId);
+  async updateMemberRole(tenantId: string, userId: string, role: Role): Promise<Membership | null> {
+    const existing = await this.findMembership(userId, tenantId);
     if (!existing) return null;
     const updated = await this.db.organizationMember.update({
-      where: { organizationId_userId: { organizationId, userId } },
+      where: { tenantId_userId: { tenantId, userId } },
       data: { role },
     });
     return { ...updated, role: updated.role as Role };
@@ -152,8 +152,8 @@ export class OrganizationRepository {
   /** Phase 8: the org-level dial the policy engine reads (ARCHITECTURE.md §7) —
    *  OBSERVE_ONLY (default) never remediates automatically, AUTONOMOUS lets an
    *  AutomationPolicy's own AUTO behavior actually run unattended. */
-  async updateResolutionMode(organizationId: string, resolutionMode: ResolutionMode): Promise<Organization> {
-    return this.db.organization.update({ where: { id: organizationId }, data: { resolutionMode } });
+  async updateResolutionMode(tenantId: string, resolutionMode: ResolutionMode): Promise<Organization> {
+    return this.db.organization.update({ where: { id: tenantId }, data: { resolutionMode } });
   }
 }
 

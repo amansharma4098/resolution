@@ -9,8 +9,8 @@ the data shape and `packages/credentials/` for the implementation.
 ```typescript
 // packages/credentials/src/secret-provider.ts
 export interface SecretProvider {
-  encrypt(plaintext: Record<string, unknown>, context: { organizationId: string }): Promise<string>;
-  decrypt(ciphertext: string, context: { organizationId: string }): Promise<Record<string, unknown>>;
+  encrypt(plaintext: Record<string, unknown>, context: { tenantId: string }): Promise<string>;
+  decrypt(ciphertext: string, context: { tenantId: string }): Promise<Record<string, unknown>>;
 }
 ```
 
@@ -27,7 +27,7 @@ Real envelope encryption, entirely within Postgres, no external KMS required:
 2. The data key encrypts the plaintext payload (AES-256-GCM).
 3. The data key itself is encrypted ("wrapped") by the deployment's **root key**
    (`ENCRYPTION_MASTER_KEY`, AES-256-GCM).
-4. Both layers use the credential's `organizationId` as **additional authenticated data
+4. Both layers use the credential's `tenantId` as **additional authenticated data
    (AAD)** — decryption fails closed (throws) if the ciphertext is tampered with, or if
    it's ever decrypted under a different org's context. This is a real defense-in-depth
    property, not just a comment: even a repository-layer bug that let the wrong row

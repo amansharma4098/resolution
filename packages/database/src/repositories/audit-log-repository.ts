@@ -4,7 +4,7 @@ import { parseJsonField } from "../json-field";
 
 export interface AuditLogRow {
   id: string;
-  organizationId: string | null;
+  tenantId: string | null;
   actorType: string;
   actorId: string | null;
   action: string;
@@ -17,7 +17,7 @@ export interface AuditLogRow {
 
 function toPublic(row: {
   id: string;
-  organizationId: string | null;
+  tenantId: string | null;
   actorType: string;
   actorId: string | null;
   action: string;
@@ -36,13 +36,13 @@ function toPublic(row: {
 export class AuditLogRepository extends TenantScopedRepository {
   constructor(
     private readonly db: PrismaClient,
-    organizationId: string,
+    tenantId: string,
   ) {
-    super(organizationId);
+    super(tenantId);
   }
 
   /** Most-recent-first, cursor-paginated on `createdAt` (the column the schema's
-   *  `@@index([organizationId, createdAt])` covers) — `before` is the `createdAt` of the
+   *  `@@index([tenantId, createdAt])` covers) — `before` is the `createdAt` of the
    *  last row of the previous page, not an offset, so pages stay stable under concurrent
    *  writes. */
   async list(opts: { limit: number; before?: Date }): Promise<AuditLogRow[]> {

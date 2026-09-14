@@ -53,7 +53,7 @@ function extractPlainTextDescription(description: unknown): string {
 
 /**
  * Maps a raw Jira webhook payload into the platform's normalized incident shape
- * (ARCHITECTURE.md §8) — organizationId/id are filled in by the caller (the webhook route),
+ * (ARCHITECTURE.md §8) — tenantId/id are filled in by the caller (the webhook route),
  * not here, since this function has no tenant context of its own. `status` is always `NEW`
  * on ingestion regardless of Jira's own status — our incident lifecycle is owned by this
  * platform's state machine (Phase 6), not mirrored from the source; Jira's raw status is
@@ -61,7 +61,7 @@ function extractPlainTextDescription(description: unknown): string {
  */
 export function normalizeJiraWebhook(
   payload: JiraWebhookPayload,
-): Omit<NormalizedIncident, "id" | "organizationId" | "createdAt"> | null {
+): Omit<NormalizedIncident, "id" | "tenantId" | "createdAt"> | null {
   if (payload.webhookEvent !== "jira:issue_created" && payload.webhookEvent !== "jira:issue_updated") {
     return null;
   }

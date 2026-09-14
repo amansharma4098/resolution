@@ -21,18 +21,18 @@ function datadogPayload(overrides: Record<string, unknown> = {}) {
 describe("Datadog webhook (auto-alerting)", () => {
   let app: Hono<AppEnv>;
   let cookie: string;
-  let organizationId: string;
+  let tenantId: string;
   let integrationId: string;
   let secret: string;
 
   beforeEach(async () => {
     ({ app } = buildTestApp());
-    ({ cookie, organizationId } = await signupWithOrg(app, "owner@example.com", "Acme"));
+    ({ cookie, tenantId } = await signupWithOrg(app, "owner@example.com", "Acme"));
 
     const created = await req(app, "/api/integrations", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { type: "DATADOG", name: "Datadog monitors" },
     });
     const body = await jsonOf(created);
@@ -71,7 +71,7 @@ describe("Datadog webhook (auto-alerting)", () => {
     });
     expect(res.status).toBe(202);
 
-    const list = await req(app, "/api/incidents", { cookie, organizationId });
+    const list = await req(app, "/api/incidents", { cookie, tenantId });
     const incidents = (await jsonOf(list)).incidents;
     expect(incidents).toHaveLength(1);
     expect(incidents[0]).toMatchObject({
@@ -95,7 +95,7 @@ describe("Datadog webhook (auto-alerting)", () => {
     await send({ alert_transition: "Triggered" });
     await send({ alert_transition: "Recovered", event_msg: "CPU back to normal" });
 
-    const list = await req(app, "/api/incidents", { cookie, organizationId });
+    const list = await req(app, "/api/incidents", { cookie, tenantId });
     expect((await jsonOf(list)).incidents).toHaveLength(1);
   });
 
@@ -109,7 +109,7 @@ describe("Datadog webhook (auto-alerting)", () => {
     await send();
     await send();
 
-    const list = await req(app, "/api/incidents", { cookie, organizationId });
+    const list = await req(app, "/api/incidents", { cookie, tenantId });
     expect((await jsonOf(list)).incidents).toHaveLength(1);
   });
 
@@ -118,7 +118,7 @@ describe("Datadog webhook (auto-alerting)", () => {
     const credential = await req(app, "/api/credentials", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: {
         name: "Datadog keys",
         provider: "datadog",
@@ -127,16 +127,16 @@ describe("Datadog webhook (auto-alerting)", () => {
       },
     });
     const credentialId = (await jsonOf(credential)).credential.id;
-    await req(app, `/api/integrations/${integrationId}`, { method: "DELETE", cookie, organizationId });
+    await req(app, `/api/integrations/${integrationId}`, { method: "DELETE", cookie, tenantId });
     const created = await req(app, "/api/integrations", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { type: "DATADOG", name: "Datadog monitors", credentialId, config: { site: "datadoghq.com" } },
     });
     const id = (await jsonOf(created)).integration.id;
 
-    const tested = await req(app, `/api/integrations/${id}/test`, { method: "POST", cookie, organizationId });
+    const tested = await req(app, `/api/integrations/${id}/test`, { method: "POST", cookie, tenantId });
     expect(tested.status).toBe(200);
     const body = await jsonOf(tested);
     expect(body.integration.status).toBe("DISCONNECTED");

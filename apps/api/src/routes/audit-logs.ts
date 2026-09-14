@@ -31,7 +31,7 @@ export function buildAuditLogRoutes(deps: {
       limit: c.req.query("limit"),
       before: c.req.query("before"),
     });
-    const auditLogs = new AuditLogRepository(db, c.get("organizationId")!);
+    const auditLogs = new AuditLogRepository(db, c.get("tenantId")!);
     const entries = await auditLogs.list(query);
     const nextBefore = entries.length === query.limit ? entries[entries.length - 1]!.createdAt : null;
     return c.json({ entries, nextBefore });

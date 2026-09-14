@@ -70,7 +70,7 @@ export async function processRemediationMessage(
   config: RemediationRunnerConfig,
   message: RemediationQueueMessage,
 ): Promise<void> {
-  const incidents = new IncidentRepository(db, message.organizationId);
+  const incidents = new IncidentRepository(db, message.tenantId);
   const incident = await incidents.findById(message.incidentId);
   if (!incident) return;
   if (incident.status !== "RCA_COMPLETE") return;
@@ -79,8 +79,8 @@ export async function processRemediationMessage(
   const rcaRow = await rcaRepo.findLatestByIncident(incident.id);
   if (!rcaRow) return; // shouldn't happen (RCA_COMPLETE implies one exists) — fail closed, not throw
 
-  const mapServers = new MapServerRepository(db, message.organizationId);
-  const credentials = new CredentialRepository(db, message.organizationId);
+  const mapServers = new MapServerRepository(db, message.tenantId);
+  const credentials = new CredentialRepository(db, message.tenantId);
   const allMapServers = await mapServers.list();
 
   const contextForProposal = async (server: (typeof allMapServers)[number]): Promise<MapServerContext> => {
@@ -89,12 +89,12 @@ export async function processRemediationMessage(
       const credentialRow = await credentials.findById(server.credentialId);
       if (credentialRow) {
         credential = await config.secretProvider.decrypt(credentialRow.encryptedData, {
-          organizationId: message.organizationId,
+          tenantId: message.tenantId,
         });
       }
     }
     return {
-      organizationId: message.organizationId,
+      tenantId: message.tenantId,
       mapServerId: server.id,
       environment: server.environments[0] ?? "default",
       credential,
@@ -158,7 +158,7 @@ export async function processRemediationMessage(
       },
     });
     await writeAuditLog(auditLogWriter(db), {
-      organizationId: message.organizationId,
+      tenantId: message.tenantId,
       actorType: "agent",
       action: "incident.remediation_proposal_failed",
       targetType: "Incident",
@@ -208,10 +208,10 @@ export async function processRemediationMessage(
   });
 
   const organizations = new OrganizationRepository(db);
-  const organization = await organizations.findById(message.organizationId);
+  const organization = await organizations.findById(message.tenantId);
   const orgResolutionMode = (organization?.resolutionMode ?? "OBSERVE_ONLY") as ResolutionMode;
 
-  const policies = new AutomationPolicyRepository(db, message.organizationId);
+  const policies = new AutomationPolicyRepository(db, message.tenantId);
   const policyRow = await policies.findForCapability(proposal.mapServerType, proposal.capability.key);
   const behavior: PolicyBehavior = evaluatePolicy(
     orgResolutionMode,
@@ -219,7 +219,7 @@ export async function processRemediationMessage(
   );
 
   await writeAuditLog(auditLogWriter(db), {
-    organizationId: message.organizationId,
+    tenantId: message.tenantId,
     actorType: "agent",
     action: "incident.remediation_proposed",
     targetType: "Incident",
@@ -262,7 +262,7 @@ export async function processRemediationMessage(
     data: { status: transition(incident.status, "REMEDIATING") },
   });
   await executeAndVerify(db, {
-    organizationId: message.organizationId,
+    tenantId: message.tenantId,
     incidentId: incident.id,
     mapServerId: proposal.mapServerId,
     mapServerType: proposal.mapServerType,
@@ -283,7 +283,7 @@ export async function processRemediationMessage(
 export async function executeAndVerify(
   db: PrismaClient,
   params: {
-    organizationId: string;
+    tenantId: string;
     incidentId: string;
     mapServerId: string;
     mapServerType: MapServerType;
@@ -296,8 +296,8 @@ export async function executeAndVerify(
 ): Promise<void> {
   const sleep = params.sleep ?? defaultSleep;
   const remediationRepo = new RemediationRepository(db);
-  const mapServers = new MapServerRepository(db, params.organizationId);
-  const credentials = new CredentialRepository(db, params.organizationId);
+  const mapServers = new MapServerRepository(db, params.tenantId);
+  const credentials = new CredentialRepository(db, params.tenantId);
 
   const contextFor = async (mapServerId: string): Promise<MapServerContext> => {
     const server = await mapServers.findById(mapServerId);
@@ -306,12 +306,12 @@ export async function executeAndVerify(
       const credentialRow = await credentials.findById(server.credentialId);
       if (credentialRow) {
         credential = await params.secretProvider.decrypt(credentialRow.encryptedData, {
-          organizationId: params.organizationId,
+          tenantId: params.tenantId,
         });
       }
     }
     return {
-      organizationId: params.organizationId,
+      tenantId: params.tenantId,
       mapServerId,
       environment: server?.environments[0] ?? "default",
       credential,

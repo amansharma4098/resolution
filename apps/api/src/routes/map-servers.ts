@@ -51,7 +51,7 @@ export function buildMapServerRoutes(deps: {
     const body = CreateMapServerBody.parse(await c.req.json());
 
     if (body.credentialId) {
-      const credentials = new CredentialRepository(db, c.get("organizationId")!);
+      const credentials = new CredentialRepository(db, c.get("tenantId")!);
       const credential = await credentials.findById(body.credentialId);
       if (!credential) {
         throw new ValidationError("credentialId does not reference a credential in this organization");
@@ -59,7 +59,7 @@ export function buildMapServerRoutes(deps: {
     }
 
     const provider = getMapServerProvider(body.type);
-    const mapServers = new MapServerRepository(db, c.get("organizationId")!);
+    const mapServers = new MapServerRepository(db, c.get("tenantId")!);
     const mapServer = await mapServers.create({
       type: body.type,
       name: body.name,
@@ -80,7 +80,7 @@ export function buildMapServerRoutes(deps: {
     }
 
     await writeAuditLog(auditLogWriter(db), {
-      organizationId: c.get("organizationId"),
+      tenantId: c.get("tenantId"),
       actorType: "user",
       actorId: c.get("userId"),
       action: "map_server.created",
@@ -94,13 +94,13 @@ export function buildMapServerRoutes(deps: {
   });
 
   router.get("/", auth, tenantContext, async (c) => {
-    const mapServers = new MapServerRepository(db, c.get("organizationId")!);
+    const mapServers = new MapServerRepository(db, c.get("tenantId")!);
     const list = await mapServers.list();
     return c.json({ mapServers: list.map(toPublicMapServer) });
   });
 
   router.get("/:id", auth, tenantContext, async (c) => {
-    const mapServers = new MapServerRepository(db, c.get("organizationId")!);
+    const mapServers = new MapServerRepository(db, c.get("tenantId")!);
     const mapServer = await mapServers.findById(c.req.param("id"));
     if (!mapServer) throw new NotFoundError("Map Server not found");
     const capabilities = await mapServers.listCapabilities(mapServer.id);
@@ -108,12 +108,12 @@ export function buildMapServerRoutes(deps: {
   });
 
   router.delete("/:id", auth, tenantContext, requireAdmin, async (c) => {
-    const mapServers = new MapServerRepository(db, c.get("organizationId")!);
+    const mapServers = new MapServerRepository(db, c.get("tenantId")!);
     const deleted = await mapServers.delete(c.req.param("id"));
     if (!deleted) throw new NotFoundError("Map Server not found");
 
     await writeAuditLog(auditLogWriter(db), {
-      organizationId: c.get("organizationId"),
+      tenantId: c.get("tenantId"),
       actorType: "user",
       actorId: c.get("userId"),
       action: "map_server.deleted",
@@ -126,7 +126,7 @@ export function buildMapServerRoutes(deps: {
   });
 
   router.patch("/:id/capabilities/:key", auth, tenantContext, requireAdmin, async (c) => {
-    const mapServers = new MapServerRepository(db, c.get("organizationId")!);
+    const mapServers = new MapServerRepository(db, c.get("tenantId")!);
     const mapServer = await mapServers.findById(c.req.param("id"));
     if (!mapServer) throw new NotFoundError("Map Server not found");
 
@@ -135,7 +135,7 @@ export function buildMapServerRoutes(deps: {
     if (!updated) throw new NotFoundError("Capability not found");
 
     await writeAuditLog(auditLogWriter(db), {
-      organizationId: c.get("organizationId"),
+      tenantId: c.get("tenantId"),
       actorType: "user",
       actorId: c.get("userId"),
       action: "map_server.capability_toggled",
@@ -149,7 +149,7 @@ export function buildMapServerRoutes(deps: {
   });
 
   router.post("/:id/test", auth, tenantContext, requireAdmin, async (c) => {
-    const mapServers = new MapServerRepository(db, c.get("organizationId")!);
+    const mapServers = new MapServerRepository(db, c.get("tenantId")!);
     const mapServer = await mapServers.findById(c.req.param("id"));
     if (!mapServer) throw new NotFoundError("Map Server not found");
 
@@ -167,16 +167,16 @@ export function buildMapServerRoutes(deps: {
     } else if (!mapServer.credentialId) {
       result = { status: "DISCONNECTED", detail: "No credential attached to this Map Server" };
     } else {
-      const credentials = new CredentialRepository(db, c.get("organizationId")!);
+      const credentials = new CredentialRepository(db, c.get("tenantId")!);
       const credential = await credentials.findById(mapServer.credentialId);
       if (!credential) {
         result = { status: "DISCONNECTED", detail: "Attached credential no longer exists" };
       } else {
         const decrypted = await secretProvider.decrypt(credential.encryptedData, {
-          organizationId: c.get("organizationId")!,
+          tenantId: c.get("tenantId")!,
         });
         const testResult = await provider.healthCheck({
-          organizationId: c.get("organizationId")!,
+          tenantId: c.get("tenantId")!,
           mapServerId: mapServer.id,
           environment: mapServer.environments[0] ?? "default",
           credential: decrypted,
@@ -193,7 +193,7 @@ export function buildMapServerRoutes(deps: {
     const updated = await mapServers.updateStatus(mapServer.id, result.status);
 
     await writeAuditLog(auditLogWriter(db), {
-      organizationId: c.get("organizationId"),
+      tenantId: c.get("tenantId"),
       actorType: "user",
       actorId: c.get("userId"),
       action: "map_server.tested",
@@ -212,7 +212,7 @@ export function buildMapServerRoutes(deps: {
   // `MapServerRepository.syncCapabilitiesFromProvider` documents. A no-op 400 for every
   // other provider, whose capabilities are fixed at registration and never need refreshing.
   router.post("/:id/refresh-capabilities", auth, tenantContext, requireAdmin, async (c) => {
-    const mapServers = new MapServerRepository(db, c.get("organizationId")!);
+    const mapServers = new MapServerRepository(db, c.get("tenantId")!);
     const mapServer = await mapServers.findById(c.req.param("id"));
     if (!mapServer) throw new NotFoundError("Map Server not found");
 
@@ -225,15 +225,15 @@ export function buildMapServerRoutes(deps: {
       throw new ValidationError("Attach a credential before discovering capabilities");
     }
 
-    const credentials = new CredentialRepository(db, c.get("organizationId")!);
+    const credentials = new CredentialRepository(db, c.get("tenantId")!);
     const credential = await credentials.findById(mapServer.credentialId);
     if (!credential) throw new ValidationError("Attached credential no longer exists");
 
     const decrypted = await secretProvider.decrypt(credential.encryptedData, {
-      organizationId: c.get("organizationId")!,
+      tenantId: c.get("tenantId")!,
     });
     const discovered = await provider.discoverCapabilities({
-      organizationId: c.get("organizationId")!,
+      tenantId: c.get("tenantId")!,
       mapServerId: mapServer.id,
       environment: mapServer.environments[0] ?? "default",
       credential: decrypted,
@@ -243,7 +243,7 @@ export function buildMapServerRoutes(deps: {
     await mapServers.syncCapabilitiesFromProvider(mapServer.id, discovered);
 
     await writeAuditLog(auditLogWriter(db), {
-      organizationId: c.get("organizationId"),
+      tenantId: c.get("tenantId"),
       actorType: "user",
       actorId: c.get("userId"),
       action: "map_server.capabilities_refreshed",

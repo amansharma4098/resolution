@@ -21,7 +21,7 @@ export interface IncidentIngestionQueue {
  *  that hook only fires on the branch that actually inserted a new Incident row. */
 export interface InvestigationQueueMessage {
   incidentId: string;
-  organizationId: string;
+  tenantId: string;
 }
 
 /** Same producer/consumer decoupling as IncidentIngestionQueue, for the investigation
@@ -37,7 +37,7 @@ export interface IncidentInvestigationQueue {
  *  remediation-consumer.ts's header comment for why this isn't split into more queues. */
 export interface RemediationQueueMessage {
   incidentId: string;
-  organizationId: string;
+  tenantId: string;
 }
 
 /** Same producer/consumer decoupling as the other two queues — see remediation-consumer.ts

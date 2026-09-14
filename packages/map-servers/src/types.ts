@@ -21,7 +21,7 @@ export type AuthenticationType =
  * `credential`.
  */
 export interface MapServerContext {
-  organizationId: string;
+  tenantId: string;
   mapServerId: string;
   environment: string;
   credential: Record<string, unknown>;

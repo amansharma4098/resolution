@@ -42,7 +42,7 @@ interface Capability {
 }
 
 export default function MapServersPage() {
-  const { currentOrganizationId } = useSession();
+  const { currentTenantId } = useSession();
   const [mapServers, setMapServers] = useState<MapServerSummary[]>([]);
   const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
   const [credentials, setCredentials] = useState<CredentialOption[]>([]);
@@ -54,18 +54,18 @@ export default function MapServersPage() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
-    if (!currentOrganizationId) return;
+    if (!currentTenantId) return;
     setLoading(true);
     try {
       const [msRes, catalogRes, credsRes] = await Promise.all([
         apiRequest<{ mapServers: MapServerSummary[] }>("/api/map-servers", {
-          organizationId: currentOrganizationId,
+          tenantId: currentTenantId,
         }),
         apiRequest<{ catalog: CatalogEntry[] }>("/api/map-servers/catalog", {
-          organizationId: currentOrganizationId,
+          tenantId: currentTenantId,
         }),
         apiRequest<{ credentials: CredentialOption[] }>("/api/credentials", {
-          organizationId: currentOrganizationId,
+          tenantId: currentTenantId,
         }),
       ]);
       setMapServers(msRes.mapServers);
@@ -76,18 +76,18 @@ export default function MapServersPage() {
     } finally {
       setLoading(false);
     }
-  }, [currentOrganizationId]);
+  }, [currentTenantId]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   async function handleTest(id: string) {
-    if (!currentOrganizationId) return;
+    if (!currentTenantId) return;
     try {
       const res = await apiRequest<{ detail: string }>(`/api/map-servers/${id}/test`, {
         method: "POST",
-        organizationId: currentOrganizationId,
+        tenantId: currentTenantId,
       });
       setTestDetail((d) => ({ ...d, [id]: res.detail }));
       await load();
@@ -97,9 +97,9 @@ export default function MapServersPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!currentOrganizationId) return;
+    if (!currentTenantId) return;
     try {
-      await apiRequest(`/api/map-servers/${id}`, { method: "DELETE", organizationId: currentOrganizationId });
+      await apiRequest(`/api/map-servers/${id}`, { method: "DELETE", tenantId: currentTenantId });
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Delete failed");
@@ -113,10 +113,10 @@ export default function MapServersPage() {
       else next.add(id);
       return next;
     });
-    if (!capabilitiesByServer[id] && currentOrganizationId) {
+    if (!capabilitiesByServer[id] && currentTenantId) {
       try {
         const res = await apiRequest<{ capabilities: Capability[] }>(`/api/map-servers/${id}`, {
-          organizationId: currentOrganizationId,
+          tenantId: currentTenantId,
         });
         setCapabilitiesByServer((prev) => ({ ...prev, [id]: res.capabilities }));
       } catch (err) {
@@ -126,11 +126,11 @@ export default function MapServersPage() {
   }
 
   async function handleToggleCapability(mapServerId: string, key: string, enabled: boolean) {
-    if (!currentOrganizationId) return;
+    if (!currentTenantId) return;
     try {
       await apiRequest(`/api/map-servers/${mapServerId}/capabilities/${key}`, {
         method: "PATCH",
-        organizationId: currentOrganizationId,
+        tenantId: currentTenantId,
         body: { enabled },
       });
       setCapabilitiesByServer((prev) => ({
@@ -255,7 +255,7 @@ function CreateMapServerForm({
   onCreated: () => void;
   onError: (msg: string) => void;
 }) {
-  const { currentOrganizationId } = useSession();
+  const { currentTenantId } = useSession();
   const [type, setType] = useState(catalog[0]?.type ?? "FABRIC");
   const [name, setName] = useState("");
   const [credentialId, setCredentialId] = useState("");
@@ -267,13 +267,13 @@ function CreateMapServerForm({
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!currentOrganizationId) return;
+    if (!currentTenantId) return;
     setSubmitting(true);
     try {
       const config = JSON.parse(configJson);
       await apiRequest("/api/map-servers", {
         method: "POST",
-        organizationId: currentOrganizationId,
+        tenantId: currentTenantId,
         body: {
           type,
           name,

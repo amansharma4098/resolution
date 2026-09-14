@@ -54,7 +54,7 @@ export type MapServerType = z.infer<typeof MapServerType>;
  */
 export const NormalizedIncident = z.object({
   id: z.string().uuid(),
-  organizationId: z.string().uuid(),
+  tenantId: z.string().uuid(),
   externalId: z.string().min(1),
   source: IncidentSourceType,
   title: z.string().min(1),

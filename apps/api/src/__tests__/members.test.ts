@@ -6,15 +6,15 @@ import type { AppEnv } from "../types";
 describe("organization member management", () => {
   let app: Hono<AppEnv>;
   let ownerCookie: string;
-  let organizationId: string;
+  let tenantId: string;
 
   beforeEach(async () => {
     ({ app } = buildTestApp());
-    ({ cookie: ownerCookie, organizationId } = await signupWithOrg(app, "owner@example.com", "Acme"));
+    ({ cookie: ownerCookie, tenantId } = await signupWithOrg(app, "owner@example.com", "Acme"));
   });
 
   it("the org creator is listed as OWNER", async () => {
-    const res = await req(app, "/api/organizations/members", { cookie: ownerCookie, organizationId });
+    const res = await req(app, "/api/organizations/members", { cookie: ownerCookie, tenantId });
     const body = await jsonOf(res);
     expect(body.members).toHaveLength(1);
     expect(body.members[0]).toMatchObject({ email: "owner@example.com", role: "OWNER" });
@@ -24,7 +24,7 @@ describe("organization member management", () => {
     const res = await req(app, "/api/organizations/members", {
       method: "POST",
       cookie: ownerCookie,
-      organizationId,
+      tenantId,
       body: { email: "newhire@example.com", name: "New Hire", role: "MEMBER" },
     });
     expect(res.status).toBe(201);
@@ -45,7 +45,7 @@ describe("organization member management", () => {
     const added = await req(app, "/api/organizations/members", {
       method: "POST",
       cookie: ownerCookie,
-      organizationId,
+      tenantId,
       body: { email: "flagged@example.com", role: "MEMBER" },
     });
     const { temporaryPassword } = await jsonOf(added);
@@ -63,7 +63,7 @@ describe("organization member management", () => {
     const res = await req(app, "/api/organizations/members", {
       method: "POST",
       cookie: ownerCookie,
-      organizationId,
+      tenantId,
       body: { email: "chosen@example.com", role: "MEMBER", password: "a-chosen-password-123" },
     });
     expect(res.status).toBe(201);
@@ -83,7 +83,7 @@ describe("organization member management", () => {
     const res = await req(app, "/api/organizations/members", {
       method: "POST",
       cookie: ownerCookie,
-      organizationId,
+      tenantId,
       body: { email: "short@example.com", role: "MEMBER", password: "short" },
     });
     expect(res.status).toBe(400);
@@ -96,7 +96,7 @@ describe("organization member management", () => {
     const res = await req(app, "/api/organizations/members", {
       method: "POST",
       cookie: ownerCookie,
-      organizationId,
+      tenantId,
       body: { email: "existing@example.com", role: "VIEWER" },
     });
     expect(res.status).toBe(201);
@@ -109,13 +109,13 @@ describe("organization member management", () => {
     await req(app, "/api/organizations/members", {
       method: "POST",
       cookie: ownerCookie,
-      organizationId,
+      tenantId,
       body: { email: "dup@example.com", role: "MEMBER" },
     });
     const res = await req(app, "/api/organizations/members", {
       method: "POST",
       cookie: ownerCookie,
-      organizationId,
+      tenantId,
       body: { email: "dup@example.com", role: "MEMBER" },
     });
     expect(res.status).toBe(409);
@@ -126,7 +126,7 @@ describe("organization member management", () => {
     const added = await req(app, "/api/organizations/members", {
       method: "POST",
       cookie: ownerCookie,
-      organizationId,
+      tenantId,
       body: { email: "member1@example.com", role: "MEMBER" },
     });
     const { temporaryPassword } = await jsonOf(added);
@@ -140,7 +140,7 @@ describe("organization member management", () => {
     const res = await req(app, "/api/organizations/members", {
       method: "POST",
       cookie: memberCookie,
-      organizationId,
+      tenantId,
       body: { email: "someone@example.com", role: "MEMBER" },
     });
     expect(res.status).toBe(403);
@@ -150,7 +150,7 @@ describe("organization member management", () => {
     const added = await req(app, "/api/organizations/members", {
       method: "POST",
       cookie: ownerCookie,
-      organizationId,
+      tenantId,
       body: { email: "promote@example.com", role: "MEMBER" },
     });
     const { member } = await jsonOf(added);
@@ -158,7 +158,7 @@ describe("organization member management", () => {
     const res = await req(app, `/api/organizations/members/${member.userId}`, {
       method: "PATCH",
       cookie: ownerCookie,
-      organizationId,
+      tenantId,
       body: { role: "ADMIN" },
     });
     expect(res.status).toBe(200);
@@ -172,7 +172,7 @@ describe("organization member management", () => {
     const res = await req(app, `/api/organizations/members/${user.id}`, {
       method: "PATCH",
       cookie: ownerCookie,
-      organizationId,
+      tenantId,
       body: { role: "ADMIN" },
     });
     expect(res.status).toBe(400);
@@ -185,7 +185,7 @@ describe("organization member management", () => {
     const res = await req(app, `/api/organizations/members/${user.id}`, {
       method: "DELETE",
       cookie: ownerCookie,
-      organizationId,
+      tenantId,
     });
     expect(res.status).toBe(400);
   });
@@ -194,7 +194,7 @@ describe("organization member management", () => {
     const added = await req(app, "/api/organizations/members", {
       method: "POST",
       cookie: ownerCookie,
-      organizationId,
+      tenantId,
       body: { email: "toremove@example.com", role: "MEMBER" },
     });
     const { member } = await jsonOf(added);
@@ -202,11 +202,11 @@ describe("organization member management", () => {
     const del = await req(app, `/api/organizations/members/${member.userId}`, {
       method: "DELETE",
       cookie: ownerCookie,
-      organizationId,
+      tenantId,
     });
     expect(del.status).toBe(204);
 
-    const list = await req(app, "/api/organizations/members", { cookie: ownerCookie, organizationId });
+    const list = await req(app, "/api/organizations/members", { cookie: ownerCookie, tenantId });
     expect((await jsonOf(list)).members).toHaveLength(1);
   });
 });

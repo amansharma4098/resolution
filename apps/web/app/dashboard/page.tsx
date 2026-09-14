@@ -49,16 +49,16 @@ function MetricCard({ label, value, sub }: { label: string; value: string | numb
 }
 
 export default function DashboardPage() {
-  const { currentOrganization, currentOrganizationId } = useSession();
+  const { currentOrganization, currentTenantId } = useSession();
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    if (!currentOrganizationId) return;
+    if (!currentTenantId) return;
     setLoading(true);
     try {
-      const res = await apiRequest<Metrics>("/api/metrics", { organizationId: currentOrganizationId });
+      const res = await apiRequest<Metrics>("/api/metrics", { tenantId: currentTenantId });
       setMetrics(res);
       setError(null);
     } catch (err) {
@@ -66,7 +66,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [currentOrganizationId]);
+  }, [currentTenantId]);
 
   useEffect(() => {
     void load();

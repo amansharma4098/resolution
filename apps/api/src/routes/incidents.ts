@@ -46,7 +46,7 @@ export function buildIncidentRoutes(deps: {
   const requireAdmin = requireMinimumRole("ADMIN");
 
   router.get("/", auth, tenantContext, async (c) => {
-    const incidents = new IncidentRepository(db, c.get("organizationId")!);
+    const incidents = new IncidentRepository(db, c.get("tenantId")!);
     const list = await incidents.list();
     return c.json({ incidents: list });
   });
@@ -56,13 +56,13 @@ export function buildIncidentRoutes(deps: {
   // map-servers.ts's "/catalog" and organizations.ts's "/members"). Powers a global
   // approvals inbox so an admin doesn't have to open every incident to find what's waiting
   // on them. O(incidents) round trips, not a single join query — Resolution/RemediationAction/
-  // Approval have no organizationId column of their own to query against directly (same
+  // Approval have no tenantId column of their own to query against directly (same
   // trust-via-Incident relationship as IncidentEvidence/RootCauseAnalysis), and this
   // project's scale doesn't yet justify a denormalized index for it; worth revisiting once
   // real incident volume exists.
   router.get("/approvals/pending", auth, tenantContext, async (c) => {
-    const organizationId = c.get("organizationId")!;
-    const incidents = new IncidentRepository(db, organizationId);
+    const tenantId = c.get("tenantId")!;
+    const incidents = new IncidentRepository(db, tenantId);
     const remediationRepo = new RemediationRepository(db);
     const allIncidents = await incidents.list();
 
@@ -102,7 +102,7 @@ export function buildIncidentRoutes(deps: {
   });
 
   router.get("/:id", auth, tenantContext, async (c) => {
-    const incidents = new IncidentRepository(db, c.get("organizationId")!);
+    const incidents = new IncidentRepository(db, c.get("tenantId")!);
     const incident = await incidents.findById(c.req.param("id"));
     if (!incident) throw new NotFoundError("Incident not found");
 
@@ -136,7 +136,7 @@ export function buildIncidentRoutes(deps: {
   router.post("/:id/investigate", auth, tenantContext, async (c) => {
     const result = await investigateIncident(
       { db, investigationQueue },
-      { organizationId: c.get("organizationId")!, incidentId: c.req.param("id") },
+      { tenantId: c.get("tenantId")!, incidentId: c.req.param("id") },
     );
     return c.json(result, 202);
   });
@@ -144,7 +144,7 @@ export function buildIncidentRoutes(deps: {
   router.post("/:id/propose-remediation", auth, tenantContext, async (c) => {
     const result = await proposeRemediationForIncident(
       { db, remediationQueue },
-      { organizationId: c.get("organizationId")!, incidentId: c.req.param("id") },
+      { tenantId: c.get("tenantId")!, incidentId: c.req.param("id") },
     );
     return c.json(result, 202);
   });
@@ -154,7 +154,7 @@ export function buildIncidentRoutes(deps: {
     const result = await decideRemediationApproval(
       { db, secretProvider },
       {
-        organizationId: c.get("organizationId")!,
+        tenantId: c.get("tenantId")!,
         incidentId: c.req.param("id"),
         approvalId: c.req.param("approvalId"),
         decision: body.decision,

@@ -14,7 +14,7 @@ function verifySecretOrThrow(configSecret: unknown, provided: string | undefined
 }
 
 /**
- * Public webhook receivers — no session, no X-Organization-Id header. The integrationId in
+ * Public webhook receivers — no session, no X-Tenant-Id header. The integrationId in
  * the URL identifies which org's Integration this belongs to; the X-Webhook-Secret header
  * (checked in constant time) is what actually authenticates the request, since neither
  * Jira Cloud's native webhooks nor a ServiceNow Business Rule's outbound REST call sign

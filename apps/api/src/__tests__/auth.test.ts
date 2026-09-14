@@ -13,11 +13,11 @@ describe("auth", () => {
 
   describe("change-password", () => {
     async function setUpFlaggedUser(app: ReturnType<typeof buildTestApp>["app"]) {
-      const { cookie: ownerCookie, organizationId } = await signupWithOrg(app, "owner@example.com", "Acme");
+      const { cookie: ownerCookie, tenantId } = await signupWithOrg(app, "owner@example.com", "Acme");
       const added = await req(app, "/api/organizations/members", {
         method: "POST",
         cookie: ownerCookie,
-        organizationId,
+        tenantId,
         body: { email: "flagged@example.com", role: "MEMBER" },
       });
       const { temporaryPassword } = await jsonOf(added);

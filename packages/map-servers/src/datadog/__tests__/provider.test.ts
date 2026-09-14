@@ -3,7 +3,7 @@ import { datadogProvider } from "../index";
 import type { MapServerContext } from "../../types";
 
 const context: MapServerContext = {
-  organizationId: "org1",
+  tenantId: "org1",
   mapServerId: "ms1",
   environment: "prod",
   credential: { apiKey: "k1", applicationKey: "a1" },

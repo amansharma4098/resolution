@@ -42,18 +42,18 @@ function tagValue(tags: string | undefined, key: string): string | undefined {
 
 /**
  * Maps a rendered Datadog webhook payload into the platform's normalized incident shape —
- * organizationId/id are filled in by the caller (the webhook route), same as every other
+ * tenantId/id are filled in by the caller (the webhook route), same as every other
  * normalizer. Only the `Triggered`/`Re-Triggered` transitions create/matter here: a
  * `Recovered`/`Warn`/`No Data` transition for the same monitor arrives as a *separate*
  * webhook call sharing the same `alert_id` — since `alert_id` is this incident's
- * `externalId`, and Incident dedup is keyed on `(organizationId, source, externalId)`
+ * `externalId`, and Incident dedup is keyed on `(tenantId, source, externalId)`
  * (IncidentRepository.findByExternalId), a later transition just resolves to the incident
  * `Triggered` already created rather than creating a duplicate; returning `null` here for
  * transitions that aren't a real page keeps them from creating one in the first place.
  */
 export function normalizeDatadogWebhook(
   payload: DatadogWebhookPayload,
-): Omit<NormalizedIncident, "id" | "organizationId" | "createdAt"> | null {
+): Omit<NormalizedIncident, "id" | "tenantId" | "createdAt"> | null {
   if (payload.alert_transition !== "Triggered" && payload.alert_transition !== "Re-Triggered") {
     return null;
   }

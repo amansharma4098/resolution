@@ -3,7 +3,7 @@ import { fabricProvider } from "../index";
 import type { MapServerContext } from "../../types";
 
 const context: MapServerContext = {
-  organizationId: "org1",
+  tenantId: "org1",
   mapServerId: "ms1",
   environment: "prod",
   credential: { tenantId: "t1", clientId: "c1", clientSecret: "s1" },

@@ -27,7 +27,7 @@ interface CredentialOption {
 }
 
 export default function IntegrationsPage() {
-  const { currentOrganizationId } = useSession();
+  const { currentTenantId } = useSession();
   const [integrations, setIntegrations] = useState<IntegrationSummary[]>([]);
   const [credentials, setCredentials] = useState<CredentialOption[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,15 +37,15 @@ export default function IntegrationsPage() {
   const [webhookNotice, setWebhookNotice] = useState<{ url: string; secret: string; type: string } | null>(null);
 
   const load = useCallback(async () => {
-    if (!currentOrganizationId) return;
+    if (!currentTenantId) return;
     setLoading(true);
     try {
       const [intRes, credsRes] = await Promise.all([
         apiRequest<{ integrations: IntegrationSummary[] }>("/api/integrations", {
-          organizationId: currentOrganizationId,
+          tenantId: currentTenantId,
         }),
         apiRequest<{ credentials: CredentialOption[] }>("/api/credentials", {
-          organizationId: currentOrganizationId,
+          tenantId: currentTenantId,
         }),
       ]);
       setIntegrations(intRes.integrations);
@@ -55,18 +55,18 @@ export default function IntegrationsPage() {
     } finally {
       setLoading(false);
     }
-  }, [currentOrganizationId]);
+  }, [currentTenantId]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   async function handleTest(id: string) {
-    if (!currentOrganizationId) return;
+    if (!currentTenantId) return;
     try {
       const res = await apiRequest<{ detail: string }>(`/api/integrations/${id}/test`, {
         method: "POST",
-        organizationId: currentOrganizationId,
+        tenantId: currentTenantId,
       });
       setTestDetail((d) => ({ ...d, [id]: res.detail }));
       await load();
@@ -76,9 +76,9 @@ export default function IntegrationsPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!currentOrganizationId) return;
+    if (!currentTenantId) return;
     try {
-      await apiRequest(`/api/integrations/${id}`, { method: "DELETE", organizationId: currentOrganizationId });
+      await apiRequest(`/api/integrations/${id}`, { method: "DELETE", tenantId: currentTenantId });
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Delete failed");
@@ -225,7 +225,7 @@ function CreateIntegrationForm({
   onCreated: (webhook: { url: string; secret: string; type: string } | null) => void;
   onError: (msg: string) => void;
 }) {
-  const { currentOrganizationId } = useSession();
+  const { currentTenantId } = useSession();
   const [type, setType] = useState<(typeof INCIDENT_SOURCE_TYPES)[number]>("JIRA");
   const [name, setName] = useState("");
   const [credentialId, setCredentialId] = useState("");
@@ -234,7 +234,7 @@ function CreateIntegrationForm({
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!currentOrganizationId) return;
+    if (!currentTenantId) return;
     setSubmitting(true);
     try {
       const config: Record<string, unknown> = {};
@@ -246,7 +246,7 @@ function CreateIntegrationForm({
         webhookUrl?: string;
       }>("/api/integrations", {
         method: "POST",
-        organizationId: currentOrganizationId,
+        tenantId: currentTenantId,
         body: { type, name, credentialId: credentialId || undefined, config },
       });
 

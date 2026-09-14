@@ -80,7 +80,7 @@ export function buildPlatformRoutes(deps: { db: PrismaClient; env: Env }): Hono<
     });
 
     await writeAuditLog(auditLogWriter(db), {
-      organizationId: organization.id,
+      tenantId: organization.id,
       actorType: "user",
       actorId: c.get("userId"),
       action: "platform.tenant_created",

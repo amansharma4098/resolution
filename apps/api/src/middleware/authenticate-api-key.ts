@@ -11,7 +11,7 @@ import type { AppEnv } from "../types";
  * about "who is this" (not "how did they prove it") works unmodified either way.
  * Deliberately does NOT resolve an organization — unlike a browser session, one API key's
  * caller may act across several orgs in the same session (an MCP tool call takes
- * `organizationId` as an argument), so tenant membership is checked per-call at the route,
+ * `tenantId` as an argument), so tenant membership is checked per-call at the route,
  * not once here.
  */
 export function authenticateApiKey(apiKeys: ApiKeyRepository): MiddlewareHandler<AppEnv> {

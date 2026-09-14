@@ -18,7 +18,7 @@ export function auditLogWriter(db: PrismaClient): AuditLogWriter {
       async create({ data }: { data: AuditLogEntry }) {
         return db.auditLog.create({
           data: {
-            organizationId: data.organizationId ?? undefined,
+            tenantId: data.tenantId ?? undefined,
             actorType: data.actorType,
             actorId: data.actorId ?? undefined,
             action: data.action,

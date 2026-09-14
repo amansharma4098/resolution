@@ -4,7 +4,7 @@ import { resolveCapability } from "../capability-lookup";
 import type { MapServerContext, MapServerProvider } from "../types";
 
 const ctx: MapServerContext = {
-  organizationId: "org1",
+  tenantId: "org1",
   mapServerId: "ms1",
   environment: "default",
   credential: {},

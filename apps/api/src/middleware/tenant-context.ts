@@ -4,13 +4,13 @@ import { requireRole, type Role } from "@resolution/security";
 import { NotFoundError, UnauthorizedError } from "../lib/errors";
 import type { AppEnv } from "../types";
 
-const ORG_HEADER = "x-organization-id";
+const TENANT_HEADER = "x-tenant-id";
 
 /**
  * The single point where a request's tenant context is established. Per ARCHITECTURE.md
- * §8, organizationId is NEVER trusted from a client-supplied body field or query param —
+ * §8, tenantId is NEVER trusted from a client-supplied body field or query param —
  * every org-scoped route reads it from this header, and this middleware re-checks
- * OrganizationMember on every request before setting c.set("organizationId", ...). Must
+ * OrganizationMember on every request before setting c.set("tenantId", ...). Must
  * run after `authenticate` (needs c.get("userId")).
  *
  * A non-member gets 404, not 403 — membership in an org is not disclosed to non-members,
@@ -24,15 +24,15 @@ export function resolveTenantContext(
     if (!userId) {
       throw new UnauthorizedError();
     }
-    const organizationId = c.req.header(ORG_HEADER);
-    if (!organizationId) {
-      throw new NotFoundError(`Missing required ${ORG_HEADER} header`);
+    const tenantId = c.req.header(TENANT_HEADER);
+    if (!tenantId) {
+      throw new NotFoundError(`Missing required ${TENANT_HEADER} header`);
     }
-    const membership = await organizationRepository.findMembership(userId, organizationId);
+    const membership = await organizationRepository.findMembership(userId, tenantId);
     if (!membership) {
       throw new NotFoundError("Organization not found");
     }
-    c.set("organizationId", organizationId);
+    c.set("tenantId", tenantId);
     c.set("role", membership.role);
     await next();
   };

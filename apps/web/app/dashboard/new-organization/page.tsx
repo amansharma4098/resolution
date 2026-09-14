@@ -11,7 +11,7 @@ import { useSession } from "@/hooks/use-session";
 
 export default function NewOrganizationPage() {
   const router = useRouter();
-  const { refresh, setCurrentOrganizationId } = useSession();
+  const { refresh, setCurrentTenantId } = useSession();
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -26,7 +26,7 @@ export default function NewOrganizationPage() {
         body: { name },
       });
       await refresh();
-      setCurrentOrganizationId(res.organization.id);
+      setCurrentTenantId(res.organization.id);
       router.push("/dashboard");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong");

@@ -1,7 +1,7 @@
 import { SignJWT, jwtVerify, type JWTPayload } from "jose";
 
 /**
- * The session JWT carries identity only (`sub` = userId) — never a role or organizationId.
+ * The session JWT carries identity only (`sub` = userId) — never a role or tenantId.
  * Membership can change (role edited, removed from an org) at any time, and a long-lived
  * token claim would go stale; apps/api's tenant-context middleware re-resolves
  * OrganizationMember fresh from the database on every request instead of trusting a claim.

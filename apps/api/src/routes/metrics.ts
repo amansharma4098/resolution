@@ -42,8 +42,8 @@ export function buildMetricsRoutes(deps: {
   const tenantContext = resolveTenantContext(organizationRepository);
 
   router.get("/", auth, tenantContext, async (c) => {
-    const organizationId = c.get("organizationId")!;
-    const incidents = new IncidentRepository(db, organizationId);
+    const tenantId = c.get("tenantId")!;
+    const incidents = new IncidentRepository(db, tenantId);
     const remediationRepo = new RemediationRepository(db);
     const allIncidents = await incidents.list();
 

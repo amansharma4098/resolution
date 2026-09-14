@@ -13,7 +13,7 @@ export interface UpsertAutomationPolicyInput {
 
 export interface AutomationPolicyRow {
   id: string;
-  organizationId: string;
+  tenantId: string;
   mapServerType: MapServerType;
   capabilityKey: string;
   riskLevel: RiskLevel;
@@ -25,7 +25,7 @@ export interface AutomationPolicyRow {
 
 function toPublic(row: {
   id: string;
-  organizationId: string;
+  tenantId: string;
   mapServerType: string;
   capabilityKey: string;
   riskLevel: string;
@@ -48,9 +48,9 @@ function toPublic(row: {
 export class AutomationPolicyRepository extends TenantScopedRepository {
   constructor(
     private readonly db: PrismaClient,
-    organizationId: string,
+    tenantId: string,
   ) {
-    super(organizationId);
+    super(tenantId);
   }
 
   async list(): Promise<AutomationPolicyRow[]> {
@@ -64,8 +64,8 @@ export class AutomationPolicyRepository extends TenantScopedRepository {
   async findForCapability(mapServerType: MapServerType, capabilityKey: string): Promise<AutomationPolicyRow | null> {
     const row = await this.db.automationPolicy.findUnique({
       where: {
-        organizationId_mapServerType_capabilityKey: {
-          organizationId: this.organizationId,
+        tenantId_mapServerType_capabilityKey: {
+          tenantId: this.tenantId,
           mapServerType,
           capabilityKey,
         },
@@ -74,19 +74,19 @@ export class AutomationPolicyRepository extends TenantScopedRepository {
     return row ? toPublic(row) : null;
   }
 
-  /** Upsert on the (organizationId, mapServerType, capabilityKey) unique constraint — an
+  /** Upsert on the (tenantId, mapServerType, capabilityKey) unique constraint — an
    *  admin setting a policy for a capability that already has one updates it in place
    *  rather than erroring or creating a duplicate. */
   async upsert(input: UpsertAutomationPolicyInput): Promise<AutomationPolicyRow> {
     const row = await this.db.automationPolicy.upsert({
       where: {
-        organizationId_mapServerType_capabilityKey: {
-          organizationId: this.organizationId,
+        tenantId_mapServerType_capabilityKey: {
+          tenantId: this.tenantId,
           mapServerType: input.mapServerType,
           capabilityKey: input.capabilityKey,
         },
       },
-      create: { ...input, organizationId: this.organizationId },
+      create: { ...input, tenantId: this.tenantId },
       update: {
         riskLevel: input.riskLevel,
         behavior: input.behavior,

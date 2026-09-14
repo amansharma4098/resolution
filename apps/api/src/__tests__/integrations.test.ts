@@ -6,24 +6,24 @@ import type { AppEnv } from "../types";
 describe("integration routes", () => {
   let app: Hono<AppEnv>;
   let cookie: string;
-  let organizationId: string;
+  let tenantId: string;
 
   beforeEach(async () => {
     ({ app } = buildTestApp());
-    ({ cookie, organizationId } = await signupWithOrg(app, "owner@example.com", "Acme"));
+    ({ cookie, tenantId } = await signupWithOrg(app, "owner@example.com", "Acme"));
   });
 
   it("creates and lists an integration", async () => {
     const create = await req(app, "/api/integrations", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { type: "JIRA", name: "Team Jira", config: { projectKey: "OPS" } },
     });
     expect(create.status).toBe(201);
     expect((await jsonOf(create)).integration.status).toBe("UNCONFIGURED");
 
-    const list = await req(app, "/api/integrations", { cookie, organizationId });
+    const list = await req(app, "/api/integrations", { cookie, tenantId });
     const listBody = await jsonOf(list);
     expect(listBody.integrations).toHaveLength(1);
     expect(listBody.integrations[0].name).toBe("Team Jira");
@@ -33,7 +33,7 @@ describe("integration routes", () => {
     const res = await req(app, "/api/integrations", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { type: "EMAIL", name: "x" },
     });
     expect(res.status).toBe(400);
@@ -43,14 +43,14 @@ describe("integration routes", () => {
     await req(app, "/api/integrations", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { type: "SERVICENOW", name: "SNow" },
     });
 
     const other = await signupWithOrg(app, "other@example.com", "Other Org");
     const list = await req(app, "/api/integrations", {
       cookie: other.cookie,
-      organizationId: other.organizationId,
+      tenantId: other.tenantId,
     });
     expect((await jsonOf(list)).integrations).toHaveLength(0);
   });
@@ -59,12 +59,12 @@ describe("integration routes", () => {
     const created = await req(app, "/api/integrations", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { type: "PAGERDUTY", name: "PD" },
     });
     const id = (await jsonOf(created)).integration.id;
 
-    const del = await req(app, `/api/integrations/${id}`, { method: "DELETE", cookie, organizationId });
+    const del = await req(app, `/api/integrations/${id}`, { method: "DELETE", cookie, tenantId });
     expect(del.status).toBe(204);
   });
 });

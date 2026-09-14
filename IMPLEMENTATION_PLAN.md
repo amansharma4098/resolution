@@ -33,11 +33,11 @@ lands — it's the source of truth for what's actually built vs. spec'd.
       nav (unbuilt sections shown disabled with a "soon" tag, not fake links) and an org
       switcher
 - [x] RBAC: `Role` ranking (OWNER>ADMIN>MEMBER>VIEWER), `requireMinimumRole` preHandler
-- [x] Tenant-context middleware: `X-Organization-Id` header re-validated against
+- [x] Tenant-context middleware: `X-Tenant-Id` header re-validated against
       `OrganizationMember` on every request; non-members get 404, never 403 (no membership
       disclosure)
 - [x] Audit log write on `organization.created` (identity events — signup/login — have no
-      org yet; `AuditLog.organizationId` made nullable to allow future account-level events)
+      org yet; `AuditLog.tenantId` made nullable to allow future account-level events)
 - [x] Tests + typecheck + lint green: 37 tests across 6 packages, full `turbo run
       typecheck|lint|test|build` green, real `apps/api` server smoke-tested booting and
       serving requests end to end (DB-dependent routes correctly 500 without a live
@@ -51,7 +51,7 @@ invite/management UI.
 ## Phase 2 — Configuration system ✅ complete (capability toggling deferred to Phase 5)
 - [x] `packages/credentials`: `SecretProvider` interface + `EncryptedDbSecretProvider` (real
       envelope encryption — random per-credential data key, wrapped by a root key, AES-256-
-      GCM, organizationId as AAD so a blob can't decrypt under the wrong org's context) +
+      GCM, tenantId as AAD so a blob can't decrypt under the wrong org's context) +
       per-`authenticationType` Zod payload schemas + masked-hint derivation
 - [x] Credential CRUD API + UI (create/list/test/rotate/delete) — secret never returned
       after creation, only a masked hint; ADMIN+ required for all mutating routes
@@ -86,7 +86,7 @@ adding new features:
 - [x] `packages/credentials`: envelope encryption rewritten from Node's `node:crypto` to the
       **Web Crypto API** (`crypto.subtle`) — native in Workers, no compat flag; same
       envelope-encryption design (random data key wrapped by a root key, AAD-bound to
-      `organizationId`), same 16 tests passing unmodified in behavior
+      `tenantId`), same 16 tests passing unmodified in behavior
 - [x] `packages/security`: session JWT switched from `jsonwebtoken` to **jose** (Web
       Crypto-based); session cookie `SameSite` fixed to `None` in production (Pages and the
       Worker are different sites — `Lax` would have silently dropped the cookie on every
@@ -526,7 +526,7 @@ for the full writeup; summarized here.
       tokens, hash-only storage (same discipline as `PasswordResetToken`, refactored into a
       shared `packages/security/src/hash.ts`), managed via `/api/api-keys` and a new
       `apps/web` `/dashboard/api-keys` page (personal to a user, not org-scoped — every tool
-      call still checks real membership in whichever `organizationId` it names, same
+      call still checks real membership in whichever `tenantId` it names, same
       "404 not 403" discipline as everywhere else)
 - [x] 50 new tests in `apps/api` (151 total, up from 117), 37 new in `packages/map-servers`
       (52 total, up from 20), 4 new in `packages/security` (19 total) — full
@@ -574,7 +574,7 @@ typing, instead of clicking through the dashboard. See `docs/chat.md`.
       `packages/agents/src/investigation/investigation-agent.ts`'s reasoning for hand-writing
       it rather than the SDK's Tool Runner), bounded to 10 iterations per turn. Session- (not
       API-key-) authenticated and scoped to the dashboard's currently-selected organization —
-      `organizationId` is stripped from the tool schemas the model sees and the real one is
+      `tenantId` is stripped from the tool schemas the model sees and the real one is
       injected server-side on every call, overriding anything the model supplies
 - [x] `packages/ai/src/mock-chat-client.ts` — a MOCK_MODE fallback dedicated to chat (not a
       reuse of the investigation agent's `mock-client.ts`, which is shaped around a

@@ -81,7 +81,7 @@ function groupBySource(incidents: IncidentSummary[]): Map<string, IncidentSummar
 }
 
 export default function ChatPage() {
-  const { currentOrganizationId } = useSession();
+  const { currentTenantId } = useSession();
   const [messages, setMessages] = useState<unknown[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -90,7 +90,7 @@ export default function ChatPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const send = useCallback(async () => {
-    if (!currentOrganizationId || !input.trim() || sending) return;
+    if (!currentTenantId || !input.trim() || sending) return;
     const nextMessages = [...messages, { role: "user", content: input.trim() }];
     setMessages(nextMessages);
     setInput("");
@@ -99,7 +99,7 @@ export default function ChatPage() {
     try {
       const res = await apiRequest<{ messages: unknown[]; isMock: boolean }>("/api/chat", {
         method: "POST",
-        organizationId: currentOrganizationId,
+        tenantId: currentTenantId,
         body: { messages: nextMessages },
       });
       setMessages(res.messages);
@@ -110,7 +110,7 @@ export default function ChatPage() {
     } finally {
       setSending(false);
     }
-  }, [currentOrganizationId, input, messages, sending]);
+  }, [currentTenantId, input, messages, sending]);
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();

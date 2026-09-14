@@ -24,7 +24,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Integrations", href: "/dashboard/integrations" },
   { label: "Analytics", href: "/dashboard/analytics", builtInPhase: 9 },
   { label: "Settings", href: "/dashboard/settings" },
-  // Personal, not org-scoped (ApiKey.userId, no organizationId) — the only nav item that
+  // Personal, not org-scoped (ApiKey.userId, no tenantId) — the only nav item that
   // isn't really "about this organization," same as the account-level /change-password.
   { label: "API Keys", href: "/dashboard/api-keys" },
   { label: "Billing", href: "/dashboard/billing", builtInPhase: 11 },

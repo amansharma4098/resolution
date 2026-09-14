@@ -16,7 +16,7 @@ export interface CreateCredentialInput {
  *  callers actually see. */
 export interface Credential {
   id: string;
-  organizationId: string;
+  tenantId: string;
   name: string;
   provider: string;
   authenticationType: AuthenticationType;
@@ -29,7 +29,7 @@ export interface Credential {
 
 function toPublic(row: {
   id: string;
-  organizationId: string;
+  tenantId: string;
   name: string;
   provider: string;
   authenticationType: string;
@@ -47,7 +47,7 @@ function toPublic(row: {
 }
 
 /**
- * Every method here filters by organizationId (via TenantScopedRepository.scope()) —
+ * Every method here filters by tenantId (via TenantScopedRepository.scope()) —
  * ARCHITECTURE.md §8. `findById` uses `findFirst` with the org filter baked into the
  * `where`, not `findUnique` by id alone, so a credential id from another org simply
  * doesn't match and returns null rather than ever being fetchable cross-tenant. The
@@ -58,14 +58,14 @@ function toPublic(row: {
 export class CredentialRepository extends TenantScopedRepository {
   constructor(
     private readonly db: PrismaClient,
-    organizationId: string,
+    tenantId: string,
   ) {
-    super(organizationId);
+    super(tenantId);
   }
 
   async create(input: CreateCredentialInput): Promise<Credential> {
     const row = await this.db.credential.create({
-      data: { ...input, organizationId: this.organizationId },
+      data: { ...input, tenantId: this.tenantId },
     });
     return toPublic(row);
   }

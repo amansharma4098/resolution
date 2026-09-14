@@ -10,7 +10,7 @@ import { NAV_ITEMS } from "./nav-items";
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, organizations, currentOrganizationId, currentOrganization, loading, logout, setCurrentOrganizationId } =
+  const { user, organizations, currentTenantId, currentOrganization, loading, logout, setCurrentTenantId } =
     useSession();
 
   const isNewOrgPage = pathname === "/dashboard/new-organization";
@@ -111,8 +111,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             Organization
             <select
               className="rounded border border-border bg-surface px-2 py-1 text-sm text-ink"
-              value={currentOrganizationId ?? ""}
-              onChange={(e) => setCurrentOrganizationId(e.target.value)}
+              value={currentTenantId ?? ""}
+              onChange={(e) => setCurrentTenantId(e.target.value)}
             >
               {organizations.map((org) => (
                 <option key={org.id} value={org.id}>

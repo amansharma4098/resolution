@@ -21,7 +21,7 @@ async function sha256Hex(text: string): Promise<string> {
     .join("");
 }
 
-type NormalizedFields = Omit<NormalizedIncident, "id" | "organizationId" | "createdAt">;
+type NormalizedFields = Omit<NormalizedIncident, "id" | "tenantId" | "createdAt">;
 
 export interface IngestionResult {
   status: "created" | "already_processed" | "already_ingested" | "ignored" | "unknown_integration";
@@ -44,7 +44,7 @@ export interface ProcessIngestionDeps {
    *  (worker.ts) to enqueue onto the real incident-investigation queue; in tests/local dev
    *  (inline-queue.ts) to run the investigation inline, synchronously, the same way ingestion
    *  itself does. */
-  onIncidentCreated?: (evt: { incidentId: string; organizationId: string }) => Promise<void>;
+  onIncidentCreated?: (evt: { incidentId: string; tenantId: string }) => Promise<void>;
 }
 
 export async function processIngestionMessage(
@@ -103,7 +103,7 @@ export async function processIngestionMessage(
 
   await db.webhookEvent.create({
     data: {
-      organizationId: integration.organizationId,
+      tenantId: integration.tenantId,
       source: message.source,
       externalId,
       eventHash,
@@ -116,7 +116,7 @@ export async function processIngestionMessage(
     return { status: "ignored" };
   }
 
-  const incidents = new IncidentRepository(db, integration.organizationId);
+  const incidents = new IncidentRepository(db, integration.tenantId);
   const existingIncident = await incidents.findByExternalId(message.source, normalized.externalId);
   if (existingIncident) {
     return { status: "already_ingested", incidentId: existingIncident.id };
@@ -134,7 +134,7 @@ export async function processIngestionMessage(
   });
 
   await writeAuditLog(auditLogWriter(db), {
-    organizationId: integration.organizationId,
+    tenantId: integration.tenantId,
     actorType: "system",
     action: "incident.ingested",
     targetType: "Incident",
@@ -142,7 +142,7 @@ export async function processIngestionMessage(
     metadata: { source: message.source, externalId: incident.externalId },
   });
 
-  await deps.onIncidentCreated?.({ incidentId: incident.id, organizationId: integration.organizationId });
+  await deps.onIncidentCreated?.({ incidentId: incident.id, tenantId: integration.tenantId });
 
   return { status: "created", incidentId: incident.id };
 }

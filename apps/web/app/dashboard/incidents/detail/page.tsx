@@ -132,7 +132,7 @@ export default function IncidentDetailPage() {
 
 function IncidentDetailContent() {
   const id = useSearchParams().get("id");
-  const { currentOrganizationId } = useSession();
+  const { currentTenantId } = useSession();
   const [data, setData] = useState<IncidentDetailResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -141,11 +141,11 @@ function IncidentDetailContent() {
   const [decidingId, setDecidingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!currentOrganizationId || !id) return;
+    if (!currentTenantId || !id) return;
     setLoading(true);
     try {
       const res = await apiRequest<IncidentDetailResponse>(`/api/incidents/${id}`, {
-        organizationId: currentOrganizationId,
+        tenantId: currentTenantId,
       });
       setData(res);
       setError(null);
@@ -154,36 +154,36 @@ function IncidentDetailContent() {
     } finally {
       setLoading(false);
     }
-  }, [currentOrganizationId, id]);
+  }, [currentTenantId, id]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   const investigate = useCallback(async () => {
-    if (!currentOrganizationId || !id) return;
+    if (!currentTenantId || !id) return;
     setInvestigating(true);
     try {
       // In production this returns as soon as the message is enqueued — the incident stays
       // in whatever status it's at until the queue consumer actually runs. Reloading right
       // after mainly matters for local/test setups, where the inline stand-in processes
       // synchronously; a real deployment needs a manual refresh or poll to see the result.
-      await apiRequest(`/api/incidents/${id}/investigate`, { method: "POST", organizationId: currentOrganizationId });
+      await apiRequest(`/api/incidents/${id}/investigate`, { method: "POST", tenantId: currentTenantId });
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to start investigation");
     } finally {
       setInvestigating(false);
     }
-  }, [currentOrganizationId, id, load]);
+  }, [currentTenantId, id, load]);
 
   const proposeRemediation = useCallback(async () => {
-    if (!currentOrganizationId || !id) return;
+    if (!currentTenantId || !id) return;
     setProposing(true);
     try {
       await apiRequest(`/api/incidents/${id}/propose-remediation`, {
         method: "POST",
-        organizationId: currentOrganizationId,
+        tenantId: currentTenantId,
       });
       await load();
     } catch (err) {
@@ -191,16 +191,16 @@ function IncidentDetailContent() {
     } finally {
       setProposing(false);
     }
-  }, [currentOrganizationId, id, load]);
+  }, [currentTenantId, id, load]);
 
   const decideApproval = useCallback(
     async (approvalId: string, decision: "APPROVE" | "REJECT") => {
-      if (!currentOrganizationId || !id) return;
+      if (!currentTenantId || !id) return;
       setDecidingId(approvalId);
       try {
         await apiRequest(`/api/incidents/${id}/approvals/${approvalId}/decide`, {
           method: "POST",
-          organizationId: currentOrganizationId,
+          tenantId: currentTenantId,
           body: { decision },
         });
         await load();
@@ -210,7 +210,7 @@ function IncidentDetailContent() {
         setDecidingId(null);
       }
     },
-    [currentOrganizationId, id, load],
+    [currentTenantId, id, load],
   );
 
   if (loading) return <p className="text-sm text-subink">Loading…</p>;

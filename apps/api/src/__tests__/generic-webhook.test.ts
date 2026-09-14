@@ -19,18 +19,18 @@ function genericPayload(overrides: Record<string, unknown> = {}) {
 describe("generic webhook connector", () => {
   let app: Hono<AppEnv>;
   let cookie: string;
-  let organizationId: string;
+  let tenantId: string;
   let integrationId: string;
   let secret: string;
 
   beforeEach(async () => {
     ({ app } = buildTestApp());
-    ({ cookie, organizationId } = await signupWithOrg(app, "owner@example.com", "Acme"));
+    ({ cookie, tenantId } = await signupWithOrg(app, "owner@example.com", "Acme"));
 
     const created = await req(app, "/api/integrations", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { type: "WEBHOOK", name: "In-house monitor" },
     });
     const body = await jsonOf(created);
@@ -79,7 +79,7 @@ describe("generic webhook connector", () => {
     expect(res.status).toBe(202);
     expect((await jsonOf(res)).status).toBe("accepted");
 
-    const list = await req(app, "/api/incidents", { cookie, organizationId });
+    const list = await req(app, "/api/incidents", { cookie, tenantId });
     const incidents = (await jsonOf(list)).incidents;
     expect(incidents).toHaveLength(1);
     expect(incidents[0]).toMatchObject({
@@ -103,7 +103,7 @@ describe("generic webhook connector", () => {
     await send();
     await send();
 
-    const list = await req(app, "/api/incidents", { cookie, organizationId });
+    const list = await req(app, "/api/incidents", { cookie, tenantId });
     expect((await jsonOf(list)).incidents).toHaveLength(1);
   });
 
@@ -117,7 +117,7 @@ describe("generic webhook connector", () => {
     await send("ext-1");
     await send("ext-2");
 
-    const list = await req(app, "/api/incidents", { cookie, organizationId });
+    const list = await req(app, "/api/incidents", { cookie, tenantId });
     expect((await jsonOf(list)).incidents).toHaveLength(2);
   });
 
@@ -129,7 +129,7 @@ describe("generic webhook connector", () => {
     });
 
     const other = await signupWithOrg(app, "other@example.com", "Other Org");
-    const list = await req(app, "/api/incidents", { cookie: other.cookie, organizationId: other.organizationId });
+    const list = await req(app, "/api/incidents", { cookie: other.cookie, tenantId: other.tenantId });
     expect((await jsonOf(list)).incidents).toHaveLength(0);
   });
 
@@ -140,7 +140,7 @@ describe("generic webhook connector", () => {
       body: JSON.stringify({ externalId: "ext-minimal", title: "Something happened" }),
     });
 
-    const list = await req(app, "/api/incidents", { cookie, organizationId });
+    const list = await req(app, "/api/incidents", { cookie, tenantId });
     expect((await jsonOf(list)).incidents[0]).toMatchObject({
       severity: "MEDIUM",
       priority: "P3",
@@ -152,7 +152,7 @@ describe("generic webhook connector", () => {
     const res = await req(app, `/api/integrations/${integrationId}/test`, {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
     });
     expect(res.status).toBe(200);
     const body = await jsonOf(res);

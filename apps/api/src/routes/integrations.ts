@@ -66,7 +66,7 @@ export function buildIntegrationRoutes(deps: {
     const body = CreateIntegrationBody.parse(await c.req.json());
 
     if (body.credentialId) {
-      const credentials = new CredentialRepository(db, c.get("organizationId")!);
+      const credentials = new CredentialRepository(db, c.get("tenantId")!);
       if (!(await credentials.findById(body.credentialId))) {
         throw new ValidationError("credentialId does not reference a credential in this organization");
       }
@@ -78,11 +78,11 @@ export function buildIntegrationRoutes(deps: {
       config.webhookSecret = generateWebhookSecret();
     }
 
-    const integrations = new IntegrationRepository(db, c.get("organizationId")!);
+    const integrations = new IntegrationRepository(db, c.get("tenantId")!);
     const integration = await integrations.create({ ...body, config });
 
     await writeAuditLog(auditLogWriter(db), {
-      organizationId: c.get("organizationId"),
+      tenantId: c.get("tenantId"),
       actorType: "user",
       actorId: c.get("userId"),
       action: "integration.created",
@@ -101,25 +101,25 @@ export function buildIntegrationRoutes(deps: {
   });
 
   router.get("/", auth, tenantContext, async (c) => {
-    const integrations = new IntegrationRepository(db, c.get("organizationId")!);
+    const integrations = new IntegrationRepository(db, c.get("tenantId")!);
     const list = await integrations.list();
     return c.json({ integrations: list.map(maskConfig) });
   });
 
   router.get("/:id", auth, tenantContext, async (c) => {
-    const integrations = new IntegrationRepository(db, c.get("organizationId")!);
+    const integrations = new IntegrationRepository(db, c.get("tenantId")!);
     const integration = await integrations.findById(c.req.param("id"));
     if (!integration) throw new NotFoundError("Integration not found");
     return c.json({ integration: maskConfig(integration) });
   });
 
   router.delete("/:id", auth, tenantContext, requireAdmin, async (c) => {
-    const integrations = new IntegrationRepository(db, c.get("organizationId")!);
+    const integrations = new IntegrationRepository(db, c.get("tenantId")!);
     const deleted = await integrations.delete(c.req.param("id"));
     if (!deleted) throw new NotFoundError("Integration not found");
 
     await writeAuditLog(auditLogWriter(db), {
-      organizationId: c.get("organizationId"),
+      tenantId: c.get("tenantId"),
       actorType: "user",
       actorId: c.get("userId"),
       action: "integration.deleted",
@@ -135,7 +135,7 @@ export function buildIntegrationRoutes(deps: {
   // credential); an honest DISCONNECTED-with-reason for every source that doesn't have a
   // real adapter yet — never a fake success.
   router.post("/:id/test", auth, tenantContext, requireAdmin, async (c) => {
-    const integrations = new IntegrationRepository(db, c.get("organizationId")!);
+    const integrations = new IntegrationRepository(db, c.get("tenantId")!);
     const integration = await integrations.findById(c.req.param("id"));
     if (!integration) throw new NotFoundError("Integration not found");
 
@@ -158,14 +158,14 @@ export function buildIntegrationRoutes(deps: {
           ? "Missing config.baseUrl (your Jira Cloud site URL)"
           : "Missing config.baseUrl (your ServiceNow instance URL)";
     } else {
-      const credentials = new CredentialRepository(db, c.get("organizationId")!);
+      const credentials = new CredentialRepository(db, c.get("tenantId")!);
       const credential = await credentials.findById(integration.credentialId);
       if (!credential) {
         detail = "Attached credential no longer exists";
       } else {
         try {
           const decrypted = await secretProvider.decrypt(credential.encryptedData, {
-            organizationId: c.get("organizationId")!,
+            tenantId: c.get("tenantId")!,
           });
           if (integration.type === "JIRA") {
             const client = new JiraClient(integration.config.baseUrl as string, {
@@ -215,7 +215,7 @@ export function buildIntegrationRoutes(deps: {
     const updated = await integrations.updateStatus(integration.id, status);
 
     await writeAuditLog(auditLogWriter(db), {
-      organizationId: c.get("organizationId"),
+      tenantId: c.get("tenantId"),
       actorType: "user",
       actorId: c.get("userId"),
       action: "integration.tested",

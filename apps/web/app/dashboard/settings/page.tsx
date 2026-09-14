@@ -21,7 +21,7 @@ interface Member {
 }
 
 export default function SettingsPage() {
-  const { currentOrganization, currentOrganizationId, user } = useSession();
+  const { currentOrganization, currentTenantId, user } = useSession();
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -34,11 +34,11 @@ export default function SettingsPage() {
   const canManage = currentOrganization?.role === "OWNER" || currentOrganization?.role === "ADMIN";
 
   const load = useCallback(async () => {
-    if (!currentOrganizationId) return;
+    if (!currentTenantId) return;
     setLoading(true);
     try {
       const res = await apiRequest<{ members: Member[] }>("/api/organizations/members", {
-        organizationId: currentOrganizationId,
+        tenantId: currentTenantId,
       });
       setMembers(res.members);
     } catch (err) {
@@ -46,18 +46,18 @@ export default function SettingsPage() {
     } finally {
       setLoading(false);
     }
-  }, [currentOrganizationId]);
+  }, [currentTenantId]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   async function handleRoleChange(userId: string, role: Role) {
-    if (!currentOrganizationId) return;
+    if (!currentTenantId) return;
     try {
       await apiRequest(`/api/organizations/members/${userId}`, {
         method: "PATCH",
-        organizationId: currentOrganizationId,
+        tenantId: currentTenantId,
         body: { role },
       });
       await load();
@@ -67,11 +67,11 @@ export default function SettingsPage() {
   }
 
   async function handleRemove(userId: string) {
-    if (!currentOrganizationId) return;
+    if (!currentTenantId) return;
     try {
       await apiRequest(`/api/organizations/members/${userId}`, {
         method: "DELETE",
-        organizationId: currentOrganizationId,
+        tenantId: currentTenantId,
       });
       await load();
     } catch (err) {
@@ -205,7 +205,7 @@ function AddMemberForm({
   onAdded: (notice: { email: string; password: string | null } | null) => void;
   onError: (msg: string) => void;
 }) {
-  const { currentOrganizationId } = useSession();
+  const { currentTenantId } = useSession();
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState<Role>("MEMBER");
@@ -214,7 +214,7 @@ function AddMemberForm({
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!currentOrganizationId) return;
+    if (!currentTenantId) return;
     if (password && password.length < 12) {
       onError("Password must be at least 12 characters — leave it blank to auto-generate one instead");
       return;
@@ -225,7 +225,7 @@ function AddMemberForm({
         "/api/organizations/members",
         {
           method: "POST",
-          organizationId: currentOrganizationId,
+          tenantId: currentTenantId,
           body: { email, name: name || undefined, role, password: password || undefined },
         },
       );

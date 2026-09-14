@@ -19,18 +19,18 @@ function snowPayload(overrides: Record<string, unknown> = {}) {
 describe("servicenow webhook", () => {
   let app: Hono<AppEnv>;
   let cookie: string;
-  let organizationId: string;
+  let tenantId: string;
   let integrationId: string;
   let secret: string;
 
   beforeEach(async () => {
     ({ app } = buildTestApp());
-    ({ cookie, organizationId } = await signupWithOrg(app, "owner@example.com", "Acme"));
+    ({ cookie, tenantId } = await signupWithOrg(app, "owner@example.com", "Acme"));
 
     const created = await req(app, "/api/integrations", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { type: "SERVICENOW", name: "Corp ServiceNow", config: { baseUrl: "https://acme.service-now.com" } },
     });
     const body = await jsonOf(created);
@@ -46,7 +46,7 @@ describe("servicenow webhook", () => {
     });
     expect(res.status).toBe(202);
 
-    const list = await req(app, "/api/incidents", { cookie, organizationId });
+    const list = await req(app, "/api/incidents", { cookie, tenantId });
     const incidents = (await jsonOf(list)).incidents;
     expect(incidents).toHaveLength(1);
     expect(incidents[0]).toMatchObject({
@@ -80,7 +80,7 @@ describe("servicenow webhook", () => {
     const jiraIntegration = await req(app, "/api/integrations", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { type: "JIRA", name: "Jira", config: { baseUrl: "https://acme.atlassian.net" } },
     });
     const jiraBody = await jsonOf(jiraIntegration);
@@ -107,7 +107,7 @@ describe("servicenow webhook", () => {
     });
     expect(second.status).toBe(202);
 
-    const list = await req(app, "/api/incidents", { cookie, organizationId });
+    const list = await req(app, "/api/incidents", { cookie, tenantId });
     expect((await jsonOf(list)).incidents).toHaveLength(1);
   });
 });

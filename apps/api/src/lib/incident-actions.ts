@@ -27,9 +27,9 @@ import { executeAndVerify } from "../queue/remediation-consumer";
 
 export async function investigateIncident(
   deps: { db: PrismaClient; investigationQueue: IncidentInvestigationQueue },
-  params: { organizationId: string; incidentId: string },
+  params: { tenantId: string; incidentId: string },
 ): Promise<{ status: "investigating" }> {
-  const incidents = new IncidentRepository(deps.db, params.organizationId);
+  const incidents = new IncidentRepository(deps.db, params.tenantId);
   const incident = await incidents.findById(params.incidentId);
   if (!incident) throw new NotFoundError("Incident not found");
 
@@ -37,15 +37,15 @@ export async function investigateIncident(
     throw new ConflictError(`Cannot start an investigation from status ${incident.status}`);
   }
 
-  await deps.investigationQueue.send({ incidentId: incident.id, organizationId: params.organizationId });
+  await deps.investigationQueue.send({ incidentId: incident.id, tenantId: params.tenantId });
   return { status: "investigating" };
 }
 
 export async function proposeRemediationForIncident(
   deps: { db: PrismaClient; remediationQueue: IncidentRemediationQueue },
-  params: { organizationId: string; incidentId: string },
+  params: { tenantId: string; incidentId: string },
 ): Promise<{ status: "proposing" }> {
-  const incidents = new IncidentRepository(deps.db, params.organizationId);
+  const incidents = new IncidentRepository(deps.db, params.tenantId);
   const incident = await incidents.findById(params.incidentId);
   if (!incident) throw new NotFoundError("Incident not found");
 
@@ -53,14 +53,14 @@ export async function proposeRemediationForIncident(
     throw new ConflictError(`Cannot propose a remediation from status ${incident.status} — needs RCA_COMPLETE`);
   }
 
-  await deps.remediationQueue.send({ incidentId: incident.id, organizationId: params.organizationId });
+  await deps.remediationQueue.send({ incidentId: incident.id, tenantId: params.tenantId });
   return { status: "proposing" };
 }
 
 export async function decideRemediationApproval(
   deps: { db: PrismaClient; secretProvider: SecretProvider },
   params: {
-    organizationId: string;
+    tenantId: string;
     incidentId: string;
     approvalId: string;
     decision: "APPROVE" | "REJECT";
@@ -72,8 +72,8 @@ export async function decideRemediationApproval(
   },
 ): Promise<{ approval: unknown; status: "REJECTED" | "EXECUTED" }> {
   const { db, secretProvider } = deps;
-  const { organizationId } = params;
-  const incidents = new IncidentRepository(db, organizationId);
+  const { tenantId } = params;
+  const incidents = new IncidentRepository(db, tenantId);
   const incident = await incidents.findById(params.incidentId);
   if (!incident) throw new NotFoundError("Incident not found");
 
@@ -100,7 +100,7 @@ export async function decideRemediationApproval(
   });
 
   await writeAuditLog(auditLogWriter(db), {
-    organizationId,
+    tenantId,
     actorType: "user",
     actorId: params.actorUserId,
     action: params.decision === "APPROVE" ? "remediation.approved" : "remediation.rejected",
@@ -129,7 +129,7 @@ export async function decideRemediationApproval(
   if (!resolution.mapServerId || !resolution.capabilityKey) {
     throw new ValidationError("This resolution has no capability to execute");
   }
-  const mapServers = new MapServerRepository(db, organizationId);
+  const mapServers = new MapServerRepository(db, tenantId);
   const mapServer = await mapServers.findById(resolution.mapServerId);
   if (!mapServer) throw new ValidationError("The Map Server for this resolution no longer exists");
   const provider = getMapServerProvider(mapServer.type);
@@ -138,15 +138,15 @@ export async function decideRemediationApproval(
   }
   let approvalCredential: Record<string, unknown> = {};
   if (mapServer.credentialId) {
-    const credentialRow = await new CredentialRepository(db, organizationId).findById(mapServer.credentialId);
+    const credentialRow = await new CredentialRepository(db, tenantId).findById(mapServer.credentialId);
     if (credentialRow) {
-      approvalCredential = await secretProvider.decrypt(credentialRow.encryptedData, { organizationId });
+      approvalCredential = await secretProvider.decrypt(credentialRow.encryptedData, { tenantId });
     }
   }
   const capability = await resolveCapability(
     provider,
     {
-      organizationId,
+      tenantId,
       mapServerId: mapServer.id,
       environment: mapServer.environments[0] ?? "default",
       credential: approvalCredential,
@@ -177,7 +177,7 @@ export async function decideRemediationApproval(
   // remediation-consumer.ts's header comment on why the AUTO path already does the same
   // thing inline rather than round-tripping through another queue message.
   await executeAndVerify(db, {
-    organizationId,
+    tenantId,
     incidentId: incident.id,
     mapServerId: resolution.mapServerId,
     mapServerType: mapServer.type,

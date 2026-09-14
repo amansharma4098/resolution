@@ -16,11 +16,11 @@ function toolUseTurn(name: string, input: Record<string, unknown>, id = `tu_${na
 describe("chat (POST /api/chat)", () => {
   let app: Hono<AppEnv>;
   let cookie: string;
-  let organizationId: string;
+  let tenantId: string;
 
   beforeEach(async () => {
     ({ app } = await buildTestApp());
-    ({ cookie, organizationId } = await signupWithOrg(app, "owner@example.com", "Acme"));
+    ({ cookie, tenantId } = await signupWithOrg(app, "owner@example.com", "Acme"));
   });
 
   it("requires authentication", async () => {
@@ -32,7 +32,7 @@ describe("chat (POST /api/chat)", () => {
     expect(res.status).toBe(401);
   });
 
-  it("requires an X-Organization-Id header, like every other tenant-scoped route", async () => {
+  it("requires an X-Tenant-Id header, like every other tenant-scoped route", async () => {
     const res = await app.request("/api/chat", {
       method: "POST",
       headers: { "content-type": "application/json", cookie },
@@ -45,7 +45,7 @@ describe("chat (POST /api/chat)", () => {
     const res = await req(app, "/api/chat", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { messages: [{ role: "user", content: "list my incidents" }] },
     });
     expect(res.status).toBe(200);
@@ -56,9 +56,9 @@ describe("chat (POST /api/chat)", () => {
     expect(JSON.stringify(last.content)).toMatch(/MOCK_MODE/);
   });
 
-  it("a scripted single-tool-call turn: calls list_incidents, injecting the real organizationId, then answers", async () => {
+  it("a scripted single-tool-call turn: calls list_incidents, injecting the real tenantId, then answers", async () => {
     const llmClient = createScriptedLlmClient([
-      toolUseTurn("list_incidents", { organizationId: "not-the-real-one" }),
+      toolUseTurn("list_incidents", { tenantId: "not-the-real-one" }),
       textTurn("You have no incidents yet."),
     ]);
     const { app: scriptedApp } = await buildTestApp({ chatLlmClient: llmClient });
@@ -67,7 +67,7 @@ describe("chat (POST /api/chat)", () => {
     const res = await req(scriptedApp, "/api/chat", {
       method: "POST",
       cookie: signup.cookie,
-      organizationId: signup.organizationId,
+      tenantId: signup.tenantId,
       body: { messages: [{ role: "user", content: "what incidents do we have?" }] },
     });
     expect(res.status).toBe(200);
@@ -76,7 +76,7 @@ describe("chat (POST /api/chat)", () => {
     expect(lastText).toMatch(/no incidents yet/);
 
     // The tool_result the second call received proves the server, not the model, decided
-    // which organizationId was actually queried (it ignored "not-the-real-one").
+    // which tenantId was actually queried (it ignored "not-the-real-one").
     const secondCallMessages = llmClient.calls[1]!.messages as Array<{ content: unknown }>;
     const toolResultContent = JSON.stringify(secondCallMessages[secondCallMessages.length - 1]!.content);
     expect(toolResultContent).not.toMatch(/not-the-real-one/);
@@ -92,7 +92,7 @@ describe("chat (POST /api/chat)", () => {
     const added = await req(scriptedApp, "/api/organizations/members", {
       method: "POST",
       cookie: owner.cookie,
-      organizationId: owner.organizationId,
+      tenantId: owner.tenantId,
       body: { email: "member4@example.com", role: "MEMBER" },
     });
     const { temporaryPassword } = await jsonOf(added);
@@ -105,7 +105,7 @@ describe("chat (POST /api/chat)", () => {
     const res = await req(scriptedApp, "/api/chat", {
       method: "POST",
       cookie: memberCookie,
-      organizationId: owner.organizationId,
+      tenantId: owner.tenantId,
       body: { messages: [{ role: "user", content: "approve it" }] },
     });
     expect(res.status).toBe(200);
@@ -127,7 +127,7 @@ describe("chat (POST /api/chat)", () => {
     const res = await req(scriptedApp, "/api/chat", {
       method: "POST",
       cookie: signup.cookie,
-      organizationId: signup.organizationId,
+      tenantId: signup.tenantId,
       body: { messages: [{ role: "user", content: "any incidents?" }] },
     });
     const body = await jsonOf(res);
@@ -143,7 +143,7 @@ describe("chat (POST /api/chat)", () => {
     const res = await req(scriptedApp, "/api/chat", {
       method: "POST",
       cookie: signup.cookie,
-      organizationId: signup.organizationId,
+      tenantId: signup.tenantId,
       body: { messages: [{ role: "user", content: "loop forever" }] },
     });
     expect(res.status).toBe(400);

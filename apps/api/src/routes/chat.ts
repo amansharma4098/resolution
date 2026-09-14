@@ -40,8 +40,8 @@ const ChatBody = z.object({
 });
 
 /**
- * The tool catalog's Anthropic-facing view, with `organizationId` stripped from every
- * schema — the chat is already scoped to one organization (the same `X-Organization-Id`
+ * The tool catalog's Anthropic-facing view, with `tenantId` stripped from every
+ * schema — the chat is already scoped to one organization (the same `X-Tenant-Id`
  * header every other dashboard route reads), so the model never needs to know or guess an
  * id. `callChatTool` always injects the real one from the resolved tenant context before
  * executing, overriding anything the model supplies — one less thing that can go wrong from
@@ -50,8 +50,8 @@ const ChatBody = z.object({
 function chatToolSpecs(): LlmToolSpec[] {
   return TOOLS.map((tool): LlmToolSpec => {
     const properties = { ...(tool.inputSchema.properties as Record<string, unknown>) };
-    delete properties.organizationId;
-    const required = (tool.inputSchema.required as readonly string[]).filter((key) => key !== "organizationId");
+    delete properties.tenantId;
+    const required = (tool.inputSchema.required as readonly string[]).filter((key) => key !== "tenantId");
     return {
       name: tool.name,
       description: tool.description,
@@ -88,7 +88,7 @@ export interface ChatRouteDeps {
  * tool-calling loop mirrors packages/agents' investigation-agent.ts (see its header
  * comment for why this is hand-written rather than the SDK's Tool Runner): the tool list
  * here is dynamic per this endpoint's own catalog, and every tool call needs the bespoke
- * organizationId injection above.
+ * tenantId injection above.
  */
 export function buildChatRoutes(deps: ChatRouteDeps): Hono<AppEnv> {
   const { organizationRepository } = deps;
@@ -98,11 +98,11 @@ export function buildChatRoutes(deps: ChatRouteDeps): Hono<AppEnv> {
 
   router.post("/", auth, tenantContext, async (c) => {
     const body = ChatBody.parse(await c.req.json());
-    const organizationId = c.get("organizationId")!;
+    const tenantId = c.get("tenantId")!;
     const userId = c.get("userId")!;
     const requestId = c.get("requestId");
 
-    const organization = await organizationRepository.findById(organizationId);
+    const organization = await organizationRepository.findById(tenantId);
     const system = buildSystemPrompt(organization?.name ?? "your organization");
     const tools = chatToolSpecs();
     const messages = body.messages as unknown as LlmMessage[];
@@ -117,7 +117,7 @@ export function buildChatRoutes(deps: ChatRouteDeps): Hono<AppEnv> {
 
       const toolResults: ToolResultBlock[] = [];
       for (const toolUse of turn.toolUses) {
-        const args = { ...(toolUse.input as Record<string, unknown>), organizationId };
+        const args = { ...(toolUse.input as Record<string, unknown>), tenantId };
         const result = await callIncidentTool(deps, userId, requestId, toolUse.name, args);
         toolResults.push({
           type: "tool_result",

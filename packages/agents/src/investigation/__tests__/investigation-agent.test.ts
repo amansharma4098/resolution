@@ -66,7 +66,7 @@ function baseDeps(llmClient: LlmClient, available: AvailableCapability[] = []) {
     llmClient,
     availableCapabilities: available,
     contextFor: async (): Promise<MapServerContext> => ({
-      organizationId: "org1",
+      tenantId: "org1",
       mapServerId: "ms1",
       environment: "default",
       credential: {},

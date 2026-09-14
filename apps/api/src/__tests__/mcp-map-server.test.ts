@@ -25,11 +25,11 @@ function stubMcpServer(tools: unknown[]) {
 describe("MCP generic Map Server connector", () => {
   let app: Hono<AppEnv>;
   let cookie: string;
-  let organizationId: string;
+  let tenantId: string;
 
   beforeEach(async () => {
     ({ app } = buildTestApp());
-    ({ cookie, organizationId } = await signupWithOrg(app, "owner@example.com", "Acme"));
+    ({ cookie, tenantId } = await signupWithOrg(app, "owner@example.com", "Acme"));
     registerMapServer(mcpProvider);
   });
 
@@ -43,13 +43,13 @@ describe("MCP generic Map Server connector", () => {
     const created = await req(app, "/api/map-servers", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { type: "MCP", name: "Internal tools", environments: [], config: { url: "https://mcp.internal" } },
     });
     expect(created.status).toBe(201);
     const id = (await jsonOf(created)).mapServer.id;
 
-    const fetched = await req(app, `/api/map-servers/${id}`, { cookie, organizationId });
+    const fetched = await req(app, `/api/map-servers/${id}`, { cookie, tenantId });
     expect((await jsonOf(fetched)).capabilities).toEqual([]);
   });
 
@@ -57,7 +57,7 @@ describe("MCP generic Map Server connector", () => {
     const created = await req(app, "/api/map-servers", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { type: "MCP", name: "Internal tools", environments: [], config: { url: "https://mcp.internal" } },
     });
     const id = (await jsonOf(created)).mapServer.id;
@@ -65,7 +65,7 @@ describe("MCP generic Map Server connector", () => {
     const res = await req(app, `/api/map-servers/${id}/refresh-capabilities`, {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
     });
     expect(res.status).toBe(400);
     expect((await jsonOf(res)).error.message).toMatch(/Attach a credential/);
@@ -76,7 +76,7 @@ describe("MCP generic Map Server connector", () => {
     const created = await req(app, "/api/map-servers", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { type: "FABRIC", name: "Prod Fabric", environments: [], config: {} },
     });
     const id = (await jsonOf(created)).mapServer.id;
@@ -84,7 +84,7 @@ describe("MCP generic Map Server connector", () => {
     const res = await req(app, `/api/map-servers/${id}/refresh-capabilities`, {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
     });
     expect(res.status).toBe(400);
     expect((await jsonOf(res)).error.message).toMatch(/fixed capability set/);
@@ -94,7 +94,7 @@ describe("MCP generic Map Server connector", () => {
     const credential = await req(app, "/api/credentials", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { name: "MCP token", provider: "mcp", authenticationType: "TOKEN", payload: { token: "secret" } },
     });
     const credentialId = (await jsonOf(credential)).credential.id;
@@ -102,7 +102,7 @@ describe("MCP generic Map Server connector", () => {
     const created = await req(app, "/api/map-servers", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: {
         type: "MCP",
         name: "Internal tools",
@@ -121,7 +121,7 @@ describe("MCP generic Map Server connector", () => {
     const refreshed = await req(app, `/api/map-servers/${id}/refresh-capabilities`, {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
     });
     expect(refreshed.status).toBe(200);
     const capabilities = (await jsonOf(refreshed)).capabilities as {
@@ -144,14 +144,14 @@ describe("MCP generic Map Server connector", () => {
     const credential = await req(app, "/api/credentials", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { name: "MCP token", provider: "mcp", authenticationType: "TOKEN", payload: { token: "secret" } },
     });
     const credentialId = (await jsonOf(credential)).credential.id;
     const created = await req(app, "/api/map-servers", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: {
         type: "MCP",
         name: "Internal tools",
@@ -163,18 +163,18 @@ describe("MCP generic Map Server connector", () => {
     const id = (await jsonOf(created)).mapServer.id;
 
     stubMcpServer([{ name: "get_status", description: "Read status", inputSchema: {} }]);
-    await req(app, `/api/map-servers/${id}/refresh-capabilities`, { method: "POST", cookie, organizationId });
+    await req(app, `/api/map-servers/${id}/refresh-capabilities`, { method: "POST", cookie, tenantId });
     await req(app, `/api/map-servers/${id}/capabilities/get_status`, {
       method: "PATCH",
       cookie,
-      organizationId,
+      tenantId,
       body: { enabled: true },
     });
 
     const refreshedAgain = await req(app, `/api/map-servers/${id}/refresh-capabilities`, {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
     });
     const capabilities = (await jsonOf(refreshedAgain)).capabilities as { key: string; enabled: boolean }[];
     expect(capabilities.find((c) => c.key === "get_status")!.enabled).toBe(true);

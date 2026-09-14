@@ -6,11 +6,11 @@ import type { AppEnv } from "../types";
 describe("audit log routes", () => {
   let app: Hono<AppEnv>;
   let cookie: string;
-  let organizationId: string;
+  let tenantId: string;
 
   beforeEach(async () => {
     ({ app } = buildTestApp());
-    ({ cookie, organizationId } = await signupWithOrg(app, "owner@example.com", "Acme"));
+    ({ cookie, tenantId } = await signupWithOrg(app, "owner@example.com", "Acme"));
   });
 
   it("records an audit entry for org-scoped mutations and lists them most-recent-first", async () => {
@@ -19,17 +19,17 @@ describe("audit log routes", () => {
     await req(app, "/api/credentials", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { name: "Cred 1", provider: "jira", authenticationType: "BASIC_AUTH", payload: { username: "a", password: "t" } },
     });
     await req(app, "/api/credentials", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { name: "Cred 2", provider: "jira", authenticationType: "BASIC_AUTH", payload: { username: "c", password: "t2" } },
     });
 
-    const res = await req(app, "/api/audit-logs", { cookie, organizationId });
+    const res = await req(app, "/api/audit-logs", { cookie, tenantId });
     expect(res.status).toBe(200);
     const body = await jsonOf(res);
     expect(body.entries.length).toBeGreaterThanOrEqual(2);
@@ -43,10 +43,10 @@ describe("audit log routes", () => {
     await req(app, "/api/credentials", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { name: "Cred", provider: "jira", authenticationType: "BASIC_AUTH", payload: { username: "a", password: "t" } },
     });
-    const res = await req(app, "/api/audit-logs", { cookie, organizationId });
+    const res = await req(app, "/api/audit-logs", { cookie, tenantId });
     const body = await jsonOf(res);
     const json = JSON.stringify(body);
     expect(json).not.toContain("encryptedData");
@@ -58,18 +58,18 @@ describe("audit log routes", () => {
       await req(app, "/api/credentials", {
         method: "POST",
         cookie,
-        organizationId,
+        tenantId,
         body: { name: `Cred ${i}`, provider: "jira", authenticationType: "BASIC_AUTH", payload: { username: "a", password: "t" } },
       });
     }
-    const firstPage = await req(app, "/api/audit-logs?limit=2", { cookie, organizationId });
+    const firstPage = await req(app, "/api/audit-logs?limit=2", { cookie, tenantId });
     const firstBody = await jsonOf(firstPage);
     expect(firstBody.entries).toHaveLength(2);
     expect(firstBody.nextBefore).toBeTruthy();
 
     const secondPage = await req(app, `/api/audit-logs?limit=2&before=${encodeURIComponent(firstBody.nextBefore)}`, {
       cookie,
-      organizationId,
+      tenantId,
     });
     const secondBody = await jsonOf(secondPage);
     const firstIds = new Set(firstBody.entries.map((e: { id: string }) => e.id));
@@ -82,13 +82,13 @@ describe("audit log routes", () => {
     await req(app, "/api/credentials", {
       method: "POST",
       cookie,
-      organizationId,
+      tenantId,
       body: { name: "Cred", provider: "jira", authenticationType: "BASIC_AUTH", payload: { username: "a", password: "t" } },
     });
     // A fresh org has its own audit trail (e.g. the owner's membership) but must never see
     // an action that happened in a different organization.
     const other = await signupWithOrg(app, "other@example.com", "Other Org");
-    const res = await req(app, "/api/audit-logs", { cookie: other.cookie, organizationId: other.organizationId });
+    const res = await req(app, "/api/audit-logs", { cookie: other.cookie, tenantId: other.tenantId });
     const actions = (await jsonOf(res)).entries.map((e: { action: string }) => e.action);
     expect(actions).not.toContain("credential.created");
   });

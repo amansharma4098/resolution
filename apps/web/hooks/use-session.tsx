@@ -24,15 +24,15 @@ export interface SessionOrganization {
   resolutionMode: "OBSERVE_ONLY" | "RECOMMEND" | "HUMAN_APPROVED" | "AUTONOMOUS";
 }
 
-const CURRENT_ORG_STORAGE_KEY = "resolution.currentOrganizationId";
+const CURRENT_ORG_STORAGE_KEY = "resolution.currentTenantId";
 
 interface SessionContextValue {
   user: SessionUser | null;
   organizations: SessionOrganization[];
-  currentOrganizationId: string | null;
+  currentTenantId: string | null;
   currentOrganization: SessionOrganization | null;
   loading: boolean;
-  setCurrentOrganizationId: (id: string) => void;
+  setCurrentTenantId: (id: string) => void;
   refresh: () => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -42,7 +42,7 @@ const SessionContext = createContext<SessionContextValue | null>(null);
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [organizations, setOrganizations] = useState<SessionOrganization[]>([]);
-  const [currentOrganizationId, setCurrentOrganizationIdState] = useState<string | null>(null);
+  const [currentTenantId, setCurrentTenantIdState] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -60,12 +60,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         typeof window !== "undefined" ? window.localStorage.getItem(CURRENT_ORG_STORAGE_KEY) : null;
       const stillValid = orgsRes.organizations.some((o) => o.id === stored);
       const nextId = stillValid ? stored : (orgsRes.organizations[0]?.id ?? null);
-      setCurrentOrganizationIdState(nextId);
+      setCurrentTenantIdState(nextId);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         setUser(null);
         setOrganizations([]);
-        setCurrentOrganizationIdState(null);
+        setCurrentTenantIdState(null);
       } else {
         throw err;
       }
@@ -78,8 +78,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     void load();
   }, [load]);
 
-  const setCurrentOrganizationId = useCallback((id: string) => {
-    setCurrentOrganizationIdState(id);
+  const setCurrentTenantId = useCallback((id: string) => {
+    setCurrentTenantIdState(id);
     if (typeof window !== "undefined") {
       window.localStorage.setItem(CURRENT_ORG_STORAGE_KEY, id);
     }
@@ -89,21 +89,21 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     await apiRequest("/api/auth/logout", { method: "POST" });
     setUser(null);
     setOrganizations([]);
-    setCurrentOrganizationIdState(null);
+    setCurrentTenantIdState(null);
   }, []);
 
   const currentOrganization = useMemo(
-    () => organizations.find((o) => o.id === currentOrganizationId) ?? null,
-    [organizations, currentOrganizationId],
+    () => organizations.find((o) => o.id === currentTenantId) ?? null,
+    [organizations, currentTenantId],
   );
 
   const value: SessionContextValue = {
     user,
     organizations,
-    currentOrganizationId,
+    currentTenantId,
     currentOrganization,
     loading,
-    setCurrentOrganizationId,
+    setCurrentTenantId,
     refresh: load,
     logout,
   };

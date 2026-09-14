@@ -23,7 +23,7 @@ export interface CreateIncidentInput {
  *  String column; see packages/database/src/json-field.ts. */
 export interface Incident {
   id: string;
-  organizationId: string;
+  tenantId: string;
   integrationId: string | null;
   externalId: string;
   source: IncidentSourceType;
@@ -44,7 +44,7 @@ export interface Incident {
 
 function toPublic(row: {
   id: string;
-  organizationId: string;
+  tenantId: string;
   integrationId: string | null;
   externalId: string;
   source: string;
@@ -76,9 +76,9 @@ function toPublic(row: {
 export class IncidentRepository extends TenantScopedRepository {
   constructor(
     private readonly db: PrismaClient,
-    organizationId: string,
+    tenantId: string,
   ) {
-    super(organizationId);
+    super(tenantId);
   }
 
   async create(input: CreateIncidentInput): Promise<Incident> {
@@ -86,7 +86,7 @@ export class IncidentRepository extends TenantScopedRepository {
       data: {
         ...input,
         metadata: serializeJsonField(input.metadata),
-        organizationId: this.organizationId,
+        tenantId: this.tenantId,
       },
     });
     return toPublic(row);
@@ -94,12 +94,12 @@ export class IncidentRepository extends TenantScopedRepository {
 
   /** The idempotency check for incident ingestion (ARCHITECTURE.md §10) — the same
    *  external issue re-delivered by a webhook retry must never create a duplicate
-   *  Incident row. Matches the `@@unique([organizationId, source, externalId])`
+   *  Incident row. Matches the `@@unique([tenantId, source, externalId])`
    *  constraint on the Incident model. */
   async findByExternalId(source: IncidentSourceType, externalId: string): Promise<Incident | null> {
     const row = await this.db.incident.findUnique({
       where: {
-        organizationId_source_externalId: { organizationId: this.organizationId, source, externalId },
+        tenantId_source_externalId: { tenantId: this.tenantId, source, externalId },
       },
     });
     return row ? toPublic(row) : null;

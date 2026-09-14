@@ -34,7 +34,7 @@ export interface InvestigationRunnerConfig {
    *  consumer.ts's onIncidentCreated hook one stage over. Wired in production to enqueue
    *  onto the remediation queue; never fired on the escalation branch (nothing to
    *  remediate without a completed RCA). */
-  onRcaCompleted?: (evt: { incidentId: string; organizationId: string }) => Promise<void>;
+  onRcaCompleted?: (evt: { incidentId: string; tenantId: string }) => Promise<void>;
 }
 
 /**
@@ -51,14 +51,14 @@ export async function processInvestigationMessage(
   config: InvestigationRunnerConfig,
   message: InvestigationQueueMessage,
 ): Promise<void> {
-  const incidents = new IncidentRepository(db, message.organizationId);
+  const incidents = new IncidentRepository(db, message.tenantId);
   const incident = await incidents.findById(message.incidentId);
   if (!incident) return; // deleted between enqueue and processing — nothing to do
 
   if (incident.status !== "NEW") return;
 
-  const mapServers = new MapServerRepository(db, message.organizationId);
-  const credentials = new CredentialRepository(db, message.organizationId);
+  const mapServers = new MapServerRepository(db, message.tenantId);
+  const credentials = new CredentialRepository(db, message.tenantId);
   const evidenceRepo = new IncidentEvidenceRepository(db);
   const rcaRepo = new RootCauseAnalysisRepository(db);
 
@@ -71,12 +71,12 @@ export async function processInvestigationMessage(
       const credentialRow = await credentials.findById(server.credentialId);
       if (credentialRow) {
         credential = await config.secretProvider.decrypt(credentialRow.encryptedData, {
-          organizationId: message.organizationId,
+          tenantId: message.tenantId,
         });
       }
     }
     return {
-      organizationId: message.organizationId,
+      tenantId: message.tenantId,
       mapServerId,
       environment: server?.environments[0] ?? "default",
       credential,
@@ -174,14 +174,14 @@ export async function processInvestigationMessage(
       },
     });
     await writeAuditLog(auditLogWriter(db), {
-      organizationId: message.organizationId,
+      tenantId: message.tenantId,
       actorType: "agent",
       action: "incident.rca_completed",
       targetType: "Incident",
       targetId: incident.id,
       metadata: { confidence: result.rca.confidence, toolCallCount: result.toolCallCount, mock: llmClient.isMock },
     });
-    await config.onRcaCompleted?.({ incidentId: incident.id, organizationId: message.organizationId });
+    await config.onRcaCompleted?.({ incidentId: incident.id, tenantId: message.tenantId });
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     await db.incident.update({
@@ -197,7 +197,7 @@ export async function processInvestigationMessage(
       },
     });
     await writeAuditLog(auditLogWriter(db), {
-      organizationId: message.organizationId,
+      tenantId: message.tenantId,
       actorType: "agent",
       action: "incident.investigation_failed",
       targetType: "Incident",

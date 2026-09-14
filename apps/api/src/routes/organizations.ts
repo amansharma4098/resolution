@@ -62,7 +62,7 @@ export function buildOrganizationRoutes(deps: { db: PrismaClient; env: Env }): H
     });
 
     await writeAuditLog(auditLogWriter(db), {
-      organizationId: organization.id,
+      tenantId: organization.id,
       actorType: "user",
       actorId: c.get("userId"),
       action: "organization.created",
@@ -90,13 +90,13 @@ export function buildOrganizationRoutes(deps: { db: PrismaClient; env: Env }): H
   // map-servers' "/catalog" vs "/:id" (see routes/map-servers.ts). ──
 
   router.get("/members", auth, tenantContext, async (c) => {
-    const members = await organizations.listMembers(c.get("organizationId")!);
+    const members = await organizations.listMembers(c.get("tenantId")!);
     return c.json({ members });
   });
 
   router.post("/members", auth, tenantContext, requireAdmin, async (c) => {
     const body = AddMemberBody.parse(await c.req.json());
-    const organizationId = c.get("organizationId")!;
+    const tenantId = c.get("tenantId")!;
 
     let user = await users.findByEmail(body.email);
     // Only returned to the caller when *we* generated it (body.password absent) — if the
@@ -106,7 +106,7 @@ export function buildOrganizationRoutes(deps: { db: PrismaClient; env: Env }): H
     let newAccount = false;
 
     if (user) {
-      if (await organizations.findMembership(user.id, organizationId)) {
+      if (await organizations.findMembership(user.id, tenantId)) {
         throw new ConflictError("This user is already a member of the organization");
       }
     } else {
@@ -121,10 +121,10 @@ export function buildOrganizationRoutes(deps: { db: PrismaClient; env: Env }): H
       });
     }
 
-    await organizations.addMember(organizationId, user.id, body.role);
+    await organizations.addMember(tenantId, user.id, body.role);
 
     await writeAuditLog(auditLogWriter(db), {
-      organizationId,
+      tenantId,
       actorType: "user",
       actorId: c.get("userId"),
       action: "organization.member_added",
@@ -148,21 +148,21 @@ export function buildOrganizationRoutes(deps: { db: PrismaClient; env: Env }): H
   });
 
   router.patch("/members/:userId", auth, tenantContext, requireAdmin, async (c) => {
-    const organizationId = c.get("organizationId")!;
+    const tenantId = c.get("tenantId")!;
     const targetUserId = c.req.param("userId");
     const body = UpdateMemberRoleBody.parse(await c.req.json());
 
-    const existing = await organizations.findMembership(targetUserId, organizationId);
+    const existing = await organizations.findMembership(targetUserId, tenantId);
     if (!existing) throw new NotFoundError("Member not found");
 
-    if (existing.role === "OWNER" && body.role !== "OWNER" && (await organizations.countOwners(organizationId)) <= 1) {
+    if (existing.role === "OWNER" && body.role !== "OWNER" && (await organizations.countOwners(tenantId)) <= 1) {
       throw new ValidationError("An organization must always have at least one OWNER");
     }
 
-    const updated = await organizations.updateMemberRole(organizationId, targetUserId, body.role);
+    const updated = await organizations.updateMemberRole(tenantId, targetUserId, body.role);
 
     await writeAuditLog(auditLogWriter(db), {
-      organizationId,
+      tenantId,
       actorType: "user",
       actorId: c.get("userId"),
       action: "organization.member_role_changed",
@@ -176,20 +176,20 @@ export function buildOrganizationRoutes(deps: { db: PrismaClient; env: Env }): H
   });
 
   router.delete("/members/:userId", auth, tenantContext, requireAdmin, async (c) => {
-    const organizationId = c.get("organizationId")!;
+    const tenantId = c.get("tenantId")!;
     const targetUserId = c.req.param("userId");
 
-    const existing = await organizations.findMembership(targetUserId, organizationId);
+    const existing = await organizations.findMembership(targetUserId, tenantId);
     if (!existing) throw new NotFoundError("Member not found");
 
-    if (existing.role === "OWNER" && (await organizations.countOwners(organizationId)) <= 1) {
+    if (existing.role === "OWNER" && (await organizations.countOwners(tenantId)) <= 1) {
       throw new ValidationError("An organization must always have at least one OWNER — transfer ownership first");
     }
 
-    await organizations.removeMember(organizationId, targetUserId);
+    await organizations.removeMember(tenantId, targetUserId);
 
     await writeAuditLog(auditLogWriter(db), {
-      organizationId,
+      tenantId,
       actorType: "user",
       actorId: c.get("userId"),
       action: "organization.member_removed",
@@ -201,7 +201,7 @@ export function buildOrganizationRoutes(deps: { db: PrismaClient; env: Env }): H
     return c.body(null, 204);
   });
 
-  // Unlike every other org-scoped route (which reads the X-Organization-Id header via
+  // Unlike every other org-scoped route (which reads the X-Tenant-Id header via
   // resolveTenantContext, see middleware/tenant-context.ts), this one identifies the org
   // by its URL param — that's fine here specifically because the param *is* the resource
   // being fetched, not ambient context for some other resource. Membership is still
@@ -219,7 +219,7 @@ export function buildOrganizationRoutes(deps: { db: PrismaClient; env: Env }): H
 
   // Same URL-param-identifies-resource pattern as GET /:id above (see its comment) — an
   // admin-only manual check against the resolved membership, not the tenantContext/
-  // requireMinimumRole middleware pair (which read the X-Organization-Id header, not the
+  // requireMinimumRole middleware pair (which read the X-Tenant-Id header, not the
   // URL param). Phase 8: the only field this currently updates is `resolutionMode`
   // (ARCHITECTURE.md §7) — the org-level dial the policy engine reads.
   router.patch("/:id", auth, async (c) => {
@@ -232,7 +232,7 @@ export function buildOrganizationRoutes(deps: { db: PrismaClient; env: Env }): H
     const updated = await organizations.updateResolutionMode(id, body.resolutionMode);
 
     await writeAuditLog(auditLogWriter(db), {
-      organizationId: id,
+      tenantId: id,
       actorType: "user",
       actorId: c.get("userId"),
       action: "organization.resolution_mode_changed",
