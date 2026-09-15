@@ -682,6 +682,34 @@ See `docs/billing.md`.
       `stripe-webhook.test.ts`) — full typecheck/lint/test green across the monorepo (395
       tests total), plus a real `next build` confirming `/dashboard/billing` prerenders
 
+## Interlude — similar past incident recall ✅ complete
+
+Not a planned phase — added after a market scan (incident.io Investigations/Nexus, Rootly's
+AI SRE, FireHydrant, BigPanda's Incident Assistant, Resolve.ai) confirmed "we've seen this
+before, here's what fixed it" is the single most-copied feature across the category, and one
+this codebase already had all the raw data for (every past `Incident`/`RootCauseAnalysis`/
+`Resolution`/`RemediationAction`). Also closes a line item the original spec's Definition of
+Done already named ("historical search") but nothing had built yet. See
+`docs/similar-incidents.md`.
+
+- [x] `packages/database/src/similarity.ts` — real, deterministic, fully-explainable
+      attribute + title-keyword scoring (never a fake "AI-powered" label on an unexplained
+      number); `IncidentRepository.findSimilarResolved` scopes to RESOLVED/CLOSED incidents
+      on the same tenant, bounded to the 200 most recent as real candidate work, not
+      `O(all incidents ever)`
+- [x] `apps/api/src/lib/similar-incidents.ts` — attaches each match's actual root cause,
+      remediation action taken, and outcome (`succeeded`/`failed`/`rolled_back`/
+      `not attempted`, read straight off existing rows, never fabricated)
+- [x] Wired into three places off the one shared function: the investigation agent gets top
+      matches injected into its system prompt automatically at the start of every
+      investigation (framed explicitly as precedent to verify, not proof — the agent's
+      "never invent facts" discipline extends to trusting its own history uncritically);
+      `find_similar_incidents` joins the shared tool catalog (Chat + MCP, same as every
+      other incident tool); the incident detail page shows a "Similar past incidents" card
+- [x] 12 new tests (`packages/database`: 6 scoring/ranking, `packages/agents`: 2 prompt
+      inclusion/omission, `apps/api`: 4 end-to-end incl. tenant isolation) — full
+      typecheck/test green across the monorepo (410 tests total)
+
 ## Phase 12 — Production hardening
 - [ ] Security review pass (`security-review` skill) on full diff
 - [ ] Load test critical paths (webhook ingestion, investigation queue)

@@ -21,6 +21,18 @@ export class InvestigationIncompleteError extends Error {
  *  @resolution/database's `Incident`, so this package stays independent of the persistence
  *  layer (apps/api's queue consumer passes its own Incident value in; it matches this shape
  *  by construction). */
+/** One past incident judged similar to the one being investigated now — see
+ *  packages/database/src/similarity.ts for how "similar" is decided. A structural type here
+ *  (not imported from @resolution/database) for the same reason InvestigationIncidentInput
+ *  is: this package stays independent of the persistence layer. */
+export interface SimilarPastIncident {
+  title: string;
+  service?: string | null;
+  rootCause?: string | null;
+  actionTaken?: string | null;
+  outcome?: string | null;
+}
+
 export interface InvestigationIncidentInput {
   title: string;
   description: string;
@@ -29,6 +41,9 @@ export interface InvestigationIncidentInput {
   source: string;
   service?: string | null;
   environment?: string | null;
+  /** Proactive context, given up front rather than requiring a tool call — every past
+   *  incident already stored is free evidence about what tends to happen to this system. */
+  similarIncidents?: SimilarPastIncident[];
 }
 
 export type EvidenceRecorder = (entry: {
@@ -60,7 +75,7 @@ export interface InvestigationAgentResult {
 }
 
 function buildSystemPrompt(incident: InvestigationIncidentInput): string {
-  return [
+  const lines = [
     "You are the Investigation and Root Cause Analysis agent for an AI incident resolution platform.",
     "Investigate this incident using ONLY the tools you are given — never invent facts, logs, metrics, or data you did not retrieve from a tool call.",
     "Each successful tool call's result includes an evidenceId — cite it on any FACT claim that relies on it.",
@@ -73,9 +88,28 @@ function buildSystemPrompt(incident: InvestigationIncidentInput): string {
     incident.environment ? `Environment: ${incident.environment}` : "",
     "",
     `Description: ${incident.description}`,
-  ]
-    .filter((line) => line.length > 0)
-    .join("\n");
+  ];
+
+  if (incident.similarIncidents && incident.similarIncidents.length > 0) {
+    lines.push(
+      "",
+      "Similar past incidents on this tenant (real history, not evidence about THIS incident — " +
+        "a useful starting hypothesis, but you must still confirm or rule it out using your tools " +
+        "before citing it as a FACT):",
+    );
+    for (const past of incident.similarIncidents) {
+      const parts = [
+        `"${past.title}"`,
+        past.service ? `service: ${past.service}` : null,
+        `root cause: ${past.rootCause ?? "unknown"}`,
+        `action taken: ${past.actionTaken ?? "none"}`,
+        `outcome: ${past.outcome ?? "unknown"}`,
+      ].filter((p): p is string => p !== null);
+      lines.push(`- ${parts.join(" — ")}`);
+    }
+  }
+
+  return lines.filter((line) => line.length > 0).join("\n");
 }
 
 /**

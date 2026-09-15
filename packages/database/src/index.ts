@@ -23,6 +23,7 @@ export * from "./repositories/audit-log-repository";
 export * from "./repositories/credit-wallet-repository";
 export * from "./audit-log-writer";
 export * from "./json-field";
+export * from "./similarity";
 // Deliberately not `export * from "@prisma/client"` — its generated model types (Credential,
 // Integration, MapServer, ...) collide with the parsed/narrowed public shapes each
 // repository defines above (D1/SQLite has no native JSON or enum type, so the raw Prisma

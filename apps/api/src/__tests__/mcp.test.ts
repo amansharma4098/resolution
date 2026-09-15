@@ -90,12 +90,12 @@ describe("MCP server (POST /api/mcp)", () => {
     expect(body.result.serverInfo.name).toBe("resolution");
   });
 
-  it("lists three read-only tools and three mutating ones", async () => {
+  it("lists four read-only tools and three mutating ones", async () => {
     const { body } = await mcp(app, apiKey, { method: "tools/list" });
     const tools = body.result.tools as { name: string; annotations: { readOnlyHint: boolean } }[];
     const readOnly = tools.filter((t) => t.annotations.readOnlyHint).map((t) => t.name).sort();
     const mutating = tools.filter((t) => !t.annotations.readOnlyHint).map((t) => t.name).sort();
-    expect(readOnly).toEqual(["get_incident", "get_rca", "list_incidents"]);
+    expect(readOnly).toEqual(["find_similar_incidents", "get_incident", "get_rca", "list_incidents"]);
     expect(mutating).toEqual(["decide_approval", "propose_remediation", "trigger_investigation"]);
   });
 

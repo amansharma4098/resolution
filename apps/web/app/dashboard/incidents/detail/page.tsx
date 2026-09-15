@@ -90,12 +90,25 @@ interface Resolution {
   actions: RemediationAction[];
 }
 
+interface SimilarIncident {
+  id: string;
+  title: string;
+  service: string | null;
+  severity: string;
+  resolvedAt: string | null;
+  rootCause: string | null;
+  actionTaken: string | null;
+  outcome: string;
+  matchedOn: string[];
+}
+
 interface IncidentDetailResponse {
   incident: IncidentDetail;
   evidence: Evidence[];
   rca: Rca | null;
   events: IncidentEventRow[];
   resolutions: Resolution[];
+  similarIncidents: SimilarIncident[];
 }
 
 // A manual (re-)investigate is only meaningful from a state the state machine actually
@@ -217,7 +230,7 @@ function IncidentDetailContent() {
   if (error) return <p className="text-sm text-error">{error}</p>;
   if (!data) return <p className="text-sm text-subink">Incident not found.</p>;
 
-  const { incident, evidence, rca, events, resolutions } = data;
+  const { incident, evidence, rca, events, resolutions, similarIncidents } = data;
   const evidenceById = new Map(evidence.map((e) => [e.id, e]));
 
   return (
@@ -332,6 +345,34 @@ function IncidentDetailContent() {
           )}
         </CardContent>
       </Card>
+
+      {similarIncidents.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Similar past incidents ({similarIncidents.length})</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            {similarIncidents.map((s) => (
+              <div key={s.id} className="rounded border border-border bg-background p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-ink">{s.title}</p>
+                  <StatusBadge
+                    status={s.outcome === "succeeded" ? "success" : s.outcome === "failed" ? "critical" : "neutral"}
+                  >
+                    {s.outcome}
+                  </StatusBadge>
+                </div>
+                {s.rootCause && <p className="mt-1 text-sm text-subink">Root cause: {s.rootCause}</p>}
+                {s.actionTaken && <p className="mt-1 text-sm text-subink">Action taken: {s.actionTaken}</p>}
+                <p className="mt-1 font-mono text-xs text-subink">
+                  matched on: {s.matchedOn.join(", ")}
+                  {s.resolvedAt && ` · resolved ${new Date(s.resolvedAt).toLocaleDateString()}`}
+                </p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

@@ -19,6 +19,7 @@ import { runInvestigationAgent, InvestigationIncompleteError, transition, type A
 import { writeAuditLog } from "@resolution/security";
 import type { SecretProvider } from "@resolution/credentials";
 import type { InvestigationQueueMessage } from "./types";
+import { findSimilarIncidentSummaries } from "../lib/similar-incidents";
 
 export interface InvestigationRunnerConfig {
   mockMode: boolean;
@@ -126,6 +127,8 @@ export async function processInvestigationMessage(
     },
   });
 
+  const similar = await findSimilarIncidentSummaries(db, message.tenantId, incident);
+
   try {
     const result = await runInvestigationAgent(
       {
@@ -136,6 +139,13 @@ export async function processInvestigationMessage(
         source: incident.source,
         service: incident.service,
         environment: incident.environment,
+        similarIncidents: similar.map((s) => ({
+          title: s.title,
+          service: s.service,
+          rootCause: s.rootCause,
+          actionTaken: s.actionTaken,
+          outcome: s.outcome,
+        })),
       },
       {
         llmClient,

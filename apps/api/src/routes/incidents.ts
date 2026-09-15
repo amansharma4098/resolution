@@ -17,6 +17,7 @@ import { NotFoundError } from "../lib/errors";
 import type { AppEnv } from "../types";
 import type { IncidentInvestigationQueue, IncidentRemediationQueue } from "../queue/types";
 import { investigateIncident, proposeRemediationForIncident, decideRemediationApproval } from "../lib/incident-actions";
+import { findSimilarIncidentSummaries } from "../lib/similar-incidents";
 
 const DecideApprovalBody = z.object({
   decision: z.enum(["APPROVE", "REJECT"]),
@@ -130,7 +131,9 @@ export function buildIncidentRoutes(deps: {
       }),
     );
 
-    return c.json({ incident, evidence, rca, events, resolutions: resolutionsWithActions });
+    const similarIncidents = await findSimilarIncidentSummaries(db, c.get("tenantId")!, incident);
+
+    return c.json({ incident, evidence, rca, events, resolutions: resolutionsWithActions, similarIncidents });
   });
 
   router.post("/:id/investigate", auth, tenantContext, async (c) => {

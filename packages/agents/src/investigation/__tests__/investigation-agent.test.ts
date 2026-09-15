@@ -179,4 +179,59 @@ describe("runInvestigationAgent", () => {
       runInvestigationAgent(incident, { ...baseDeps(llmClient, []), maxIterations: 2 }),
     ).rejects.toThrow(InvestigationIncompleteError);
   });
+
+  it("includes similar past incidents in the system prompt when given, with an explicit verify-before-trusting caveat", async () => {
+    let capturedSystem = "";
+    const llmClient: LlmClient = {
+      isMock: true,
+      async send(args) {
+        capturedSystem = args.system;
+        return toolUseTurn("submit_rca", {
+          summary: "Done",
+          claims: [{ text: "x", claimType: "HYPOTHESIS", evidenceIds: [], confidence: 0.3 }],
+          confidence: 0.3,
+          alternativeHypotheses: [],
+        });
+      },
+    };
+
+    await runInvestigationAgent(
+      {
+        ...incident,
+        similarIncidents: [
+          {
+            title: "VPN gateway unreachable (last month)",
+            service: "vpn-gateway",
+            rootCause: "Expired certificate",
+            actionTaken: "Rotated the certificate",
+            outcome: "succeeded",
+          },
+        ],
+      },
+      baseDeps(llmClient, []),
+    );
+
+    expect(capturedSystem).toContain("Similar past incidents");
+    expect(capturedSystem).toContain("Expired certificate");
+    expect(capturedSystem).toContain("confirm or rule it out");
+  });
+
+  it("omits the similar-incidents section entirely when none are given", async () => {
+    let capturedSystem = "";
+    const llmClient: LlmClient = {
+      isMock: true,
+      async send(args) {
+        capturedSystem = args.system;
+        return toolUseTurn("submit_rca", {
+          summary: "Done",
+          claims: [{ text: "x", claimType: "HYPOTHESIS", evidenceIds: [], confidence: 0.3 }],
+          confidence: 0.3,
+          alternativeHypotheses: [],
+        });
+      },
+    };
+
+    await runInvestigationAgent(incident, baseDeps(llmClient, []));
+    expect(capturedSystem).not.toContain("Similar past incidents");
+  });
 });

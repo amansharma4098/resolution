@@ -965,8 +965,27 @@ export function createFakeDb(): FakeDb {
         incidents.push(row);
         return row;
       },
-      async findMany({ where }: { where: { tenantId: string } }) {
-        return incidents.filter((i) => i.tenantId === where.tenantId);
+      async findMany({
+        where,
+        orderBy,
+        take,
+      }: {
+        where: { tenantId: string; status?: { in: string[] }; id?: { not: string } };
+        orderBy?: { createdAt?: "asc" | "desc" };
+        take?: number;
+      }) {
+        let rows = incidents.filter((i) => i.tenantId === where.tenantId);
+        if (where.status) rows = rows.filter((i) => where.status!.in.includes(i.status));
+        if (where.id?.not) rows = rows.filter((i) => i.id !== where.id!.not);
+        if (orderBy?.createdAt) {
+          rows = [...rows].sort((a, b) =>
+            orderBy.createdAt === "asc"
+              ? a.createdAt.getTime() - b.createdAt.getTime()
+              : b.createdAt.getTime() - a.createdAt.getTime(),
+          );
+        }
+        if (typeof take === "number") rows = rows.slice(0, take);
+        return rows;
       },
       async findFirst({ where }: { where: OrgScopedWhere }) {
         return incidents.find((i) => i.tenantId === where.tenantId && i.id === where.id) ?? null;

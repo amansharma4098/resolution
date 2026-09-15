@@ -2,6 +2,7 @@ import type { PrismaClient } from "@prisma/client";
 import type { IncidentSourceType, IncidentStatus, Priority, Severity } from "@resolution/shared";
 import { TenantScopedRepository } from "../tenant-scoped-repository";
 import { parseJsonField, serializeJsonField } from "../json-field";
+import { rankSimilarIncidents, type RankedSimilarIncident } from "../similarity";
 
 export interface CreateIncidentInput {
   integrationId?: string;
@@ -116,5 +117,22 @@ export class IncidentRepository extends TenantScopedRepository {
   async findById(id: string): Promise<Incident | null> {
     const row = await this.db.incident.findFirst({ where: { ...this.scope(), id } });
     return row ? toPublic(row) : null;
+  }
+
+  /** Real similar-incident recall — see similarity.ts's header for why this is deterministic
+   *  attribute/keyword scoring rather than a vector search. Only ever considers RESOLVED/
+   *  CLOSED incidents (an open, unexplained incident is not useful precedent), and bounds the
+   *  candidate scan to the 200 most recent of those per tenant — real, not `O(all incidents
+   *  ever)`, since a tenant's actionable precedent is almost always recent. */
+  async findSimilarResolved(
+    target: { id: string; title: string; service: string | null; affectedSystem: string | null; source: IncidentSourceType },
+    limit = 3,
+  ): Promise<RankedSimilarIncident<Incident>[]> {
+    const rows = await this.db.incident.findMany({
+      where: { ...this.scope(), status: { in: ["RESOLVED", "CLOSED"] }, id: { not: target.id } },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+    });
+    return rankSimilarIncidents(target, rows.map(toPublic), limit);
   }
 }

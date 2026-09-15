@@ -6,6 +6,7 @@ import { hasRole } from "@resolution/security";
 import type { SecretProvider } from "@resolution/credentials";
 import { AppError } from "./errors";
 import { investigateIncident, proposeRemediationForIncident, decideRemediationApproval } from "./incident-actions";
+import { findSimilarIncidentSummaries } from "./similar-incidents";
 import type { IncidentInvestigationQueue, IncidentRemediationQueue } from "../queue/types";
 
 const ORG_AND_INCIDENT = {
@@ -52,6 +53,20 @@ export const TOOLS = [
     name: "get_rca",
     description: "Get the latest root cause analysis for one incident, if one exists yet.",
     inputSchema: { type: "object", properties: ORG_AND_INCIDENT, required: ["tenantId", "incidentId"] },
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: "find_similar_incidents",
+    description:
+      "Find past resolved incidents on this organization similar to the given one, with what root cause and remediation fixed them and whether that worked. Use this before proposing a fix from scratch — the same problem has often already been solved.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        ...ORG_AND_INCIDENT,
+        limit: { type: "integer", description: "Max similar incidents to return (default 3, max 10)." },
+      },
+      required: ["tenantId", "incidentId"],
+    },
     annotations: { readOnlyHint: true },
   },
   {
@@ -191,6 +206,21 @@ export async function callIncidentTool(
       const rca = await new RootCauseAnalysisRepository(db).findLatestByIncident(incident.id);
       if (!rca) return textResult({ error: "No root cause analysis yet for this incident" }, true);
       return textResult(rca);
+    }
+
+    case "find_similar_incidents": {
+      const parsed = z
+        .object({ tenantId: z.string(), incidentId: z.string(), limit: z.number().int().positive().max(10).optional() })
+        .safeParse(args);
+      if (!parsed.success) return textResult({ error: "Invalid arguments" }, true);
+      if (!(await getMembership(organizationRepository, userId, parsed.data.tenantId))) {
+        return textResult({ error: "Organization not found" }, true);
+      }
+      const incidents = new IncidentRepository(db, parsed.data.tenantId);
+      const incident = await incidents.findById(parsed.data.incidentId);
+      if (!incident) return textResult({ error: "Incident not found" }, true);
+      const similar = await findSimilarIncidentSummaries(db, parsed.data.tenantId, incident, parsed.data.limit ?? 3);
+      return textResult(similar);
     }
 
     case "trigger_investigation": {

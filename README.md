@@ -17,8 +17,10 @@ See `ARCHITECTURE.md` §2 for why and what that trades off.
   (real observability data + auto-alerting → auto-resolution), `mcp-server.md` (the generic
   MCP connector, and this platform's own MCP server), `chat.md` (the in-app assistant built
   on the same tools), `webhooks.md` (the generic inbound incident webhook), `billing.md`
-  (self-serve credit packs via Stripe), `deployment.md` (the Cloudflare-only deploy flow),
-  more added per phase.
+  (self-serve credit packs via Stripe), `similar-incidents.md` (recall of past incidents —
+  root cause, action taken, outcome — surfaced to the investigation agent, Chat/MCP, and the
+  incident detail page), `deployment.md` (the Cloudflare-only deploy flow), more added per
+  phase.
 - **Live**: `apps/web` → https://resolution-a7j.pages.dev · `apps/api` →
   https://resolution-api.amansharma4098.workers.dev
 
