@@ -1,19 +1,43 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession } from "@/hooks/use-session";
 import { Button } from "@/components/ui/button";
-import { NAV_ITEMS } from "./nav-items";
+import { NAV_ITEMS, type NavItem } from "./nav-items";
+
+function NavLink({ item, isActive }: { item: NavItem; isActive: boolean }) {
+  if (item.builtInPhase) {
+    return (
+      <span
+        title={`Ships in Phase ${item.builtInPhase} — see IMPLEMENTATION_PLAN.md`}
+        className="flex cursor-not-allowed items-center justify-between rounded px-3 py-2 text-sm text-subink opacity-50"
+      >
+        {item.label}
+        <span className="rounded-full bg-border px-1.5 py-0.5 font-mono text-[10px] text-subink">soon</span>
+      </span>
+    );
+  }
+  return (
+    <Link
+      href={item.href}
+      className={`rounded px-3 py-2 text-sm ${isActive ? "bg-navy text-white" : "text-ink hover:bg-background"}`}
+    >
+      {item.label}
+    </Link>
+  );
+}
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, organizations, currentTenantId, currentOrganization, loading, logout, setCurrentTenantId } =
     useSession();
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const isNewOrgPage = pathname === "/dashboard/new-organization";
+  const settingsItemActive = NAV_ITEMS.some((item) => item.group === "settings" && item.href === pathname);
 
   useEffect(() => {
     if (loading) return;
@@ -63,34 +87,29 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <span className="font-display text-lg font-semibold text-navy">resolution</span>
         </div>
         <nav className="flex flex-1 flex-col gap-0.5 p-2">
-          {NAV_ITEMS.filter((item) => !item.minRole || currentOrganization?.role === item.minRole).map((item) => {
-            const isActive = pathname === item.href;
-            if (item.builtInPhase) {
-              return (
-                <span
-                  key={item.href}
-                  title={`Ships in Phase ${item.builtInPhase} — see IMPLEMENTATION_PLAN.md`}
-                  className="flex cursor-not-allowed items-center justify-between rounded px-3 py-2 text-sm text-subink opacity-50"
-                >
-                  {item.label}
-                  <span className="rounded-full bg-border px-1.5 py-0.5 font-mono text-[10px] text-subink">
-                    soon
-                  </span>
-                </span>
-              );
-            }
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`rounded px-3 py-2 text-sm ${
-                  isActive ? "bg-navy text-white" : "text-ink hover:bg-background"
-                }`}
-              >
-                {item.label}
-              </Link>
-            );
-          })}
+          {NAV_ITEMS.filter(
+            (item) => !item.group && (!item.minRole || currentOrganization?.role === item.minRole),
+          ).map((item) => (
+            <NavLink key={item.href} item={item} isActive={pathname === item.href} />
+          ))}
+
+          <button
+            type="button"
+            onClick={() => setSettingsOpen((s) => !s)}
+            className="mt-3 flex items-center justify-between rounded px-3 py-2 text-xs font-medium uppercase tracking-wide text-subink hover:bg-background"
+          >
+            Settings
+            <span>{settingsOpen || settingsItemActive ? "▾" : "▸"}</span>
+          </button>
+          {(settingsOpen || settingsItemActive) && (
+            <div className="flex flex-col gap-0.5">
+              {NAV_ITEMS.filter(
+                (item) => item.group === "settings" && (!item.minRole || currentOrganization?.role === item.minRole),
+              ).map((item) => (
+                <NavLink key={item.href} item={item} isActive={pathname === item.href} />
+              ))}
+            </div>
+          )}
         </nav>
         <div className="border-t border-border p-3">
           <p className="truncate text-xs text-subink">{user.email}</p>

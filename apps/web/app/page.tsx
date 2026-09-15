@@ -17,15 +17,15 @@ export default function LandingPage() {
         className="pointer-events-none absolute -bottom-56 -left-32 h-[28rem] w-[28rem] rounded-full bg-navy opacity-40 blur-3xl"
       />
       <div className="relative mx-auto flex max-w-3xl flex-col items-start gap-6 px-6 py-24">
-        <span className="kicker">AI Incident Resolution Platform</span>
+        <span className="kicker">Observability, with an AI agent that fixes what it finds</span>
         <h1 className="font-display text-4xl font-semibold leading-tight sm:text-5xl">
-          An AI agent that investigates, diagnoses, remediates and verifies your production
-          incidents.
+          Connect your monitoring. When something breaks, the agent investigates, proposes a
+          fix, and — if you let it — applies it.
         </h1>
         <p className="max-w-xl text-lg text-ice">
-          Connects to the ITSM, monitoring, cloud, data and infrastructure systems you
-          already run. You decide how much autonomy it gets — from observe-only to fully
-          autonomous.
+          Datadog and more feed incidents in automatically. The agent finds the root cause,
+          not just the alert. You choose how far it goes — from just watching, to asking
+          before it acts, to fixing things on its own.
         </p>
         <div className="flex flex-wrap gap-3 pt-2">
           <Link href="/signup">

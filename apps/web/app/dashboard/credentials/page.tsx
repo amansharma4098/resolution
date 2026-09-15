@@ -75,7 +75,7 @@ export default function CredentialsPage() {
           <span className="kicker">Configuration</span>
           <h1 className="mt-1 font-display text-2xl font-semibold text-ink">Credentials</h1>
           <p className="mt-1 text-sm text-subink">
-            Create a credential once, then reuse it across any Map Server or integration
+            Create a credential once, then reuse it across any MCP Server or integration
             that needs it — never re-enter a secret.
           </p>
         </div>
@@ -99,7 +99,7 @@ export default function CredentialsPage() {
       ) : credentials.length === 0 ? (
         <Card>
           <CardContent className="py-8 text-center text-sm text-subink">
-            No credentials yet. Create one to start wiring up a Map Server or integration.
+            No credentials yet. Create one to start wiring up an MCP Server or integration.
           </CardContent>
         </Card>
       ) : (

@@ -215,7 +215,7 @@ export default function AutomationPoliciesPage() {
           <CardContent>
             <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2">
               <div>
-                <Label htmlFor="type">Map Server type</Label>
+                <Label htmlFor="type">MCP Server type</Label>
                 <Select id="type" value={formType} onChange={(e) => setFormType(e.target.value)}>
                   {MAP_SERVER_TYPES.map((t) => (
                     <option key={t} value={t}>

@@ -336,7 +336,7 @@ function CreateIntegrationForm({
                 Use a CUSTOM credential with fields <span className="font-mono">apiKey</span>{" "}
                 and <span className="font-mono">applicationKey</span> — an API key and an
                 Application key from Organization Settings in Datadog. The same credential
-                also works on a Datadog Map Server (Map Servers page) for the agent to query
+                also works on a Datadog MCP Server (MCP Servers page) for the agent to query
                 metrics/logs and mute monitors during investigation and remediation.
               </p>
             )}

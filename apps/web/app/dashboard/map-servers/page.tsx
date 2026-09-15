@@ -72,7 +72,7 @@ export default function MapServersPage() {
       setCatalog(catalogRes.catalog);
       setCredentials(credsRes.credentials);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to load Map Servers");
+      setError(err instanceof ApiError ? err.message : "Failed to load MCP Servers");
     } finally {
       setLoading(false);
     }
@@ -147,13 +147,13 @@ export default function MapServersPage() {
       <div className="flex items-center justify-between">
         <div>
           <span className="kicker">Configuration</span>
-          <h1 className="mt-1 font-display text-2xl font-semibold text-ink">Map Servers</h1>
+          <h1 className="mt-1 font-display text-2xl font-semibold text-ink">MCP Servers</h1>
           <p className="mt-1 text-sm text-subink">
             The technical systems the AI agent can investigate and act on — each exposes a
             fixed set of typed capabilities.
           </p>
         </div>
-        <Button onClick={() => setShowForm((s) => !s)}>{showForm ? "Cancel" : "New Map Server"}</Button>
+        <Button onClick={() => setShowForm((s) => !s)}>{showForm ? "Cancel" : "New MCP Server"}</Button>
       </div>
 
       {error && <p className="text-sm text-error">{error}</p>}
@@ -175,7 +175,7 @@ export default function MapServersPage() {
       ) : mapServers.length === 0 ? (
         <Card>
           <CardContent className="py-8 text-center text-sm text-subink">
-            No Map Servers configured yet.
+            No MCP Servers configured yet.
           </CardContent>
         </Card>
       ) : (
@@ -287,7 +287,7 @@ function CreateMapServerForm({
       });
       onCreated();
     } catch (err) {
-      onError(err instanceof ApiError ? err.message : "Failed to create Map Server — check the config is valid JSON");
+      onError(err instanceof ApiError ? err.message : "Failed to create MCP Server — check the config is valid JSON");
     } finally {
       setSubmitting(false);
     }
@@ -296,7 +296,7 @@ function CreateMapServerForm({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>New Map Server</CardTitle>
+        <CardTitle>New MCP Server</CardTitle>
         <CardDescription>
           You can configure a provider before it&apos;s available — it will just show as
           not yet connectable until we ship it.
@@ -361,7 +361,7 @@ function CreateMapServerForm({
             />
           </div>
           <Button type="submit" disabled={submitting} className="self-start">
-            {submitting ? "Creating…" : "Create Map Server"}
+            {submitting ? "Creating…" : "Create MCP Server"}
           </Button>
         </form>
       </CardContent>
