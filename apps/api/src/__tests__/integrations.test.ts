@@ -67,4 +67,49 @@ describe("integration routes", () => {
     const del = await req(app, `/api/integrations/${id}`, { method: "DELETE", cookie, tenantId });
     expect(del.status).toBe(204);
   });
+
+  it("auto-provisions a matching DATADOG MCP Server alongside a DATADOG integration, so the credential is entered once", async () => {
+    await req(app, "/api/integrations", {
+      method: "POST",
+      cookie,
+      tenantId,
+      body: { type: "DATADOG", name: "Prod Datadog" },
+    });
+
+    const mapServers = await req(app, "/api/map-servers", { cookie, tenantId });
+    const list = (await jsonOf(mapServers)).mapServers;
+    expect(list).toHaveLength(1);
+    expect(list[0].type).toBe("DATADOG");
+  });
+
+  it("does not create a second DATADOG MCP Server if one already exists", async () => {
+    await req(app, "/api/map-servers", {
+      method: "POST",
+      cookie,
+      tenantId,
+      body: { type: "DATADOG", name: "Already here" },
+    });
+
+    await req(app, "/api/integrations", {
+      method: "POST",
+      cookie,
+      tenantId,
+      body: { type: "DATADOG", name: "Prod Datadog" },
+    });
+
+    const mapServers = await req(app, "/api/map-servers", { cookie, tenantId });
+    expect((await jsonOf(mapServers)).mapServers).toHaveLength(1);
+  });
+
+  it("does not auto-provision an MCP Server for a source type with no capability-provider counterpart (e.g. JIRA)", async () => {
+    await req(app, "/api/integrations", {
+      method: "POST",
+      cookie,
+      tenantId,
+      body: { type: "JIRA", name: "Team Jira" },
+    });
+
+    const mapServers = await req(app, "/api/map-servers", { cookie, tenantId });
+    expect((await jsonOf(mapServers)).mapServers).toHaveLength(0);
+  });
 });

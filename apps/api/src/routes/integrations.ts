@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { IncidentSourceType } from "@resolution/shared";
 import type { Integration, PrismaClient } from "@resolution/database";
-import { CredentialRepository, IntegrationRepository, auditLogWriter } from "@resolution/database";
+import { CredentialRepository, IntegrationRepository, MapServerRepository, auditLogWriter } from "@resolution/database";
 import {
   generateWebhookSecret,
   JiraApiError,
@@ -10,7 +10,7 @@ import {
   ServiceNowApiError,
   ServiceNowClient,
 } from "@resolution/integrations";
-import { DatadogApiError, DatadogClient } from "@resolution/map-servers";
+import { DatadogApiError, DatadogClient, getMapServerProvider } from "@resolution/map-servers";
 import type { SecretProvider } from "@resolution/credentials";
 import { writeAuditLog } from "@resolution/security";
 import type { OrganizationRepository } from "@resolution/database";
@@ -91,6 +91,41 @@ export function buildIntegrationRoutes(deps: {
       requestId: c.get("requestId"),
       metadata: { type: integration.type, name: integration.name },
     });
+
+    // DATADOG is the one source type that's also a real MCP Server (capability provider) —
+    // a customer connecting Datadog wants incidents in *and* the agent able to act on it,
+    // and re-entering the same credential on a second "MCP Servers" page just to get the
+    // second half is exactly the duplicate-setup friction that made this confusing. Every
+    // other source type (Jira, ServiceNow, PagerDuty, generic Webhook) has no MCP Server
+    // counterpart, so nothing else auto-provisions here.
+    if (body.type === "DATADOG") {
+      const mapServers = new MapServerRepository(db, c.get("tenantId")!);
+      const alreadyHasOne = (await mapServers.list()).some((ms) => ms.type === "DATADOG");
+      if (!alreadyHasOne) {
+        const provider = getMapServerProvider("DATADOG");
+        const mapServer = await mapServers.create({
+          type: "DATADOG",
+          name: `${integration.name} (agent access)`,
+          credentialId: body.credentialId,
+          environments: [],
+          config: {},
+          isMock: provider?.metadata.isMock ?? false,
+        });
+        if (provider) {
+          await mapServers.createCapabilitiesFromProvider(mapServer.id, provider.capabilities);
+        }
+        await writeAuditLog(auditLogWriter(db), {
+          tenantId: c.get("tenantId"),
+          actorType: "system",
+          actorId: c.get("userId"),
+          action: "map_server.created",
+          targetType: "MapServer",
+          targetId: mapServer.id,
+          requestId: c.get("requestId"),
+          metadata: { type: mapServer.type, name: mapServer.name, reason: "auto-provisioned alongside Datadog integration" },
+        });
+      }
+    }
 
     // Unmasked webhook secret and the exact URL to configure — shown exactly once, here.
     const webhookUrl = WEBHOOK_BASED_SOURCES.has(body.type)

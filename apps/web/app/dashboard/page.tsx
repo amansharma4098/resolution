@@ -48,9 +48,78 @@ function MetricCard({ label, value, sub }: { label: string; value: string | numb
   );
 }
 
+interface SetupState {
+  hasCredential: boolean;
+  hasIntegration: boolean;
+  hasMcpServer: boolean;
+}
+
+/** The three things a brand-new org needs before an incident can show up here at all, let
+ *  alone get auto-resolved — surfaced as a checklist instead of a wall of zeros, so a new
+ *  user knows exactly what to click first instead of guessing between five config pages. */
+function GettingStarted({ setup }: { setup: SetupState }) {
+  const steps = [
+    {
+      done: setup.hasCredential,
+      label: "Add a credential",
+      detail: "An API key or login for a system you want to connect.",
+      href: "/dashboard/credentials",
+      cta: "Add credential",
+    },
+    {
+      done: setup.hasIntegration,
+      label: "Connect where incidents come from",
+      detail: "Datadog, Jira, ServiceNow, or a generic webhook — this is what creates incidents here.",
+      href: "/dashboard/integrations",
+      cta: "Add integration",
+    },
+    {
+      done: setup.hasMcpServer,
+      label: "Give the agent something to act on",
+      detail: "An MCP Server the AI agent can investigate and remediate against (Datadog's is set up for you automatically).",
+      href: "/dashboard/map-servers",
+      cta: "Add MCP Server",
+    },
+  ];
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Getting started</CardTitle>
+        <CardDescription>Three steps and incidents will start resolving themselves.</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col divide-y divide-border">
+        {steps.map((step) => (
+          <div key={step.label} className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0">
+            <div className="flex items-start gap-3">
+              <span
+                className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs ${
+                  step.done ? "bg-navy text-white" : "border border-border text-subink"
+                }`}
+              >
+                {step.done ? "✓" : ""}
+              </span>
+              <div>
+                <p className="text-sm font-medium text-ink">{step.label}</p>
+                <p className="text-xs text-subink">{step.detail}</p>
+              </div>
+            </div>
+            {!step.done && (
+              <Link href={step.href} className="shrink-0 text-sm text-navy underline">
+                {step.cta}
+              </Link>
+            )}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function DashboardPage() {
   const { currentOrganization, currentTenantId } = useSession();
   const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const [setup, setSetup] = useState<SetupState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -58,8 +127,18 @@ export default function DashboardPage() {
     if (!currentTenantId) return;
     setLoading(true);
     try {
-      const res = await apiRequest<Metrics>("/api/metrics", { tenantId: currentTenantId });
-      setMetrics(res);
+      const [metricsRes, credentialsRes, integrationsRes, mapServersRes] = await Promise.all([
+        apiRequest<Metrics>("/api/metrics", { tenantId: currentTenantId }),
+        apiRequest<{ credentials: unknown[] }>("/api/credentials", { tenantId: currentTenantId }),
+        apiRequest<{ integrations: unknown[] }>("/api/integrations", { tenantId: currentTenantId }),
+        apiRequest<{ mapServers: unknown[] }>("/api/map-servers", { tenantId: currentTenantId }),
+      ]);
+      setMetrics(metricsRes);
+      setSetup({
+        hasCredential: credentialsRes.credentials.length > 0,
+        hasIntegration: integrationsRes.integrations.length > 0,
+        hasMcpServer: mapServersRes.mapServers.length > 0,
+      });
       setError(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to load metrics");
@@ -83,19 +162,18 @@ export default function DashboardPage() {
 
       {error && <p className="text-sm text-error">{error}</p>}
 
-      {loading || !metrics ? (
+      {loading || !metrics || !setup ? (
         <p className="text-sm text-subink">Loading…</p>
+      ) : !setup.hasCredential || !setup.hasIntegration || !setup.hasMcpServer ? (
+        <GettingStarted setup={setup} />
       ) : metrics.incidents.total === 0 ? (
         <Card>
           <CardHeader>
-            <CardTitle>Nothing to show yet</CardTitle>
+            <CardTitle>All set — waiting on your first incident</CardTitle>
             <CardDescription>
-              Incident metrics will appear here once a webhook from a connected integration creates your first
-              incident. Set one up under{" "}
-              <Link href="/dashboard/integrations" className="text-navy underline">
-                Integrations
-              </Link>
-              .
+              Setup is done. Once your connected integration sends one in (or a Datadog
+              monitor fires), it&apos;ll show up here and the agent will start investigating
+              automatically.
             </CardDescription>
           </CardHeader>
         </Card>
