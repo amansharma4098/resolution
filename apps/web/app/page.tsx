@@ -13,7 +13,7 @@ const outcomes = [
   },
   {
     title: "Close the loop for real",
-    body: "A successful API response is not treated as a resolved incident. Resolution verifies the expected state in the connected system before it closes the loop.",
+    body: "A successful API response is not treated as a resolved incident. FixCaptain verifies the expected state in the connected system before it closes the loop.",
   },
 ];
 
@@ -32,7 +32,7 @@ const workflow = [
   [
     "04",
     "Verify",
-    "Policy or a human authorizes the action, then Resolution checks the live outcome.",
+    "Policy or a human authorizes the action, then FixCaptain checks the live outcome.",
   ],
 ] as const;
 
@@ -50,7 +50,7 @@ function ArrowLink({ href, children }: { href: string; children: React.ReactNode
 /**
  * The public page deliberately sells the capabilities that are live today instead of
  * inventing customer logos, resolution-rate claims, or broad "autonomous" promises.
- * The useful buying distinction is that Resolution combines AI investigation with
+ * The useful buying distinction is that FixCaptain combines AI investigation with
  * deterministic permissioning and verification, rather than being another alert summary.
  */
 export default function LandingPage() {
@@ -100,7 +100,7 @@ export default function LandingPage() {
               Turn production alerts into verified recovery.
             </h1>
             <p className="mt-6 max-w-xl text-lg leading-8 text-ice">
-              Resolution investigates incidents against your real operational systems, explains what
+              FixCaptain investigates incidents against your real operational systems, explains what
               happened with cited evidence, and proposes a safe next action. You decide when the
               system can act—and it proves the result before it calls an incident resolved.
             </p>
@@ -192,7 +192,7 @@ export default function LandingPage() {
               Useful AI for the investigation. Deterministic controls for the risky part.
             </h2>
             <p className="mt-4 text-lg leading-7 text-subink">
-              Resolution is designed for production operations, where a plausible answer is not
+              FixCaptain is designed for production operations, where a plausible answer is not
               enough and an unreviewed change can make an incident worse.
             </p>
           </div>

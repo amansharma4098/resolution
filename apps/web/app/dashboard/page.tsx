@@ -236,7 +236,7 @@ export default function DashboardPage() {
             <CardHeader>
               <CardTitle>Remediation</CardTitle>
               <CardDescription>
-                Every proposal the Resolution Agent has made, and what happened to it.
+                Every proposal FixCaptain has made, and what happened to it.
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 sm:grid-cols-3 lg:grid-cols-4">

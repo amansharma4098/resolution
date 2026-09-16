@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession } from "@/hooks/use-session";
 import { Button } from "@/components/ui/button";
+import { Logo } from "@/components/logo";
 
 /**
  * Deliberately separate from /dashboard's layout — this is platform-level (every tenant at
@@ -45,7 +46,8 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
     <div className="min-h-screen bg-background">
       <header className="flex h-14 items-center justify-between border-b border-border bg-surface px-6">
         <div className="flex items-center gap-6">
-          <span className="font-display text-lg font-semibold text-navy">resolution — Platform Admin</span>
+          <Logo />
+          <span className="text-sm font-medium text-subink">Platform Admin</span>
           <Link href="/platform/tenants" className="text-sm text-ink hover:underline">
             Tenants
           </Link>

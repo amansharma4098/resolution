@@ -42,7 +42,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
             ))}
           </ul>
         </div>
-        <p className="relative text-xs text-ice/70">© {new Date().getFullYear()} Resolution</p>
+        <p className="relative text-xs text-ice/70">© {new Date().getFullYear()} FixCaptain</p>
       </div>
 
       <div className="flex flex-1 flex-col items-center justify-center gap-8 px-6 py-16">

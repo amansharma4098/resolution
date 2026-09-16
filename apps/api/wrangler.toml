@@ -69,9 +69,9 @@ dead_letter_queue = "resolution-incident-remediation-dlq"
 # server-side, never written to this file).
 [vars]
 NODE_ENV = "production"
-CORS_ORIGIN = "https://resolution-a7j.pages.dev"
+CORS_ORIGIN = "https://www.fixcaptain.com"
 SECRET_PROVIDER = "ENCRYPTED_DB"
 MOCK_MODE = "false"
 ANTHROPIC_MODEL = "claude-opus-5"
 # Email sender address is configuration; the API key is stored as a Worker secret.
-EMAIL_FROM = "Resolution <onboarding@resend.dev>"
+EMAIL_FROM = "FixCaptain <onboarding@resend.dev>"

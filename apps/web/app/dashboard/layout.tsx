@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession } from "@/hooks/use-session";
 import { Button } from "@/components/ui/button";
+import { Logo } from "@/components/logo";
 import { NAV_ITEMS, type NavItem } from "./nav-items";
 
 function NavLink({ item, isActive }: { item: NavItem; isActive: boolean }) {
@@ -95,7 +96,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     <div className="flex min-h-screen bg-background">
       <aside className="flex w-60 flex-col border-r border-border bg-surface">
         <div className="flex h-14 items-center border-b border-border px-4">
-          <span className="font-display text-lg font-semibold text-navy">resolution</span>
+          <Logo />
         </div>
         <nav className="flex flex-1 flex-col gap-0.5 p-2">
           {NAV_ITEMS.filter(

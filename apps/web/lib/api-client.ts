@@ -44,7 +44,7 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
   } catch {
     throw new ApiError(
       "NETWORK_ERROR",
-      "Unable to connect to Resolution. Check your connection and try again.",
+      "Unable to connect to FixCaptain. Check your connection and try again.",
       0,
     );
   }
@@ -68,7 +68,7 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
   if (json === null) {
     throw new ApiError(
       "INVALID_RESPONSE",
-      "Resolution returned an unexpected response. Refresh the page and try again.",
+      "FixCaptain returned an unexpected response. Refresh the page and try again.",
       res.status,
     );
   }

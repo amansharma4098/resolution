@@ -89,3 +89,13 @@ or loopback overrides. Turbo includes NEXT_PUBLIC_API_URL in its build key and c
 Four browser-client regression tests, a production build, typecheck and lint passed. The
 exported bundle was checked for localhost endpoints. Following publication, a disposable
 account signed in through the browser, created a workspace and reached its dashboard.
+
+## FixCaptain branding and domain
+
+The product name is FixCaptain and its public address is `https://www.fixcaptain.com`.
+The landing page, authentication screens, dashboard, platform administration, favicon,
+AI assistant identity and password-reset email use this name. Production reset and checkout
+links use the custom domain. Cloudflare project names, database identifiers, package names
+and the existing Pages API proxy remain stable to preserve integrations and stored data.
+The email sender display name is FixCaptain; its address remains the restricted Resend test
+sender until customer-domain email verification is completed.

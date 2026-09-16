@@ -11,14 +11,14 @@ export function Logo({ className, dark = false }: { className?: string; dark?: b
       <span
         aria-hidden
         className={cn(
-          "flex h-8 w-8 items-center justify-center rounded font-display text-lg font-semibold",
+          "flex h-8 w-8 items-center justify-center rounded font-display text-xs font-semibold",
           dark ? "bg-ice text-navy" : "bg-navy text-white",
         )}
       >
-        R
+        FC
       </span>
       <span className={cn("font-display text-lg font-semibold", dark ? "text-white" : "text-ink")}>
-        Resolution
+        FixCaptain
       </span>
     </div>
   );
