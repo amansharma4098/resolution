@@ -24,6 +24,7 @@ interface MapServerSummary {
   type: string;
   name: string;
   credentialId: string | null;
+  config: { disabled?: boolean };
   environments: string[];
   isMock: boolean;
   status: "CONNECTED" | "DEGRADED" | "DISCONNECTED" | "UNCONFIGURED";
@@ -35,6 +36,9 @@ interface CredentialOption {
 }
 
 interface Capability {
+  fingerprint?: string;
+  description?: string;
+  inputSchema?: Record<string, unknown>;
   key: string;
   enabled: boolean;
   riskLevel: string;
@@ -50,7 +54,9 @@ export default function MapServersPage() {
   const [error, setError] = useState<string | null>(null);
   const [testDetail, setTestDetail] = useState<Record<string, string>>({});
   const [showForm, setShowForm] = useState(false);
-  const [capabilitiesByServer, setCapabilitiesByServer] = useState<Record<string, Capability[]>>({});
+  const [capabilitiesByServer, setCapabilitiesByServer] = useState<Record<string, Capability[]>>(
+    {},
+  );
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
@@ -72,7 +78,7 @@ export default function MapServersPage() {
       setCatalog(catalogRes.catalog);
       setCredentials(credsRes.credentials);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to load MCP Servers");
+      setError(err instanceof ApiError ? err.message : "Failed to load Connections");
     } finally {
       setLoading(false);
     }
@@ -93,6 +99,33 @@ export default function MapServersPage() {
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Test failed");
+    }
+  }
+
+  async function refreshTools(id: string) {
+    if (!currentTenantId) return;
+    try {
+      const r = await apiRequest<{ capabilities: Capability[] }>(
+        `/api/map-servers/${id}/refresh-capabilities`,
+        { method: "POST", tenantId: currentTenantId },
+      );
+      setCapabilitiesByServer((prev) => ({ ...prev, [id]: r.capabilities }));
+      setExpanded((prev) => new Set([...prev, id]));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Discovery failed");
+    }
+  }
+  async function setDisabled(id: string, disabled: boolean) {
+    if (!currentTenantId) return;
+    try {
+      await apiRequest(`/api/map-servers/${id}`, {
+        method: "PATCH",
+        tenantId: currentTenantId,
+        body: { disabled },
+      });
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Connection update failed");
     }
   }
 
@@ -128,15 +161,22 @@ export default function MapServersPage() {
   async function handleToggleCapability(mapServerId: string, key: string, enabled: boolean) {
     if (!currentTenantId) return;
     try {
-      await apiRequest(`/api/map-servers/${mapServerId}/capabilities/${key}`, {
+      await apiRequest(`/api/map-servers/${mapServerId}/capabilities/${encodeURIComponent(key)}`, {
         method: "PATCH",
         tenantId: currentTenantId,
-        body: { enabled },
+        body: {
+          enabled,
+          fingerprint: capabilitiesByServer[mapServerId]?.find((c) => c.key === key)?.fingerprint,
+          access: capabilitiesByServer[mapServerId]?.find((c) => c.key === key)?.mutating
+            ? "WRITE"
+            : "READ",
+        },
       });
-      setCapabilitiesByServer((prev) => ({
-        ...prev,
-        [mapServerId]: prev[mapServerId]!.map((c) => (c.key === key ? { ...c, enabled } : c)),
-      }));
+      const result = await apiRequest<{ capabilities: Capability[] }>(
+        `/api/map-servers/${mapServerId}`,
+        { tenantId: currentTenantId },
+      );
+      setCapabilitiesByServer((prev) => ({ ...prev, [mapServerId]: result.capabilities }));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to update capability");
     }
@@ -147,13 +187,15 @@ export default function MapServersPage() {
       <div className="flex items-center justify-between">
         <div>
           <span className="kicker">Configuration</span>
-          <h1 className="mt-1 font-display text-2xl font-semibold text-ink">MCP Servers</h1>
+          <h1 className="mt-1 font-display text-2xl font-semibold text-ink">Connections</h1>
           <p className="mt-1 text-sm text-subink">
-            The technical systems the AI agent can investigate and act on — each exposes a
-            fixed set of typed capabilities.
+            The technical systems the AI agent can investigate and act on — each exposes a reviewed
+            set of capabilities scoped to your tenant.
           </p>
         </div>
-        <Button onClick={() => setShowForm((s) => !s)}>{showForm ? "Cancel" : "New MCP Server"}</Button>
+        <Button onClick={() => setShowForm((s) => !s)}>
+          {showForm ? "Cancel" : "New connection"}
+        </Button>
       </div>
 
       {error && <p className="text-sm text-error">{error}</p>}
@@ -175,7 +217,7 @@ export default function MapServersPage() {
       ) : mapServers.length === 0 ? (
         <Card>
           <CardContent className="py-8 text-center text-sm text-subink">
-            No MCP Servers configured yet.
+            No Connections configured yet.
           </CardContent>
         </Card>
       ) : (
@@ -186,7 +228,10 @@ export default function MapServersPage() {
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-ink">{ms.name}</span>
-                    <StatusBadge status={domainStatusMap.connection[ms.status]}>{ms.status}</StatusBadge>
+                    <StatusBadge status={domainStatusMap.connection[ms.status]}>
+                      {ms.status}
+                    </StatusBadge>
+                    {ms.config.disabled && <StatusBadge status="warning">DISABLED</StatusBadge>}
                     {ms.isMock && <StatusBadge status="neutral">MOCK</StatusBadge>}
                   </div>
                   <div className="flex items-center gap-3 font-mono text-xs text-subink">
@@ -198,6 +243,18 @@ export default function MapServersPage() {
                 <div className="flex gap-2">
                   <Button size="sm" variant="secondary" onClick={() => void toggleExpanded(ms.id)}>
                     {expanded.has(ms.id) ? "Hide capabilities" : "Capabilities"}
+                  </Button>
+                  {ms.type === "MCP" && (
+                    <Button size="sm" variant="secondary" onClick={() => void refreshTools(ms.id)}>
+                      Discover tools
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => void setDisabled(ms.id, !ms.config.disabled)}
+                  >
+                    {ms.config.disabled ? "Enable connection" : "Disable connection"}
                   </Button>
                   <Button size="sm" variant="secondary" onClick={() => void handleTest(ms.id)}>
                     Test
@@ -213,24 +270,58 @@ export default function MapServersPage() {
                     <p className="text-xs text-subink">Loading…</p>
                   ) : capabilitiesByServer[ms.id]!.length === 0 ? (
                     <p className="text-xs text-subink">
-                      No provider is registered for {ms.type} yet, so there&apos;s nothing to
-                      enable — capabilities appear automatically once one ships.
+                      No provider is registered for {ms.type} yet, so there&apos;s nothing to enable
+                      — capabilities appear automatically once one ships.
                     </p>
                   ) : (
                     <div className="flex flex-col gap-2">
                       {capabilitiesByServer[ms.id]!.map((cap) => (
-                        <label key={cap.key} className="flex items-center gap-2 text-sm">
-                          <input
-                            type="checkbox"
-                            checked={cap.enabled}
-                            onChange={(e) => void handleToggleCapability(ms.id, cap.key, e.target.checked)}
-                          />
-                          <span className="font-mono text-xs text-ink">{cap.key}</span>
-                          <StatusBadge status={cap.mutating ? "warning" : "success"}>
-                            {cap.mutating ? "MUTATING" : "READ-ONLY"}
-                          </StatusBadge>
-                          <span className="font-mono text-xs text-subink">{cap.riskLevel}</span>
-                        </label>
+                        <div key={cap.key} className="rounded border border-border p-3">
+                          <label className="flex items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={cap.enabled}
+                              onChange={(e) =>
+                                void handleToggleCapability(ms.id, cap.key, e.target.checked)
+                              }
+                            />
+                            <span className="font-mono text-xs text-ink">{cap.key}</span>
+                            {ms.type === "MCP" && !cap.enabled && (
+                              <select
+                                aria-label={`Review access for ${cap.key}`}
+                                value={cap.mutating ? "WRITE" : "READ"}
+                                onChange={(e) =>
+                                  setCapabilitiesByServer((prev) => ({
+                                    ...prev,
+                                    [ms.id]: prev[ms.id]!.map((c) =>
+                                      c.key === cap.key
+                                        ? { ...c, mutating: e.target.value === "WRITE" }
+                                        : c,
+                                    ),
+                                  }))
+                                }
+                              >
+                                <option value="WRITE">Review as write access</option>
+                                <option value="READ">Review as read-only</option>
+                              </select>
+                            )}
+                            <StatusBadge status={cap.mutating ? "warning" : "success"}>
+                              {cap.mutating ? "MUTATING" : "READ-ONLY"}
+                            </StatusBadge>
+                            <span className="font-mono text-xs text-subink">{cap.riskLevel}</span>
+                          </label>
+                          {cap.description && (
+                            <p className="mt-2 text-xs text-subink">{cap.description}</p>
+                          )}
+                          {cap.inputSchema && (
+                            <details className="mt-2 text-xs text-subink">
+                              <summary>Review tool parameters</summary>
+                              <pre className="mt-2 overflow-auto">
+                                {JSON.stringify(cap.inputSchema, null, 2)}
+                              </pre>
+                            </details>
+                          )}
+                        </div>
                       ))}
                     </div>
                   )}
@@ -256,7 +347,8 @@ function CreateMapServerForm({
   onError: (msg: string) => void;
 }) {
   const { currentTenantId } = useSession();
-  const [type, setType] = useState(catalog[0]?.type ?? "FABRIC");
+  const [type, setType] = useState("MCP");
+  const [url, setUrl] = useState("");
   const [name, setName] = useState("");
   const [credentialId, setCredentialId] = useState("");
   const [environments, setEnvironments] = useState("prod");
@@ -270,7 +362,7 @@ function CreateMapServerForm({
     if (!currentTenantId) return;
     setSubmitting(true);
     try {
-      const config = JSON.parse(configJson);
+      const config = type === "MCP" ? { url } : JSON.parse(configJson);
       await apiRequest("/api/map-servers", {
         method: "POST",
         tenantId: currentTenantId,
@@ -287,7 +379,11 @@ function CreateMapServerForm({
       });
       onCreated();
     } catch (err) {
-      onError(err instanceof ApiError ? err.message : "Failed to create MCP Server — check the config is valid JSON");
+      onError(
+        err instanceof ApiError
+          ? err.message
+          : "Failed to create connection — check the config is valid JSON",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -296,10 +392,10 @@ function CreateMapServerForm({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>New MCP Server</CardTitle>
+        <CardTitle>New connection</CardTitle>
         <CardDescription>
-          You can configure a provider before it&apos;s available — it will just show as
-          not yet connectable until we ship it.
+          You can configure a provider before it&apos;s available — it will just show as not yet
+          connectable until we ship it.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -332,7 +428,11 @@ function CreateMapServerForm({
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="ms-credential">Credential</Label>
-              <Select id="ms-credential" value={credentialId} onChange={(e) => setCredentialId(e.target.value)}>
+              <Select
+                id="ms-credential"
+                value={credentialId}
+                onChange={(e) => setCredentialId(e.target.value)}
+              >
                 <option value="">None</option>
                 {credentials.map((c) => (
                   <option key={c.id} value={c.id}>
@@ -350,18 +450,36 @@ function CreateMapServerForm({
               />
             </div>
           </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="ms-config">Config (JSON)</Label>
-            <Textarea
-              id="ms-config"
-              rows={5}
-              className="font-mono"
-              value={configJson}
-              onChange={(e) => setConfigJson(e.target.value)}
-            />
-          </div>
+          {type === "MCP" ? (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="ms-url">MCP endpoint</Label>
+              <Input
+                id="ms-url"
+                type="url"
+                required
+                placeholder="https://mcp.example.com/mcp"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+              />
+              <p className="text-xs text-subink">
+                Use a public HTTPS endpoint. Add its token in Credentials, then select it above.
+                Discover and review tools after connecting.
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="ms-config">Config (JSON)</Label>
+              <Textarea
+                id="ms-config"
+                rows={5}
+                className="font-mono"
+                value={configJson}
+                onChange={(e) => setConfigJson(e.target.value)}
+              />
+            </div>
+          )}
           <Button type="submit" disabled={submitting} className="self-start">
-            {submitting ? "Creating…" : "Create MCP Server"}
+            {submitting ? "Creating…" : "Create connection"}
           </Button>
         </form>
       </CardContent>

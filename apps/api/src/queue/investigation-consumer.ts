@@ -15,7 +15,12 @@ import {
   type MapServerContext,
 } from "@resolution/map-servers";
 import { createLlmClient, type LlmClient } from "@resolution/ai";
-import { runInvestigationAgent, InvestigationIncompleteError, transition, type AvailableCapability } from "@resolution/agents";
+import {
+  runInvestigationAgent,
+  InvestigationIncompleteError,
+  transition,
+  type AvailableCapability,
+} from "@resolution/agents";
 import { writeAuditLog } from "@resolution/security";
 import type { SecretProvider } from "@resolution/credentials";
 import type { InvestigationQueueMessage } from "./types";
@@ -66,10 +71,13 @@ export async function processInvestigationMessage(
   const allMapServers = await mapServers.list();
 
   const contextFor = async (mapServerId: string): Promise<MapServerContext> => {
-    const server = allMapServers.find((s) => s.id === mapServerId);
+    const server = await mapServers.findById(mapServerId);
+    if (!server || server.config.disabled)
+      throw new Error("Connection is disabled or no longer exists");
     let credential: Record<string, unknown> = {};
     if (server?.credentialId) {
-      const credentialRow = await credentials.findById(server.credentialId);
+      const credentialRow = await credentials.findUsableById(server.credentialId);
+      if (!credentialRow) throw new Error("Credential is missing, expired or revoked");
       if (credentialRow) {
         credential = await config.secretProvider.decrypt(credentialRow.encryptedData, {
           tenantId: message.tenantId,
@@ -88,6 +96,8 @@ export async function processInvestigationMessage(
 
   const availableCapabilities: AvailableCapability[] = [];
   for (const server of allMapServers) {
+    if (server.config.disabled) continue;
+    if (incident.environment && !server.environments.includes(incident.environment)) continue;
     const provider = getMapServerProvider(server.type);
     if (!provider) continue;
     const capabilityRows = await mapServers.listCapabilities(server.id);
@@ -100,8 +110,12 @@ export async function processInvestigationMessage(
     const ctx = await contextFor(server.id);
     for (const row of readOnlyRows) {
       const capability = await resolveCapability(provider, ctx, row.key);
-      if (capability) {
-        availableCapabilities.push({ mapServerId: server.id, mapServerType: server.type, capability });
+      if (capability && !capability.mutating) {
+        availableCapabilities.push({
+          mapServerId: server.id,
+          mapServerType: server.type,
+          capability,
+        });
       }
     }
   }
@@ -150,7 +164,12 @@ export async function processInvestigationMessage(
       {
         llmClient,
         availableCapabilities,
-        contextFor: (mapServerId: string, _capability: AnyCapability) => contextFor(mapServerId),
+        contextFor: async (mapServerId: string, capability: AnyCapability) => {
+          const rows = await mapServers.listCapabilities(mapServerId);
+          if (!rows.some((r) => r.key === capability.key && r.enabled && !r.mutating))
+            throw new Error("Investigation capability is no longer enabled for read access");
+          return contextFor(mapServerId);
+        },
         recordEvidence: async (entry) => {
           const row = await evidenceRepo.create({
             incidentId: incident.id,
@@ -189,7 +208,11 @@ export async function processInvestigationMessage(
       action: "incident.rca_completed",
       targetType: "Incident",
       targetId: incident.id,
-      metadata: { confidence: result.rca.confidence, toolCallCount: result.toolCallCount, mock: llmClient.isMock },
+      metadata: {
+        confidence: result.rca.confidence,
+        toolCallCount: result.toolCallCount,
+        mock: llmClient.isMock,
+      },
     });
     await config.onRcaCompleted?.({ incidentId: incident.id, tenantId: message.tenantId });
   } catch (err) {

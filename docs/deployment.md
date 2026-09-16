@@ -25,15 +25,15 @@ SQLite URL with no driver adapter — only the deployed Worker needs
 
 ## Cloudflare resources (provisioned)
 
-| Resource | Value |
-|---|---|
+| Resource      | Value                                                                                 |
+| ------------- | ------------------------------------------------------------------------------------- |
 | Pages project | `resolution` (Git-connected to `github.com/amansharma4098/resolution`, `main` branch) |
-| Pages URL | `https://resolution-a7j.pages.dev` |
-| Worker | `resolution-api` |
-| Worker URL | `https://resolution-api.amansharma4098.workers.dev` |
-| D1 database | `resolution-db` (28 tables) |
-| R2 bucket | `resolution-storage` |
-| Account ID | see `.env` (`CLOUDFLARE_ACCOUNT_ID`), not committed |
+| Pages URL     | `https://resolution-a7j.pages.dev`                                                    |
+| Worker        | `resolution-api`                                                                      |
+| Worker URL    | `https://resolution-api.amansharma4098.workers.dev`                                   |
+| D1 database   | `resolution-db` (28 tables)                                                           |
+| R2 bucket     | `resolution-storage`                                                                  |
+| Account ID    | see `.env` (`CLOUDFLARE_ACCOUNT_ID`), not committed                                   |
 
 ### apps/web (Cloudflare Pages)
 
@@ -66,7 +66,7 @@ real Function rather than a redirect rule.
 The project is **Git-connected**, not Direct Upload — that distinction matters because
 Cloudflare does not allow converting one to the other after creation (confirmed via the
 API: `"You cannot update the source object in a Direct Uploads project."`). If you ever
-need to recreate it, create it *with* the `source` block already set — see the git history
+need to recreate it, create it _with_ the `source` block already set — see the git history
 of this file for the exact `curl` command used, or `action: read` this file's prior
 version via the Artifact/API tooling.
 
@@ -107,7 +107,7 @@ local `wrangler` install that was never actually installed). If enabling it: set
 directory** to `apps/api` and **Deploy command** to `npm install && npx wrangler deploy` (a
 self-contained install-then-deploy, rather than relying on the separate Build command step
 carrying state over — that split failed silently in practice). A failing build here never
-affects the live Worker either way; it only blocks *that pipeline* from ever having
+affects the live Worker either way; it only blocks _that pipeline_ from ever having
 successfully deployed anything.
 
 `MOCK_MODE` in this deployment's `[vars]` is `"false"` — an `ANTHROPIC_API_KEY` secret is
@@ -134,7 +134,24 @@ from `packages/database`), apply it with `wrangler d1 execute resolution-db --re
   step — never hardcode it in a workflow file.
 - `JWT_SECRET` / `ENCRYPTION_MASTER_KEY`: set via `wrangler secret put`, never committed.
   Local dev falls back to fixed, public, clearly-insecure defaults (see `apps/api/src/env.ts`)
-  — the same treatment for both, since both need *a* value to boot and neither default is
+  — the same treatment for both, since both need _a_ value to boot and neither default is
   safe to rely on outside local dev.
 - Cloud `SecretProvider` adapters (AWS Secrets Manager / Azure Key Vault / GCP Secret
   Manager) are designed for but not implemented — see `docs/credentials.md`.
+
+## SaaS release update (September 2026)
+
+The new schema migration is additive: apply only
+`packages/database/prisma/migrations/00000000000008_chat_conversations/migration.sql` to existing databases.
+Do not run a `--from-empty` migration against production. Preserve JWT and encryption keys.
+
+Run `python3 scripts/cloudflare_check.py` to verify resource access without printing secrets.
+Deployment commands can use `python3 scripts/cloudflare-run.py <wrangler arguments>`; the helper
+reads the ignored root `.env` and injects Cloudflare credentials without shell interpolation.
+`sync-email` uploads the configured Resend key, and `pages` publishes the existing static export
+and Pages Functions. Set `EMAIL_FROM` in Worker vars to match the configured sender.
+
+Production now rejects missing/development secrets and missing AI credentials unless explicitly
+in MOCK_MODE. Missing Stripe configuration returns 503, never free credits. Missing production
+email configuration throws instead of logging password-reset links. Domain verification and actual
+email delivery must be checked separately; no test emails are sent by the deployment scripts.

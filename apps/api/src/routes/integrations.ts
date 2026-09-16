@@ -2,7 +2,12 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { IncidentSourceType } from "@resolution/shared";
 import type { Integration, PrismaClient } from "@resolution/database";
-import { CredentialRepository, IntegrationRepository, MapServerRepository, auditLogWriter } from "@resolution/database";
+import {
+  CredentialRepository,
+  IntegrationRepository,
+  MapServerRepository,
+  auditLogWriter,
+} from "@resolution/database";
 import {
   generateWebhookSecret,
   JiraApiError,
@@ -67,8 +72,10 @@ export function buildIntegrationRoutes(deps: {
 
     if (body.credentialId) {
       const credentials = new CredentialRepository(db, c.get("tenantId")!);
-      if (!(await credentials.findById(body.credentialId))) {
-        throw new ValidationError("credentialId does not reference a credential in this organization");
+      if (!(await credentials.findUsableById(body.credentialId))) {
+        throw new ValidationError(
+          "credentialId does not reference a credential in this organization",
+        );
       }
     }
 
@@ -122,7 +129,11 @@ export function buildIntegrationRoutes(deps: {
           targetType: "MapServer",
           targetId: mapServer.id,
           requestId: c.get("requestId"),
-          metadata: { type: mapServer.type, name: mapServer.name, reason: "auto-provisioned alongside Datadog integration" },
+          metadata: {
+            type: mapServer.type,
+            name: mapServer.name,
+            reason: "auto-provisioned alongside Datadog integration",
+          },
         });
       }
     }
@@ -182,19 +193,27 @@ export function buildIntegrationRoutes(deps: {
       // connection or credential of its own to verify (unlike Jira/ServiceNow's real API
       // clients above). "DISCONNECTED" would misleadingly suggest something's wrong.
       status = "CONNECTED";
-      detail = "Nothing to test — send events to this integration's webhook URL to see incidents appear.";
-    } else if (integration.type !== "JIRA" && integration.type !== "SERVICENOW" && integration.type !== "DATADOG") {
+      detail =
+        "Nothing to test — send events to this integration's webhook URL to see incidents appear.";
+    } else if (
+      integration.type !== "JIRA" &&
+      integration.type !== "SERVICENOW" &&
+      integration.type !== "DATADOG"
+    ) {
       detail = `No real adapter for ${integration.type} yet in this deployment`;
     } else if (!integration.credentialId) {
       detail = "No credential attached to this integration";
-    } else if (integration.type !== "DATADOG" && (typeof integration.config.baseUrl !== "string" || !integration.config.baseUrl)) {
+    } else if (
+      integration.type !== "DATADOG" &&
+      (typeof integration.config.baseUrl !== "string" || !integration.config.baseUrl)
+    ) {
       detail =
         integration.type === "JIRA"
           ? "Missing config.baseUrl (your Jira Cloud site URL)"
           : "Missing config.baseUrl (your ServiceNow instance URL)";
     } else {
       const credentials = new CredentialRepository(db, c.get("tenantId")!);
-      const credential = await credentials.findById(integration.credentialId);
+      const credential = await credentials.findUsableById(integration.credentialId);
       if (!credential) {
         detail = "Attached credential no longer exists";
       } else {
@@ -223,14 +242,18 @@ export function buildIntegrationRoutes(deps: {
             // evidence-gathering/remediation, reused here since "is this key pair valid"
             // is exactly the same question either way.
             const site =
-              typeof integration.config.site === "string" && integration.config.site ? integration.config.site : "datadoghq.com";
+              typeof integration.config.site === "string" && integration.config.site
+                ? integration.config.site
+                : "datadoghq.com";
             const client = new DatadogClient(site, {
               apiKey: String(decrypted.apiKey ?? ""),
               applicationKey: String(decrypted.applicationKey ?? ""),
             });
             const { valid } = await client.validate();
             status = valid ? "CONNECTED" : "DISCONNECTED";
-            detail = valid ? "Authenticated successfully" : "Datadog reported this API key pair as invalid";
+            detail = valid
+              ? "Authenticated successfully"
+              : "Datadog reported this API key pair as invalid";
           }
         } catch (err) {
           detail =

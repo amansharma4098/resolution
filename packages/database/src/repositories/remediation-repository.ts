@@ -1,5 +1,10 @@
 import type { PrismaClient } from "@prisma/client";
-import type { ApprovalStatus, RemediationStatus, RiskLevel, VerificationStatus } from "@resolution/shared";
+import type {
+  ApprovalStatus,
+  RemediationStatus,
+  RiskLevel,
+  VerificationStatus,
+} from "@resolution/shared";
 import { parseJsonField, serializeJsonField } from "../json-field";
 
 export interface CreateResolutionInput {
@@ -79,7 +84,11 @@ function toRemediationAction(row: {
   createdAt: Date;
   updatedAt: Date;
 }): RemediationActionRow {
-  return { ...row, status: row.status as RemediationStatus, result: parseJsonField(row.result, {}) };
+  return {
+    ...row,
+    status: row.status as RemediationStatus,
+    result: parseJsonField(row.result, {}),
+  };
 }
 
 function toApproval(row: {
@@ -139,13 +148,19 @@ export class RemediationRepository {
   }
 
   async listResolutionsByIncident(incidentId: string): Promise<ResolutionRow[]> {
-    const rows = await this.db.resolution.findMany({ where: { incidentId }, orderBy: { createdAt: "asc" } });
+    const rows = await this.db.resolution.findMany({
+      where: { incidentId },
+      orderBy: { createdAt: "asc" },
+    });
     return rows.map(toResolution);
   }
 
   /** RemediationStatus starts PENDING always — the policy engine decides afterward whether
    *  it can move straight to EXECUTING (AUTO) or needs an Approval row first (APPROVAL). */
-  async createRemediationAction(resolutionId: string, idempotencyKey: string): Promise<RemediationActionRow> {
+  async createRemediationAction(
+    resolutionId: string,
+    idempotencyKey: string,
+  ): Promise<RemediationActionRow> {
     const row = await this.db.remediationAction.create({
       data: { resolutionId, idempotencyKey, status: "PENDING" },
     });
@@ -188,7 +203,9 @@ export class RemediationRepository {
     return row ? toApproval(row) : null;
   }
 
-  async findApprovalByRemediationActionId(remediationActionId: string): Promise<ApprovalRow | null> {
+  async findApprovalByRemediationActionId(
+    remediationActionId: string,
+  ): Promise<ApprovalRow | null> {
     const row = await this.db.approval.findUnique({ where: { remediationActionId } });
     return row ? toApproval(row) : null;
   }
@@ -197,8 +214,8 @@ export class RemediationRepository {
     id: string,
     decision: { status: "APPROVED" | "REJECTED"; decidedByUserId: string; reason?: string },
   ): Promise<ApprovalRow> {
-    const row = await this.db.approval.update({
-      where: { id },
+    const claimed = await this.db.approval.updateMany({
+      where: { id, status: "PENDING" },
       data: {
         status: decision.status,
         decidedAt: new Date(),
@@ -206,12 +223,19 @@ export class RemediationRepository {
         reason: decision.reason,
       },
     });
+    if (!claimed.count) throw new Error("Approval has already been decided");
+    const row = (await this.db.approval.findUnique({ where: { id } }))!;
     return toApproval(row);
   }
 
   async createVerification(
     remediationActionId: string,
-    input: { status: VerificationStatus; expectedState: unknown; actualState: unknown; attempt: number },
+    input: {
+      status: VerificationStatus;
+      expectedState: unknown;
+      actualState: unknown;
+      attempt: number;
+    },
   ): Promise<VerificationRow> {
     const row = await this.db.verification.create({
       data: {

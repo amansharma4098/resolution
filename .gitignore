@@ -24,3 +24,7 @@ coverage/
 
 # local agent/harness state
 .claude/
+
+# Python deployment tooling
+__pycache__/
+.wrangler/

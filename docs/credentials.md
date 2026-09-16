@@ -21,7 +21,7 @@ touches a caller.
 
 ## EncryptedDbSecretProvider (default, implemented)
 
-Real envelope encryption, entirely within Postgres, no external KMS required:
+Real envelope encryption, with encrypted blobs stored in D1, no external KMS required:
 
 1. Each credential gets its own random 256-bit **data key**.
 2. The data key encrypts the plaintext payload (AES-256-GCM).
@@ -58,23 +58,30 @@ means adding a class satisfying `SecretProvider` and wiring it into the `switch`
 One shape per `authenticationType`, validated with Zod before anything is ever encrypted —
 `packages/credentials/src/credential-payload.ts`:
 
-| authenticationType | payload fields |
-|---|---|
-| `API_KEY` | `apiKey` |
-| `TOKEN` | `token` |
-| `BASIC_AUTH` | `username`, `password` |
-| `CLIENT_SECRET` | `clientId`, `clientSecret`, `tenantId?` |
-| `SERVICE_PRINCIPAL` | `tenantId`, `clientId`, `clientSecret` |
-| `OAUTH` | `accessToken`, `refreshToken?`, `expiresAt?` |
-| `CUSTOM` | any non-empty set of string fields |
+| authenticationType  | payload fields                               |
+| ------------------- | -------------------------------------------- |
+| `API_KEY`           | `apiKey`                                     |
+| `TOKEN`             | `token`                                      |
+| `BASIC_AUTH`        | `username`, `password`                       |
+| `CLIENT_SECRET`     | `clientId`, `clientSecret`, `tenantId?`      |
+| `SERVICE_PRINCIPAL` | `tenantId`, `clientId`, `clientSecret`       |
+| `OAUTH`             | `accessToken`, `refreshToken?`, `expiresAt?` |
+| `CUSTOM`            | any non-empty set of string fields           |
 
 ## What the API returns
 
 Never the plaintext, never `encryptedData` — only:
 
 ```json
-{ "id": "...", "name": "...", "provider": "...", "authenticationType": "API_KEY",
-  "status": "VALID", "lastValidatedAt": "...", "maskedHint": "••••1234" }
+{
+  "id": "...",
+  "name": "...",
+  "provider": "...",
+  "authenticationType": "API_KEY",
+  "status": "VALID",
+  "lastValidatedAt": "...",
+  "maskedHint": "••••1234"
+}
 ```
 
 `maskedHint` is derived from the plaintext at the one moment it's in hand (create/rotate)
@@ -89,3 +96,14 @@ live call to the provider. A credential is provider-agnostic and may be attached
 Map Servers, so it has no single "connection" of its own. Live connectivity testing happens
 through a Map Server's `authAdapter.testConnection()` once one references the credential
 (`POST /api/map-servers/:id/test`) — see `docs/map-server.md`.
+
+## SaaS lifecycle controls
+
+`POST /api/credentials/:id/revoke` disables local use and writes an audit event. Testing cannot
+reactivate a revoked credential; rotate it with `POST /:id/rotate` to supply replacement material.
+The Credentials page exposes both actions to tenant administrators. These operations never return
+stored plaintext. Local revocation cannot recall an already dispatched request or revoke the token
+at its upstream provider. Separate production and development credentials are recommended.
+
+MCP credentials never enter prompts. Known credential values and common secret fields are redacted
+from MCP results. This is defense in depth, not a complete data-loss-prevention product.

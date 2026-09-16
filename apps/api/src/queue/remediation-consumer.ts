@@ -1,3 +1,4 @@
+import { assertExecutionAllowed } from "../lib/execution-permission";
 import type { PrismaClient } from "@resolution/database";
 import {
   IncidentRepository,
@@ -108,10 +109,15 @@ export async function processRemediationMessage(
   const credentials = new CredentialRepository(db, message.tenantId);
   const allMapServers = await mapServers.list();
 
-  const contextForProposal = async (server: (typeof allMapServers)[number]): Promise<MapServerContext> => {
+  const contextForProposal = async (
+    server: (typeof allMapServers)[number],
+  ): Promise<MapServerContext> => {
+    if (!server || server.config.disabled)
+      throw new Error("Connection is disabled or no longer exists");
     let credential: Record<string, unknown> = {};
     if (server.credentialId) {
-      const credentialRow = await credentials.findById(server.credentialId);
+      const credentialRow = await credentials.findUsableById(server.credentialId);
+      if (!credentialRow) throw new Error("Credential is missing, expired or revoked");
       if (credentialRow) {
         credential = await config.secretProvider.decrypt(credentialRow.encryptedData, {
           tenantId: message.tenantId,
@@ -130,6 +136,8 @@ export async function processRemediationMessage(
 
   const availableCapabilities: AvailableCapability[] = [];
   for (const server of allMapServers) {
+    if (server.config.disabled) continue;
+    if (incident.environment && !server.environments.includes(incident.environment)) continue;
     const provider = getMapServerProvider(server.type);
     if (!provider) continue;
     const capabilityRows = await mapServers.listCapabilities(server.id);
@@ -141,14 +149,22 @@ export async function processRemediationMessage(
     for (const row of mutatingRows) {
       const capability = await resolveCapability(provider, ctx, row.key);
       if (capability) {
-        availableCapabilities.push({ mapServerId: server.id, mapServerType: server.type, capability });
+        availableCapabilities.push({
+          mapServerId: server.id,
+          mapServerType: server.type,
+          capability,
+        });
       }
     }
   }
 
   const llmClient =
     config.llmClient ??
-    createLlmClient({ mockMode: config.mockMode, apiKey: config.anthropicApiKey, model: config.anthropicModel });
+    createLlmClient({
+      mockMode: config.mockMode,
+      apiKey: config.anthropicApiKey,
+      model: config.anthropicModel,
+    });
 
   const rca = {
     summary: rcaRow.summary,
@@ -179,7 +195,10 @@ export async function processRemediationMessage(
         incidentId: incident.id,
         type: "remediation_failed",
         actor: "agent",
-        detail: serializeJsonField({ reason, incomplete: err instanceof ResolutionIncompleteError }),
+        detail: serializeJsonField({
+          reason,
+          incomplete: err instanceof ResolutionIncompleteError,
+        }),
       },
     });
     await writeAuditLog(auditLogWriter(db), {
@@ -216,7 +235,7 @@ export async function processRemediationMessage(
     input: proposal.input,
     riskLevel: proposal.capability.riskLevel,
   });
-  const idempotencyKey = `${incident.id}:${proposal.capability.key}:${crypto.randomUUID()}`;
+  const idempotencyKey = `${incident.id}:${rcaRow.id}`;
   const action = await remediationRepo.createRemediationAction(resolution.id, idempotencyKey);
 
   await db.incidentEvent.create({
@@ -237,10 +256,15 @@ export async function processRemediationMessage(
   const orgResolutionMode = (organization?.resolutionMode ?? "OBSERVE_ONLY") as ResolutionMode;
 
   const policies = new AutomationPolicyRepository(db, message.tenantId);
-  const policyRow = await policies.findForCapability(proposal.mapServerType, proposal.capability.key);
+  const policyRow = await policies.findForCapability(
+    proposal.mapServerType,
+    proposal.capability.key,
+  );
   const behavior: PolicyBehavior = evaluatePolicy(
     orgResolutionMode,
-    policyRow ? { behavior: policyRow.behavior, resolutionModeFloor: policyRow.resolutionModeFloor } : undefined,
+    policyRow
+      ? { behavior: policyRow.behavior, resolutionModeFloor: policyRow.resolutionModeFloor }
+      : undefined,
   );
 
   await writeAuditLog(auditLogWriter(db), {
@@ -316,6 +340,7 @@ export async function executeAndVerify(
     capability: AnyCapability;
     input: unknown;
     remediationActionId: string;
+    approved?: boolean;
     secretProvider: SecretProvider;
     sleep?: (ms: number) => Promise<void>;
     /** Used only to draft a postmortem the moment this incident reaches RESOLVED (below) —
@@ -330,9 +355,12 @@ export async function executeAndVerify(
 
   const contextFor = async (mapServerId: string): Promise<MapServerContext> => {
     const server = await mapServers.findById(mapServerId);
+    if (!server || server.config.disabled)
+      throw new Error("Connection is disabled or no longer exists");
     let credential: Record<string, unknown> = {};
     if (server?.credentialId) {
-      const credentialRow = await credentials.findById(server.credentialId);
+      const credentialRow = await credentials.findUsableById(server.credentialId);
+      if (!credentialRow) throw new Error("Credential is missing, expired or revoked");
       if (credentialRow) {
         credential = await params.secretProvider.decrypt(credentialRow.encryptedData, {
           tenantId: params.tenantId,
@@ -349,11 +377,23 @@ export async function executeAndVerify(
     };
   };
 
-  await remediationRepo.updateRemediationActionStatus(params.remediationActionId, "EXECUTING");
+  const claimed = await db.remediationAction.updateMany({
+    where: { id: params.remediationActionId, status: "PENDING" },
+    data: { status: "EXECUTING" },
+  });
+  if (!claimed.count) return; // Never repeat an in-flight or completed external mutation.
 
   let output: unknown;
   try {
+    await assertExecutionAllowed(db, {
+      ...params,
+      capabilityKey: params.capability.key,
+      approved: params.approved ?? false,
+    });
     const ctx = await contextFor(params.mapServerId);
+    const capabilityRows = await mapServers.listCapabilities(params.mapServerId);
+    if (!capabilityRows.some((r) => r.key === params.capability.key && r.enabled))
+      throw new Error("Capability is disabled");
     output = await params.capability.execute(ctx, params.input);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
@@ -393,18 +433,22 @@ export async function executeAndVerify(
   });
 
   if (!params.capability.verification) {
-    // Nothing to automatically re-check — honestly resolved on "executed without error"
-    // alone, not silently upgraded to a confirmed-verified state.
-    await db.incident.update({ where: { id: params.incidentId }, data: { status: transition("VERIFYING", "RESOLVED"), resolvedAt: new Date() } });
+    // A successful mutation is not evidence of service recovery. Escalate for verification.
+    await db.incident.update({
+      where: { id: params.incidentId },
+      data: { status: transition("VERIFYING", "ESCALATED") },
+    });
     await db.incidentEvent.create({
       data: {
         incidentId: params.incidentId,
-        type: "resolved",
+        type: "verification_required",
         actor: "system",
-        detail: serializeJsonField({ verified: false, reason: "capability declares no verification companion" }),
+        detail: serializeJsonField({
+          verified: false,
+          reason: "capability declares no verification companion",
+        }),
       },
     });
-    await draftPostmortemBestEffort(db, params.llmClient, params.tenantId, params.incidentId);
     return;
   }
 
@@ -420,17 +464,22 @@ export async function executeAndVerify(
 
     if (!result) {
       // Declared verification but the runner couldn't actually run it (misconfigured
-      // companion capability) — same honest "resolved, unverified" outcome as no-verification.
-      await db.incident.update({ where: { id: params.incidentId }, data: { status: transition("VERIFYING", "RESOLVED"), resolvedAt: new Date() } });
+      // companion capability) — escalate for human verification.
+      await db.incident.update({
+        where: { id: params.incidentId },
+        data: { status: transition("VERIFYING", "ESCALATED") },
+      });
       await db.incidentEvent.create({
         data: {
           incidentId: params.incidentId,
-          type: "resolved",
+          type: "verification_required",
           actor: "system",
-          detail: serializeJsonField({ verified: false, reason: "verification companion misconfigured" }),
+          detail: serializeJsonField({
+            verified: false,
+            reason: "verification companion misconfigured",
+          }),
         },
       });
-      await draftPostmortemBestEffort(db, params.llmClient, params.tenantId, params.incidentId);
       return;
     }
 
@@ -442,22 +491,37 @@ export async function executeAndVerify(
     });
 
     if (result.status === "PASSED") {
-      await db.incident.update({ where: { id: params.incidentId }, data: { status: transition("VERIFYING", "RESOLVED"), resolvedAt: new Date() } });
+      await db.incident.update({
+        where: { id: params.incidentId },
+        data: { status: transition("VERIFYING", "RESOLVED"), resolvedAt: new Date() },
+      });
       await db.incidentEvent.create({
-        data: { incidentId: params.incidentId, type: "resolved", actor: "system", detail: serializeJsonField({ verified: true }) },
+        data: {
+          incidentId: params.incidentId,
+          type: "resolved",
+          actor: "system",
+          detail: serializeJsonField({ verified: true }),
+        },
       });
       await draftPostmortemBestEffort(db, params.llmClient, params.tenantId, params.incidentId);
       return;
     }
 
     if (result.status === "FAILED") {
-      await db.incident.update({ where: { id: params.incidentId }, data: { status: transition("VERIFYING", "ESCALATED") } });
+      await db.incident.update({
+        where: { id: params.incidentId },
+        data: { status: transition("VERIFYING", "ESCALATED") },
+      });
       await db.incidentEvent.create({
         data: {
           incidentId: params.incidentId,
           type: "status_changed",
           actor: "system",
-          detail: serializeJsonField({ from: "VERIFYING", to: "ESCALATED", reason: "verification failed" }),
+          detail: serializeJsonField({
+            from: "VERIFYING",
+            to: "ESCALATED",
+            reason: "verification failed",
+          }),
         },
       });
       return;
@@ -467,13 +531,20 @@ export async function executeAndVerify(
     if (attempt < MAX_VERIFY_ATTEMPTS) await sleep(VERIFY_RETRY_DELAY_MS);
   }
 
-  await db.incident.update({ where: { id: params.incidentId }, data: { status: transition("VERIFYING", "ESCALATED") } });
+  await db.incident.update({
+    where: { id: params.incidentId },
+    data: { status: transition("VERIFYING", "ESCALATED") },
+  });
   await db.incidentEvent.create({
     data: {
       incidentId: params.incidentId,
       type: "status_changed",
       actor: "system",
-      detail: serializeJsonField({ from: "VERIFYING", to: "ESCALATED", reason: "verification did not converge" }),
+      detail: serializeJsonField({
+        from: "VERIFYING",
+        to: "ESCALATED",
+        reason: "verification did not converge",
+      }),
     },
   });
 }

@@ -2,7 +2,7 @@ import type { PrismaClient } from "@prisma/client";
 import type { AuthenticationType } from "@resolution/credentials";
 import { TenantScopedRepository } from "../tenant-scoped-repository";
 
-export type CredentialStatus = "VALID" | "INVALID" | "UNVERIFIED" | "EXPIRED";
+export type CredentialStatus = "VALID" | "INVALID" | "UNVERIFIED" | "EXPIRED" | "REVOKED";
 
 export interface CreateCredentialInput {
   name: string;
@@ -81,6 +81,12 @@ export class CredentialRepository extends TenantScopedRepository {
   async findById(id: string): Promise<Credential | null> {
     const row = await this.db.credential.findFirst({ where: { ...this.scope(), id } });
     return row ? toPublic(row) : null;
+  }
+
+  async findUsableById(id: string): Promise<Credential | null> {
+    const credential = await this.findById(id);
+    if (!credential || ["REVOKED", "EXPIRED", "INVALID"].includes(credential.status)) return null;
+    return credential;
   }
 
   async updateEncryptedData(id: string, encryptedData: string): Promise<Credential | null> {

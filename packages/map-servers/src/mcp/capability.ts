@@ -1,3 +1,5 @@
+import { redactMcpResult } from "./redact";
+import { McpConfigSchema } from "./config.schema";
 import { z } from "zod";
 import type { AnyCapability } from "../types";
 import { mcpClientFromContext } from "./context";
@@ -12,21 +14,30 @@ const McpCapabilityOutputSchema = z.object({
   content: z.array(z.record(z.unknown())),
 });
 
-/**
- * Wraps one MCP tool as a `Capability` — the bridge between "whatever tools this org's MCP
- * server happens to expose" and this platform's typed-capability contract
- * (ARCHITECTURE.md §4). `riskLevel`/`mutating` can't be known for certain — MCP's own spec
- * is explicit that a tool's `readOnlyHint` annotation is a hint, not a guarantee, and warns
- * clients not to make security-critical decisions on it alone. This package still uses it,
- * but only to relax the default, never to tighten it: `readOnlyHint: true` gets `LOW`/
- * `mutating: false` (eligible to run during read-only investigation); everything else —
- * including a server that sends no annotations at all — defaults to the conservative `HIGH`/
- * `mutating: true`, so it's automation-policy-gated and never runs unattended until an org
- * explicitly reviews and enables it (same "nothing runs until explicitly enabled" discipline
- * as every other provider, ARCHITECTURE.md §4/§7).
- */
-export function capabilityFromMcpTool(tool: McpTool): AnyCapability {
-  const readOnly = tool.annotations?.readOnlyHint === true;
+/** Tool annotations are untrusted. Only an administrator's matching review grants access. */
+export async function mcpToolFingerprint(tool: McpTool): Promise<string> {
+  const canonical = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(canonical);
+    if (value && typeof value === "object")
+      return Object.fromEntries(
+        Object.entries(value)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([k, v]) => [k, canonical(v)]),
+      );
+    return value;
+  };
+  const bytes = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(JSON.stringify(canonical(tool))),
+  );
+  return Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+export function capabilityFromMcpTool(
+  tool: McpTool,
+  review?: { access: "READ" | "WRITE"; fingerprint: string },
+): AnyCapability {
+  const readOnly = review?.access === "READ";
   return {
     key: tool.name,
     description: tool.description ?? `MCP tool "${tool.name}"`,
@@ -35,8 +46,21 @@ export function capabilityFromMcpTool(tool: McpTool): AnyCapability {
     inputSchema: jsonSchemaToZod(tool.inputSchema),
     outputSchema: McpCapabilityOutputSchema,
     execute: async (ctx, input) => {
+      const config = McpConfigSchema.parse(ctx.config);
+      const current = config.toolReviews[tool.name];
+      if (
+        !current ||
+        (review && current.access !== review.access) ||
+        current.fingerprint !== (await mcpToolFingerprint(tool))
+      ) {
+        throw new Error("MCP tool requires administrator review before execution");
+      }
       const client = mcpClientFromContext(ctx);
-      const result = await client.callTool(tool.name, input);
+      const live = (await client.listTools()).find((entry) => entry.name === tool.name);
+      if (!live || (await mcpToolFingerprint(live)) !== current.fingerprint) {
+        throw new Error("MCP tool changed; refresh and review its permissions before execution");
+      }
+      const result = redactMcpResult(await client.callTool(tool.name, input), ctx.credential);
       if (result.isError) {
         const message = result.content
           .map((block) => (typeof block.text === "string" ? block.text : JSON.stringify(block)))

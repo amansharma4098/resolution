@@ -9,14 +9,14 @@ import { McpConfigSchema } from "./config.schema";
  */
 export function mcpClientFromContext(ctx: MapServerContext): McpClient {
   const config = McpConfigSchema.parse(ctx.config);
+  if (config.disabled) throw new Error("Connection is disabled");
   // TOKEN and API_KEY credentials both land here as a plain bearer token — see
   // packages/credentials/src/credential-payload.ts's CredentialPayloadSchemas (`token` /
   // `apiKey` are its per-type field names). CUSTOM credentials are free-form key/value, so
   // there's no fixed field name to read; an org using CUSTOM auth for their MCP server puts
   // the token under a `token` key by convention, same fallback.
-  const bearerToken =
-    firstStringField(ctx.credential, ["token", "apiKey"]) ?? undefined;
-  return new McpClient({ url: config.url, bearerToken, headers: config.headers });
+  const bearerToken = firstStringField(ctx.credential, ["token", "apiKey"]) ?? undefined;
+  return new McpClient({ url: config.url, bearerToken });
 }
 
 function firstStringField(obj: Record<string, unknown>, keys: string[]): string | null {

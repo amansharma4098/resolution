@@ -73,8 +73,5 @@ CORS_ORIGIN = "https://resolution-a7j.pages.dev"
 SECRET_PROVIDER = "ENCRYPTED_DB"
 MOCK_MODE = "false"
 ANTHROPIC_MODEL = "claude-opus-5"
-# EMAIL_FROM intentionally unset here: no RESEND_API_KEY secret is set on this deployment
-# either, so forgot-password reset links are logged to the Worker's console instead of
-# emailed (see packages/email/src/sender.ts's createEmailSender fallback) — same disclosed,
-# zero-cost-by-default choice as MOCK_MODE. Set both to go live: EMAIL_FROM must be an
-# address on a domain verified with Resend, e.g. EMAIL_FROM = "Resolution <noreply@yourdomain.com>".
+# Email sender address is configuration; the API key is stored as a Worker secret.
+EMAIL_FROM = "Resolution <onboarding@resend.dev>"

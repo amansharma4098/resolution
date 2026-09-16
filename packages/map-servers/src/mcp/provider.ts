@@ -1,7 +1,7 @@
 import type { MapServerProvider } from "../types";
 import { McpConfigSchema } from "./config.schema";
 import { mcpClientFromContext } from "./context";
-import { capabilityFromMcpTool } from "./capability";
+import { capabilityFromMcpTool, mcpToolFingerprint } from "./capability";
 
 /**
  * The generic MCP (Model Context Protocol) connector — one provider that lets an org point
@@ -32,7 +32,10 @@ export const mcpProvider: MapServerProvider = {
         await client.initialize();
         return { status: "CONNECTED" };
       } catch (err) {
-        return { status: "DISCONNECTED", detail: err instanceof Error ? err.message : "Connection failed" };
+        return {
+          status: "DISCONNECTED",
+          detail: err instanceof Error ? err.message : "Connection failed",
+        };
       }
     },
   },
@@ -43,7 +46,21 @@ export const mcpProvider: MapServerProvider = {
   discoverCapabilities: async (ctx) => {
     const client = mcpClientFromContext(ctx);
     const tools = await client.listTools();
-    return tools.map(capabilityFromMcpTool);
+    const config = McpConfigSchema.parse(ctx.config);
+    return Promise.all(
+      tools.map(async (tool) => {
+        const review = config.toolReviews[tool.name];
+        const fingerprint = await mcpToolFingerprint(tool);
+        return {
+          ...capabilityFromMcpTool(tool, review?.fingerprint === fingerprint ? review : undefined),
+          definition: {
+            fingerprint,
+            description: tool.description ?? "",
+            inputSchema: tool.inputSchema,
+          },
+        };
+      }),
+    );
   },
   healthCheck: async (ctx) => {
     try {
@@ -51,7 +68,10 @@ export const mcpProvider: MapServerProvider = {
       const tools = await client.listTools();
       return { status: "CONNECTED", detail: `${tools.length} tool(s) available` };
     } catch (err) {
-      return { status: "DISCONNECTED", detail: err instanceof Error ? err.message : "Connection failed" };
+      return {
+        status: "DISCONNECTED",
+        detail: err instanceof Error ? err.message : "Connection failed",
+      };
     }
   },
 };

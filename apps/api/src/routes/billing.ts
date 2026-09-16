@@ -8,7 +8,7 @@ import { auditLogWriter } from "@resolution/database";
 import type { Env } from "../env";
 import { authenticate } from "../middleware/authenticate";
 import { requireMinimumRole, resolveTenantContext } from "../middleware/tenant-context";
-import { ValidationError } from "../lib/errors";
+import { ValidationError, AppError } from "../lib/errors";
 import type { AppEnv } from "../types";
 
 const CreateCheckoutBody = z.object({ packId: z.string().min(1) });
@@ -98,6 +98,13 @@ export function buildBillingRoutes(deps: {
     const wallet = await walletRepo.getOrCreate();
 
     if (!env.STRIPE_SECRET_KEY) {
+      if (env.NODE_ENV === "production" || !env.MOCK_MODE) {
+        throw new AppError(
+          "BILLING_UNAVAILABLE",
+          "Billing is not configured. Contact platform support.",
+          503,
+        );
+      }
       // Mock checkout — no Stripe account configured on this deployment. Applies the
       // purchase directly rather than pretending to charge a card, clearly labeled so it's
       // never mistaken for a real payment (same honesty discipline as every other

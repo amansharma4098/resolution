@@ -44,12 +44,24 @@ const SENSITIVE_METADATA_KEYS = new Set([
   "secret",
 ]);
 
+function redactValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactValue);
+  if (value && typeof value === "object")
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        key,
+        SENSITIVE_METADATA_KEYS.has(key) ||
+        /^(authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|password)$/i.test(
+          key,
+        )
+          ? "[REDACTED]"
+          : redactValue(item),
+      ]),
+    );
+  return value;
+}
 function redact(metadata: Record<string, unknown>): Record<string, unknown> {
-  const clean: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(metadata)) {
-    clean[key] = SENSITIVE_METADATA_KEYS.has(key) ? "[REDACTED]" : value;
-  }
-  return clean;
+  return redactValue(metadata) as Record<string, unknown>;
 }
 
 export async function writeAuditLog(db: AuditLogWriter, entry: AuditLogEntry): Promise<void> {

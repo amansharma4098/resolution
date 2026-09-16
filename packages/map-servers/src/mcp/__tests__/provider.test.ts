@@ -12,15 +12,24 @@ const ctx: MapServerContext = {
 };
 
 function jsonResponse(body: unknown) {
-  return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
 }
 
 function stubMcpServer(tools: unknown[]) {
   const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
     const body = JSON.parse(init.body as string);
     if (body.method === "notifications/initialized") return new Response(null, { status: 202 });
-    if (body.method === "initialize") return jsonResponse({ jsonrpc: "2.0", id: body.id, result: {} });
-    if (body.method === "tools/list") return jsonResponse({ jsonrpc: "2.0", id: body.id, result: { tools } });
+    if (body.method === "initialize")
+      return jsonResponse({
+        jsonrpc: "2.0",
+        id: body.id,
+        result: { protocolVersion: "2025-06-18" },
+      });
+    if (body.method === "tools/list")
+      return jsonResponse({ jsonrpc: "2.0", id: body.id, result: { tools } });
     throw new Error("unexpected");
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -38,7 +47,9 @@ describe("mcpProvider", () => {
   });
 
   it("discovers capabilities from the org's live server", async () => {
-    stubMcpServer([{ name: "get_logs", description: "Fetch logs", inputSchema: { type: "object" } }]);
+    stubMcpServer([
+      { name: "get_logs", description: "Fetch logs", inputSchema: { type: "object" } },
+    ]);
     const discovered = await mcpProvider.discoverCapabilities!(ctx);
     expect(discovered).toHaveLength(1);
     expect(discovered[0]!.key).toBe("get_logs");
@@ -62,7 +73,10 @@ describe("mcpProvider", () => {
   });
 
   it("healthCheck reports the discovered tool count", async () => {
-    stubMcpServer([{ name: "a", inputSchema: {} }, { name: "b", inputSchema: {} }]);
+    stubMcpServer([
+      { name: "a", inputSchema: {} },
+      { name: "b", inputSchema: {} },
+    ]);
     const result = await mcpProvider.healthCheck(ctx);
     expect(result.status).toBe("CONNECTED");
     expect(result.detail).toContain("2 tool(s)");

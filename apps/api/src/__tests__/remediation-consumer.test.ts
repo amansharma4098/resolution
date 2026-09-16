@@ -3,16 +3,25 @@ import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import type { PrismaClient } from "@resolution/database";
 import { EncryptedDbSecretProvider } from "@resolution/credentials";
-import { __resetRegistryForTests, registerMapServer, type MapServerProvider } from "@resolution/map-servers";
+import {
+  __resetRegistryForTests,
+  registerMapServer,
+  type MapServerProvider,
+} from "@resolution/map-servers";
 import { processRemediationMessage } from "../queue/remediation-consumer";
 import { createFakeDb } from "./fake-db";
 
-function fixtureProvider(retryExecute?: () => Promise<{ jobInstanceId: string }>): MapServerProvider {
+function fixtureProvider(
+  retryExecute?: () => Promise<{ jobInstanceId: string }>,
+): MapServerProvider {
   return {
     type: "FABRIC",
     metadata: { displayName: "Fabric (fixture)", isMock: false },
     configSchema: z.object({}),
-    authAdapter: { authenticationTypes: ["SERVICE_PRINCIPAL"], testConnection: async () => ({ status: "CONNECTED" }) },
+    authAdapter: {
+      authenticationTypes: ["SERVICE_PRINCIPAL"],
+      testConnection: async () => ({ status: "CONNECTED" }),
+    },
     capabilities: [
       {
         key: "retry_pipeline",
@@ -69,7 +78,9 @@ async function setup() {
     data: {
       incidentId: "placeholder", // set below once the incident exists
       summary: "Pipeline stalled",
-      claims: JSON.stringify([{ text: "x", claimType: "HYPOTHESIS", evidenceIds: [], confidence: 0.3 }]),
+      claims: JSON.stringify([
+        { text: "x", claimType: "HYPOTHESIS", evidenceIds: [], confidence: 0.3 },
+      ]),
       confidence: 0.3,
       alternativeHypotheses: "[]",
     },
@@ -124,7 +135,9 @@ describe("processRemediationMessage", () => {
 
     expect(db._debug.resolutions).toHaveLength(0);
     expect(db._debug.incidents.find((i) => i.id === incident.id)!.status).toBe("RCA_COMPLETE");
-    const events = db._debug.incidentEvents.filter((e) => e.incidentId === incident.id).map((e) => e.type);
+    const events = db._debug.incidentEvents
+      .filter((e) => e.incidentId === incident.id)
+      .map((e) => e.type);
     expect(events).toContain("remediation_not_proposed");
   });
 
@@ -135,7 +148,13 @@ describe("processRemediationMessage", () => {
       data: { tenantId: org.id, type: "FABRIC", name: "Prod Fabric", environments: ["prod"] },
     });
     await db.mapServerCapability.create({
-      data: { mapServerId: mapServer.id, key: "retry_pipeline", riskLevel: "LOW", mutating: true, enabled: true },
+      data: {
+        mapServerId: mapServer.id,
+        key: "retry_pipeline",
+        riskLevel: "LOW",
+        mutating: true,
+        enabled: true,
+      },
     });
 
     await processRemediationMessage(
@@ -148,19 +167,30 @@ describe("processRemediationMessage", () => {
     expect(db._debug.remediationActions).toHaveLength(1);
     expect(db._debug.remediationActions[0]!.status).toBe("PENDING");
     expect(db._debug.incidents.find((i) => i.id === incident.id)!.status).toBe("RCA_COMPLETE");
-    const events = db._debug.incidentEvents.filter((e) => e.incidentId === incident.id).map((e) => e.type);
+    const events = db._debug.incidentEvents
+      .filter((e) => e.incidentId === incident.id)
+      .map((e) => e.type);
     expect(events).toContain("remediation_denied_by_policy");
   });
 
-  it("APPROVAL: RECOMMEND mode with the default policy creates an Approval and moves to PENDING_APPROVAL", async () => {
+  it("APPROVAL: HUMAN_APPROVED mode with the default policy creates an Approval and moves to PENDING_APPROVAL", async () => {
     registerMapServer(fixtureProvider());
     const { db, prismaDb, org, incident } = await setup();
-    await db.organization.update({ where: { id: org.id }, data: { resolutionMode: "RECOMMEND" } });
+    await db.organization.update({
+      where: { id: org.id },
+      data: { resolutionMode: "HUMAN_APPROVED" },
+    });
     const mapServer = await db.mapServer.create({
       data: { tenantId: org.id, type: "FABRIC", name: "Prod Fabric", environments: ["prod"] },
     });
     await db.mapServerCapability.create({
-      data: { mapServerId: mapServer.id, key: "retry_pipeline", riskLevel: "LOW", mutating: true, enabled: true },
+      data: {
+        mapServerId: mapServer.id,
+        key: "retry_pipeline",
+        riskLevel: "LOW",
+        mutating: true,
+        enabled: true,
+      },
     });
 
     await processRemediationMessage(
@@ -182,7 +212,13 @@ describe("processRemediationMessage", () => {
       data: { tenantId: org.id, type: "FABRIC", name: "Prod Fabric", environments: ["prod"] },
     });
     await db.mapServerCapability.create({
-      data: { mapServerId: mapServer.id, key: "retry_pipeline", riskLevel: "LOW", mutating: true, enabled: true },
+      data: {
+        mapServerId: mapServer.id,
+        key: "retry_pipeline",
+        riskLevel: "LOW",
+        mutating: true,
+        enabled: true,
+      },
     });
     await db.automationPolicy.upsert({
       where: {
@@ -210,7 +246,9 @@ describe("processRemediationMessage", () => {
     expect(db._debug.verifications).toHaveLength(1);
     expect(db._debug.verifications[0]!.status).toBe("PASSED");
     expect(db._debug.incidents.find((i) => i.id === incident.id)!.status).toBe("RESOLVED");
-    const events = db._debug.incidentEvents.filter((e) => e.incidentId === incident.id).map((e) => e.type);
+    const events = db._debug.incidentEvents
+      .filter((e) => e.incidentId === incident.id)
+      .map((e) => e.type);
     expect(events).toEqual(
       expect.arrayContaining(["remediation_proposed", "remediation_executed", "resolved"]),
     );
@@ -225,7 +263,13 @@ describe("processRemediationMessage", () => {
       data: { tenantId: org.id, type: "FABRIC", name: "Prod Fabric", environments: ["prod"] },
     });
     await db.mapServerCapability.create({
-      data: { mapServerId: mapServer.id, key: "retry_pipeline", riskLevel: "LOW", mutating: true, enabled: true },
+      data: {
+        mapServerId: mapServer.id,
+        key: "retry_pipeline",
+        riskLevel: "LOW",
+        mutating: true,
+        enabled: true,
+      },
     });
     await db.automationPolicy.upsert({
       where: {
@@ -258,7 +302,13 @@ describe("processRemediationMessage", () => {
       data: { tenantId: org.id, type: "FABRIC", name: "Prod Fabric", environments: ["prod"] },
     });
     await db.mapServerCapability.create({
-      data: { mapServerId: mapServer.id, key: "retry_pipeline", riskLevel: "LOW", mutating: true, enabled: true },
+      data: {
+        mapServerId: mapServer.id,
+        key: "retry_pipeline",
+        riskLevel: "LOW",
+        mutating: true,
+        enabled: true,
+      },
     });
     await db.automationPolicy.upsert({
       where: {
@@ -282,12 +332,15 @@ describe("processRemediationMessage", () => {
     expect(db._debug.incidents.find((i) => i.id === incident.id)!.status).toBe("ESCALATED");
   });
 
-  it("AUTO: a capability with no verification companion resolves honestly as unverified", async () => {
+  it("AUTO: a capability with no verification companion escalates without claiming resolution", async () => {
     const noVerifyProvider: MapServerProvider = {
       type: "FABRIC",
       metadata: { displayName: "Fabric (fixture, no verification)", isMock: false },
       configSchema: z.object({}),
-      authAdapter: { authenticationTypes: ["SERVICE_PRINCIPAL"], testConnection: async () => ({ status: "CONNECTED" }) },
+      authAdapter: {
+        authenticationTypes: ["SERVICE_PRINCIPAL"],
+        testConnection: async () => ({ status: "CONNECTED" }),
+      },
       capabilities: [
         {
           key: "retry_pipeline",
@@ -308,7 +361,13 @@ describe("processRemediationMessage", () => {
       data: { tenantId: org.id, type: "FABRIC", name: "Prod Fabric", environments: ["prod"] },
     });
     await db.mapServerCapability.create({
-      data: { mapServerId: mapServer.id, key: "retry_pipeline", riskLevel: "LOW", mutating: true, enabled: true },
+      data: {
+        mapServerId: mapServer.id,
+        key: "retry_pipeline",
+        riskLevel: "LOW",
+        mutating: true,
+        enabled: true,
+      },
     });
     await db.automationPolicy.upsert({
       where: {
@@ -329,8 +388,8 @@ describe("processRemediationMessage", () => {
     );
 
     expect(db._debug.verifications).toHaveLength(0);
-    expect(db._debug.incidents.find((i) => i.id === incident.id)!.status).toBe("RESOLVED");
-    const resolvedEvent = db._debug.incidentEvents.find((e) => e.type === "resolved")!;
+    expect(db._debug.incidents.find((i) => i.id === incident.id)!.status).toBe("ESCALATED");
+    const resolvedEvent = db._debug.incidentEvents.find((e) => e.type === "verification_required")!;
     expect(JSON.parse(resolvedEvent.detail)).toMatchObject({ verified: false });
   });
 
@@ -346,7 +405,13 @@ describe("processRemediationMessage", () => {
       data: { tenantId: org.id, type: "FABRIC", name: "Prod Fabric", environments: ["prod"] },
     });
     await db.mapServerCapability.create({
-      data: { mapServerId: mapServer.id, key: "retry_pipeline", riskLevel: "LOW", mutating: true, enabled: true },
+      data: {
+        mapServerId: mapServer.id,
+        key: "retry_pipeline",
+        riskLevel: "LOW",
+        mutating: true,
+        enabled: true,
+      },
     });
     await db.automationPolicy.upsert({
       where: {

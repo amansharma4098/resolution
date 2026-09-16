@@ -37,11 +37,20 @@ export class CreditWalletRepository extends TenantScopedRepository {
     if (existing) return existing;
     // Created lazily, on first touch — an org that never buys credits never gets a row
     // (see schema.prisma's comment on CreditWallet).
-    return this.db.creditWallet.create({ data: { tenantId: this.tenantId } });
+    try {
+      return await this.db.creditWallet.create({ data: { tenantId: this.tenantId } });
+    } catch (error) {
+      const concurrent = await this.get();
+      if (concurrent) return concurrent;
+      throw error;
+    }
   }
 
   async setStripeCustomerId(stripeCustomerId: string): Promise<void> {
-    await this.db.creditWallet.update({ where: { tenantId: this.tenantId }, data: { stripeCustomerId } });
+    await this.db.creditWallet.update({
+      where: { tenantId: this.tenantId },
+      data: { stripeCustomerId },
+    });
   }
 
   listTransactions(limit = 50): Promise<CreditTransaction[]> {
@@ -60,7 +69,10 @@ export class CreditWalletRepository extends TenantScopedRepository {
    *  pre-computed-then-batched limitation as OrganizationRepository.createWithOwner). */
   async applyTransaction(
     input: ApplyTransactionInput,
+    attempt = 0,
   ): Promise<{ wallet: CreditWallet; transaction: CreditTransaction; alreadyApplied: boolean }> {
+    if (!Number.isSafeInteger(input.amount) || input.amount <= 0)
+      throw new Error("Credit amount must be a positive integer");
     if (input.stripeCheckoutSessionId) {
       const existing = await this.db.creditTransaction.findUnique({
         where: { stripeCheckoutSessionId: input.stripeCheckoutSessionId },
@@ -74,10 +86,15 @@ export class CreditWalletRepository extends TenantScopedRepository {
     const wallet = await this.getOrCreate();
     const delta = DEBIT_TYPES.has(input.type) ? -input.amount : input.amount;
     const balanceAfter = wallet.balance + delta;
+    if (!Number.isSafeInteger(balanceAfter) || balanceAfter < 0)
+      throw new Error("Insufficient credits or invalid balance");
 
     try {
       const [updatedWallet, transaction] = await this.db.$transaction([
-        this.db.creditWallet.update({ where: { tenantId: this.tenantId }, data: { balance: balanceAfter } }),
+        this.db.creditWallet.update({
+          where: { tenantId: this.tenantId, balance: wallet.balance },
+          data: { balance: balanceAfter },
+        }),
         this.db.creditTransaction.create({
           data: {
             tenantId: this.tenantId,
@@ -102,6 +119,10 @@ export class CreditWalletRepository extends TenantScopedRepository {
           const current = await this.getOrCreate();
           return { wallet: current, transaction: existing, alreadyApplied: true };
         }
+      }
+      // The batch rolled back if another writer changed the balance first.
+      if (attempt < 5 && (err as { code?: string }).code === "P2025") {
+        return this.applyTransaction(input, attempt + 1);
       }
       throw err;
     }

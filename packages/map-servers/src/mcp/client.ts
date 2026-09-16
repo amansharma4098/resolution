@@ -1,19 +1,7 @@
-/**
- * A minimal MCP (Model Context Protocol) client speaking the "Streamable HTTP" transport —
- * plain JSON-RPC 2.0 over `fetch`, no SDK dependency. Same reasoning as
- * packages/security's `jose` and packages/email's Resend sender: this has to run inside a
- * Cloudflare Worker (ARCHITECTURE.md §2), and the official `@modelcontextprotocol/sdk`
- * targets Node's stdio/HTTP server primitives, not a Workers-native fetch handler.
- *
- * Deliberately narrow: only what an org's `discoverCapabilities`/`execute` calls need —
- * `initialize`, `tools/list`, `tools/call`. No resources/prompts/sampling, no client-side
- * SSE-initiated server notifications, no stdio transport. A server that replies with an
- * SSE stream instead of a single JSON body is still supported (this reads the first `data:`
- * event as the response) since several real MCP servers default to that even for a
- * single-response call; a server that genuinely needs multiple streamed messages per call
- * is out of scope here.
- */
-
+import { isPublicMcpUrl } from "./config.schema";
+/** Workers-native remote MCP tools client. Supports bounded JSON and SSE replies,
+ * catalog pagination, static bearer credentials and protocol 2025-06-18.
+ * OAuth, stdio, resources, prompts and server-initiated requests are not implemented. */
 const PROTOCOL_VERSION = "2025-06-18";
 const REQUEST_TIMEOUT_MS = 15_000;
 
@@ -36,7 +24,10 @@ export interface McpToolCallResult {
 }
 
 export class McpError extends Error {
-  constructor(message: string, public readonly cause?: unknown) {
+  constructor(
+    message: string,
+    public readonly cause?: unknown,
+  ) {
     super(message);
     this.name = "McpError";
   }
@@ -60,7 +51,10 @@ export class McpClient {
   private sessionId: string | undefined;
   private initialized = false;
 
-  constructor(private readonly opts: McpClientOptions) {}
+  constructor(private readonly opts: McpClientOptions) {
+    if (!isPublicMcpUrl(opts.url))
+      throw new McpError("MCP endpoint must use a public HTTPS hostname");
+  }
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
@@ -73,10 +67,10 @@ export class McpClient {
       },
       { captureSession: true },
     );
-    // Best-effort per the spec: proceed even on a protocol version mismatch rather than
-    // hard-failing — most servers accept an older/newer client than they advertise for the
-    // handful of methods this client actually uses.
-    void result;
+    // Fail closed when the server selects an unsupported protocol.
+    if (result.protocolVersion !== PROTOCOL_VERSION) {
+      throw new McpError("MCP server negotiated an unsupported protocol version");
+    }
     // The initialization handshake's required follow-up notification — no response
     // expected (and none awaited), just fired to complete the handshake per the spec.
     await this.notify("notifications/initialized", {});
@@ -85,8 +79,23 @@ export class McpClient {
 
   async listTools(): Promise<McpTool[]> {
     await this.initialize();
-    const result = await this.rpc<{ tools: McpTool[] }>("tools/list", {});
-    return result.tools;
+    const tools: McpTool[] = [];
+    let cursor: string | undefined;
+    const seen = new Set<string>();
+    for (let page = 0; page < 20; page++) {
+      const result = await this.rpc<{ tools: McpTool[]; nextCursor?: string }>(
+        "tools/list",
+        cursor ? { cursor } : {},
+      );
+      if (!Array.isArray(result.tools)) throw new McpError("Invalid MCP tool catalog");
+      tools.push(...result.tools);
+      if (tools.length > 1000) throw new McpError("MCP tool catalog exceeds the supported limit");
+      cursor = result.nextCursor;
+      if (!cursor) return tools;
+      if (seen.has(cursor)) throw new McpError("MCP server repeated a pagination cursor");
+      seen.add(cursor);
+    }
+    throw new McpError("MCP tool catalog exceeds the page limit");
   }
 
   async callTool(name: string, args: unknown): Promise<McpToolCallResult> {
@@ -135,6 +144,7 @@ export class McpClient {
     try {
       res = await fetch(this.opts.url, {
         method: "POST",
+        redirect: "error",
         headers,
         body: JSON.stringify(message),
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
@@ -151,38 +161,84 @@ export class McpClient {
     // A notification (no `id`) gets a 202 with no body — nothing to parse.
     if (message.id === undefined) {
       if (!res.ok) {
-        throw new McpError(`MCP server rejected notification "${message.method}" (HTTP ${res.status})`);
+        throw new McpError(
+          `MCP server rejected notification "${message.method}" (HTTP ${res.status})`,
+        );
       }
       return null;
     }
 
     if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new McpError(`MCP server responded HTTP ${res.status} to "${message.method}": ${text}`);
+      throw new McpError(`MCP server responded HTTP ${res.status} to "${message.method}"`);
     }
 
-    const contentType = res.headers.get("content-type") ?? "";
-    if (contentType.includes("text/event-stream")) {
-      return parseFirstSseJsonEvent(await res.text());
-    }
-    return (await res.json()) as { result?: unknown; error?: { code: number; message: string } };
+    return readRpcResponse(res, message.id);
   }
 }
 
-/** Pulls the first `data: {...}` line out of an SSE response body and parses it as JSON —
- *  enough for a request/response call where the server happens to answer via SSE framing
- *  instead of a plain JSON body (see this file's header comment on scope). */
-function parseFirstSseJsonEvent(body: string): { result?: unknown; error?: { code: number; message: string } } {
-  for (const line of body.split("\n")) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith("data:")) {
-      const json = trimmed.slice("data:".length).trim();
-      try {
-        return JSON.parse(json);
-      } catch (err) {
-        throw new McpError("Could not parse MCP server's SSE response as JSON", err);
+type RpcResponse = {
+  jsonrpc?: string;
+  id?: number;
+  result?: unknown;
+  error?: { code: number; message: string };
+};
+
+/** Bounded streaming reader: skip notifications and stop at the matching response ID. */
+async function readRpcResponse(res: Response, id: number): Promise<RpcResponse> {
+  if (!res.body) throw new McpError("MCP server returned an empty body");
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  const streaming = res.headers.get("content-type")?.includes("text/event-stream");
+  let buffer = "";
+  let bytes = 0;
+  const decode = (value: string): RpcResponse => {
+    try {
+      return JSON.parse(value) as RpcResponse;
+    } catch {
+      throw new McpError("MCP server returned invalid JSON");
+    }
+  };
+  const validate = (value: RpcResponse): RpcResponse => {
+    if (
+      value.jsonrpc !== "2.0" ||
+      value.id !== id ||
+      (!("result" in value) && !("error" in value))
+    ) {
+      throw new McpError("MCP response does not match the request");
+    }
+    return value;
+  };
+  try {
+    while (bytes <= 2 * 1024 * 1024) {
+      const { done, value } = await reader.read();
+      bytes += value?.byteLength ?? 0;
+      if (bytes > 2 * 1024 * 1024) throw new McpError("MCP response exceeds 2 MB");
+      buffer += decoder.decode(value, { stream: !done });
+      if (streaming) {
+        const events = buffer.split(/\r?\n\r?\n/);
+        buffer = events.pop() ?? "";
+        if (done && buffer.trim()) {
+          events.push(buffer);
+          buffer = "";
+        }
+        for (const event of events) {
+          const data = event
+            .split(/\r?\n/)
+            .filter((line) => line.startsWith("data:"))
+            .map((line) => line.slice(5).trimStart())
+            .join("\n");
+          if (!data) continue;
+          const response = decode(data);
+          if (response.id === id) return validate(response);
+        }
+      }
+      if (done) {
+        if (!streaming) return validate(decode(buffer));
+        throw new McpError("MCP stream ended without a matching response");
       }
     }
+    throw new McpError("MCP response exceeds 2 MB");
+  } finally {
+    await reader.cancel().catch(() => {});
   }
-  throw new McpError("MCP server's SSE response carried no data event");
 }

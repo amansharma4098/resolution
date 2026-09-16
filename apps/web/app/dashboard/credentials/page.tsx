@@ -9,7 +9,11 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, apiRequest } from "@/lib/api-client";
-import { AUTHENTICATION_TYPES, CREDENTIAL_FIELDS, type AuthenticationType } from "@/lib/credential-fields";
+import {
+  AUTHENTICATION_TYPES,
+  CREDENTIAL_FIELDS,
+  type AuthenticationType,
+} from "@/lib/credential-fields";
 import { useSession } from "@/hooks/use-session";
 
 interface CredentialSummary {
@@ -17,7 +21,7 @@ interface CredentialSummary {
   name: string;
   provider: string;
   authenticationType: string;
-  status: "VALID" | "UNVERIFIED" | "INVALID" | "EXPIRED";
+  status: "VALID" | "UNVERIFIED" | "INVALID" | "EXPIRED" | "REVOKED";
   maskedHint: string;
   lastValidatedAt: string | null;
 }
@@ -28,6 +32,7 @@ export default function CredentialsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [rotating, setRotating] = useState<CredentialSummary | null>(null);
 
   const load = useCallback(async () => {
     if (!currentTenantId) return;
@@ -48,11 +53,11 @@ export default function CredentialsPage() {
     void load();
   }, [load]);
 
-  async function handleAction(action: "test" | "delete", id: string) {
+  async function handleAction(action: "test" | "delete" | "revoke", id: string) {
     if (!currentTenantId) return;
     try {
-      if (action === "test") {
-        await apiRequest(`/api/credentials/${id}/test`, {
+      if (action !== "delete") {
+        await apiRequest(`/api/credentials/${id}/${action}`, {
           method: "POST",
           tenantId: currentTenantId,
         });
@@ -75,19 +80,24 @@ export default function CredentialsPage() {
           <span className="kicker">Configuration</span>
           <h1 className="mt-1 font-display text-2xl font-semibold text-ink">Credentials</h1>
           <p className="mt-1 text-sm text-subink">
-            Create a credential once, then reuse it across any MCP Server or integration
-            that needs it — never re-enter a secret.
+            Create a credential once, then reuse it across any MCP Server or integration that needs
+            it — never re-enter a secret.
           </p>
         </div>
-        <Button onClick={() => setShowForm((s) => !s)}>{showForm ? "Cancel" : "New credential"}</Button>
+        <Button onClick={() => setShowForm((s) => !s)}>
+          {showForm ? "Cancel" : "New credential"}
+        </Button>
       </div>
 
       {error && <p className="text-sm text-error">{error}</p>}
 
-      {showForm && (
+      {(showForm || rotating) && (
         <CreateCredentialForm
+          key={rotating?.id ?? "new"}
+          rotating={rotating}
           onCreated={() => {
             setShowForm(false);
+            setRotating(null);
             void load();
           }}
           onError={setError}
@@ -110,7 +120,13 @@ export default function CredentialsPage() {
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-ink">{c.name}</span>
-                    <StatusBadge status={domainStatusMap.credentialStatus[c.status]}>
+                    <StatusBadge
+                      status={
+                        c.status === "REVOKED"
+                          ? "error"
+                          : domainStatusMap.credentialStatus[c.status]
+                      }
+                    >
                       {c.status}
                     </StatusBadge>
                   </div>
@@ -121,10 +137,29 @@ export default function CredentialsPage() {
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <Button size="sm" variant="secondary" onClick={() => void handleAction("test", c.id)}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => void handleAction("test", c.id)}
+                  >
                     Test
                   </Button>
-                  <Button size="sm" variant="danger" onClick={() => void handleAction("delete", c.id)}>
+                  <Button size="sm" variant="secondary" onClick={() => setRotating(c)}>
+                    Rotate
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    disabled={c.status === "REVOKED"}
+                    onClick={() => void handleAction("revoke", c.id)}
+                  >
+                    Revoke
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    onClick={() => void handleAction("delete", c.id)}
+                  >
                     Delete
                   </Button>
                 </div>
@@ -138,16 +173,20 @@ export default function CredentialsPage() {
 }
 
 function CreateCredentialForm({
+  rotating,
   onCreated,
   onError,
 }: {
+  rotating?: CredentialSummary | null;
   onCreated: () => void;
   onError: (msg: string) => void;
 }) {
   const { currentTenantId } = useSession();
-  const [name, setName] = useState("");
-  const [provider, setProvider] = useState("");
-  const [authenticationType, setAuthenticationType] = useState<AuthenticationType>("API_KEY");
+  const [name, setName] = useState(rotating?.name ?? "");
+  const [provider, setProvider] = useState(rotating?.provider ?? "");
+  const [authenticationType, setAuthenticationType] = useState<AuthenticationType>(
+    (rotating?.authenticationType as AuthenticationType) ?? "API_KEY",
+  );
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
   const [customJson, setCustomJson] = useState("{\n  \n}");
   const [submitting, setSubmitting] = useState(false);
@@ -157,16 +196,19 @@ function CreateCredentialForm({
     if (!currentTenantId) return;
     setSubmitting(true);
     try {
-      const payload =
-        authenticationType === "CUSTOM" ? JSON.parse(customJson) : { ...fieldValues };
-      await apiRequest("/api/credentials", {
+      const payload = authenticationType === "CUSTOM" ? JSON.parse(customJson) : { ...fieldValues };
+      await apiRequest(rotating ? `/api/credentials/${rotating.id}/rotate` : "/api/credentials", {
         method: "POST",
         tenantId: currentTenantId,
-        body: { name, provider, authenticationType, payload },
+        body: rotating ? { payload } : { name, provider, authenticationType, payload },
       });
       onCreated();
     } catch (err) {
-      onError(err instanceof ApiError ? err.message : "Failed to create credential — check the payload is valid JSON");
+      onError(
+        err instanceof ApiError
+          ? err.message
+          : "Failed to create credential — check the payload is valid JSON",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -177,15 +219,22 @@ function CreateCredentialForm({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>New credential</CardTitle>
-        <CardDescription>The secret is encrypted immediately and never shown again.</CardDescription>
+        <CardTitle>{rotating ? `Rotate ${rotating.name}` : "New credential"}</CardTitle>
+        <CardDescription>
+          The secret is encrypted immediately and never shown again.
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="cred-name">Name</Label>
-              <Input id="cred-name" required value={name} onChange={(e) => setName(e.target.value)} />
+              <Input
+                id="cred-name"
+                required
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="cred-provider">Provider</Label>
@@ -201,6 +250,7 @@ function CreateCredentialForm({
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="cred-auth-type">Authentication type</Label>
             <Select
+              disabled={Boolean(rotating)}
               id="cred-auth-type"
               value={authenticationType}
               onChange={(e) => {
@@ -248,7 +298,7 @@ function CreateCredentialForm({
           )}
 
           <Button type="submit" disabled={submitting} className="self-start">
-            {submitting ? "Creating…" : "Create credential"}
+            {submitting ? "Saving…" : rotating ? "Rotate credential" : "Create credential"}
           </Button>
         </form>
       </CardContent>

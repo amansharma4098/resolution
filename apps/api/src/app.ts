@@ -6,7 +6,12 @@ import { createSecretProvider, type SecretProvider } from "@resolution/credentia
 import type { Env } from "./env";
 import type { AppEnv } from "./types";
 import { createEmailSender, type EmailSender } from "@resolution/email";
-import { createAnthropicLlmClient, createMockChatClient, createLlmClient, type LlmClient } from "@resolution/ai";
+import {
+  createAnthropicLlmClient,
+  createMockChatClient,
+  createLlmClient,
+  type LlmClient,
+} from "@resolution/ai";
 import { handleError } from "./plugins/error-handler";
 import { createRateLimitStore, rateLimit, type RateLimitStore } from "./middleware/rate-limit";
 import { buildAuthRoutes } from "./routes/auth";
@@ -27,7 +32,11 @@ import { buildWebhookRoutes } from "./routes/webhooks";
 import { createInlineIngestionQueue } from "./queue/inline-queue";
 import { createInlineInvestigationQueue } from "./queue/inline-investigation-queue";
 import { createInlineRemediationQueue } from "./queue/inline-remediation-queue";
-import type { IncidentIngestionQueue, IncidentInvestigationQueue, IncidentRemediationQueue } from "./queue/types";
+import type {
+  IncidentIngestionQueue,
+  IncidentInvestigationQueue,
+  IncidentRemediationQueue,
+} from "./queue/types";
 
 export interface BuildAppOptions {
   db: PrismaClient;
@@ -86,7 +95,12 @@ export function buildApp({
   const app = new Hono<AppEnv>();
 
   const resolvedEmailSender =
-    emailSender ?? createEmailSender({ apiKey: env.RESEND_API_KEY, from: env.EMAIL_FROM });
+    emailSender ??
+    createEmailSender({
+      apiKey: env.RESEND_API_KEY,
+      from: env.EMAIL_FROM,
+      production: env.NODE_ENV === "production",
+    });
   const resolvedRateLimitStores = {
     global: rateLimitStores?.global ?? createRateLimitStore(),
     login: rateLimitStores?.login ?? createRateLimitStore(),
@@ -152,15 +166,30 @@ export function buildApp({
   app.route("/api/organizations", buildOrganizationRoutes({ db, env }));
   app.route(
     "/api/credentials",
-    buildCredentialRoutes({ db, env, secretProvider: resolvedSecretProvider, organizationRepository }),
+    buildCredentialRoutes({
+      db,
+      env,
+      secretProvider: resolvedSecretProvider,
+      organizationRepository,
+    }),
   );
   app.route(
     "/api/map-servers",
-    buildMapServerRoutes({ db, env, secretProvider: resolvedSecretProvider, organizationRepository }),
+    buildMapServerRoutes({
+      db,
+      env,
+      secretProvider: resolvedSecretProvider,
+      organizationRepository,
+    }),
   );
   app.route(
     "/api/integrations",
-    buildIntegrationRoutes({ db, env, secretProvider: resolvedSecretProvider, organizationRepository }),
+    buildIntegrationRoutes({
+      db,
+      env,
+      secretProvider: resolvedSecretProvider,
+      organizationRepository,
+    }),
   );
   app.route(
     "/api/incidents",
@@ -195,7 +224,11 @@ export function buildApp({
       // Only used for get_postmortem/generate_postmortem/decide_approval's postmortem draft —
       // the general-purpose factory (mock-if-unconfigured), not the chat-specific client
       // below, since there's no conversational judgment involved here.
-      llmClient: createLlmClient({ mockMode: env.MOCK_MODE, apiKey: env.ANTHROPIC_API_KEY, model: env.ANTHROPIC_MODEL }),
+      llmClient: createLlmClient({
+        mockMode: env.MOCK_MODE,
+        apiKey: env.ANTHROPIC_API_KEY,
+        model: env.ANTHROPIC_MODEL,
+      }),
     }),
   );
   app.route(
@@ -211,12 +244,18 @@ export function buildApp({
         chatLlmClient ??
         (env.MOCK_MODE || !env.ANTHROPIC_API_KEY
           ? createMockChatClient()
-          : createAnthropicLlmClient({ apiKey: env.ANTHROPIC_API_KEY, model: env.ANTHROPIC_MODEL })),
+          : createAnthropicLlmClient({
+              apiKey: env.ANTHROPIC_API_KEY,
+              model: env.ANTHROPIC_MODEL,
+            })),
     }),
   );
 
   app.notFound((c) =>
-    c.json({ error: { code: "NOT_FOUND", message: "Not found", requestId: c.get("requestId") } }, 404),
+    c.json(
+      { error: { code: "NOT_FOUND", message: "Not found", requestId: c.get("requestId") } },
+      404,
+    ),
   );
 
   return app;

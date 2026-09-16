@@ -42,6 +42,7 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  chatConversations   ChatConversation[]
   memberships         OrganizationMember[]
   auditLogs           AuditLog[]
   approvals           Approval[]
@@ -98,6 +99,7 @@ model Organization {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  chatConversations  ChatConversation[]
   members            OrganizationMember[]
   credentials        Credential[]
   integrations       Integration[]
@@ -667,4 +669,21 @@ model Subscription {
   updatedAt                      DateTime  @updatedAt
 
   organization Organization @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+// Private conversations: every query must scope both tenantId and userId.
+model ChatConversation {
+  id String @id @default(uuid())
+  tenantId String
+  userId String
+  title String
+  messages String @default("[]")
+  lockedUntil Float @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId, updatedAt])
 }

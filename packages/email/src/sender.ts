@@ -60,9 +60,19 @@ export function createConsoleSender(): EmailSender {
  * console fallback — mirrors packages/ai/src/factory.ts's createLlmClient, which falls back
  * to its MOCK_MODE client the same way when no ANTHROPIC_API_KEY is set.
  */
-export function createEmailSender(opts: { apiKey?: string; from?: string }): EmailSender {
+export function createEmailSender(opts: {
+  apiKey?: string;
+  from?: string;
+  production?: boolean;
+}): EmailSender {
   if (opts.apiKey && opts.from) {
     return createResendSender({ apiKey: opts.apiKey, from: opts.from });
   }
+  if (opts.production)
+    return {
+      async send() {
+        throw new Error("Email delivery is not configured");
+      },
+    };
   return createConsoleSender();
 }

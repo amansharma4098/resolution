@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { z } from "zod";
-import { __resetRegistryForTests, registerMapServer, type MapServerProvider } from "@resolution/map-servers";
+import {
+  __resetRegistryForTests,
+  registerMapServer,
+  type MapServerProvider,
+} from "@resolution/map-servers";
 import { buildTestApp, jsonOf, req, signupWithOrg } from "./test-helpers";
 import type { AppEnv } from "../types";
 
@@ -28,7 +32,10 @@ const k8sProvider: MapServerProvider = {
   type: "KUBERNETES",
   metadata: { displayName: "Kubernetes (fixture)", isMock: true },
   configSchema: z.object({}),
-  authAdapter: { authenticationTypes: ["TOKEN"], testConnection: async () => ({ status: "CONNECTED" }) },
+  authAdapter: {
+    authenticationTypes: ["TOKEN"],
+    testConnection: async () => ({ status: "CONNECTED" }),
+  },
   capabilities: [
     {
       key: "restart_pod",
@@ -44,7 +51,11 @@ const k8sProvider: MapServerProvider = {
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function mcp(app: Hono<AppEnv>, apiKey: string, body: Record<string, unknown>): Promise<{ status: number; body: any }> {
+async function mcp(
+  app: Hono<AppEnv>,
+  apiKey: string,
+  body: Record<string, unknown>,
+): Promise<{ status: number; body: any }> {
   const res = await app.request("/api/mcp", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
@@ -62,7 +73,11 @@ describe("MCP server (POST /api/mcp)", () => {
   beforeEach(async () => {
     ({ app } = buildTestApp());
     ({ cookie, tenantId } = await signupWithOrg(app, "owner@example.com", "Acme"));
-    const created = await req(app, "/api/api-keys", { method: "POST", cookie, body: { name: "Claude Desktop" } });
+    const created = await req(app, "/api/api-keys", {
+      method: "POST",
+      cookie,
+      body: { name: "Claude Desktop" },
+    });
     apiKey = (await jsonOf(created)).token;
   });
 
@@ -93,8 +108,14 @@ describe("MCP server (POST /api/mcp)", () => {
   it("lists five read-only tools and four mutating ones", async () => {
     const { body } = await mcp(app, apiKey, { method: "tools/list" });
     const tools = body.result.tools as { name: string; annotations: { readOnlyHint: boolean } }[];
-    const readOnly = tools.filter((t) => t.annotations.readOnlyHint).map((t) => t.name).sort();
-    const mutating = tools.filter((t) => !t.annotations.readOnlyHint).map((t) => t.name).sort();
+    const readOnly = tools
+      .filter((t) => t.annotations.readOnlyHint)
+      .map((t) => t.name)
+      .sort();
+    const mutating = tools
+      .filter((t) => !t.annotations.readOnlyHint)
+      .map((t) => t.name)
+      .sort();
     expect(readOnly).toEqual([
       "find_similar_incidents",
       "get_incident",
@@ -166,7 +187,11 @@ describe("MCP server (POST /api/mcp)", () => {
   });
 
   it("a revoked key can no longer authenticate", async () => {
-    const created = await req(app, "/api/api-keys", { method: "POST", cookie, body: { name: "Short-lived" } });
+    const created = await req(app, "/api/api-keys", {
+      method: "POST",
+      cookie,
+      body: { name: "Short-lived" },
+    });
     const { token, apiKey: created_ } = await jsonOf(created);
     await req(app, `/api/api-keys/${created_.id}`, { method: "DELETE", cookie });
 
@@ -185,7 +210,10 @@ describe("MCP server (POST /api/mcp)", () => {
       const integration = (await jsonOf(integ)).integration;
       await app.request(`/api/webhooks/jira/${integration.id}`, {
         method: "POST",
-        headers: { "content-type": "application/json", "x-webhook-secret": integration.config.webhookSecret },
+        headers: {
+          "content-type": "application/json",
+          "x-webhook-secret": integration.config.webhookSecret,
+        },
         body: JSON.stringify(jiraPayload()),
       });
       const list = await req(app, "/api/incidents", { cookie, tenantId });
@@ -201,7 +229,9 @@ describe("MCP server (POST /api/mcp)", () => {
       expect(body.result.isError).toBeFalsy();
       expect(JSON.parse(body.result.content[0].text)).toEqual({ status: "investigating" });
 
-      const detail = await jsonOf(await req(app, `/api/incidents/${incidentId}`, { cookie, tenantId }));
+      const detail = await jsonOf(
+        await req(app, `/api/incidents/${incidentId}`, { cookie, tenantId }),
+      );
       expect(detail.incident.status).toBe("RCA_COMPLETE");
     });
 
@@ -216,15 +246,17 @@ describe("MCP server (POST /api/mcp)", () => {
         params: { name: "trigger_investigation", arguments: { tenantId, incidentId } },
       });
       expect(body.result.isError).toBe(true);
-      expect(JSON.parse(body.result.content[0].text).error).toMatch(/Cannot start an investigation/);
+      expect(JSON.parse(body.result.content[0].text).error).toMatch(
+        /Cannot start an investigation/,
+      );
     });
 
-    it("the full loop — investigate, propose, approve — resolves an incident, entirely through MCP tools", async () => {
+    it("the full loop — investigate, propose, approve — executes but requires verification, entirely through MCP tools", async () => {
       registerMapServer(k8sProvider);
       await req(app, `/api/organizations/${tenantId}`, {
         method: "PATCH",
         cookie,
-        body: { resolutionMode: "RECOMMEND" },
+        body: { resolutionMode: "HUMAN_APPROVED" },
       });
       const msRes = await req(app, "/api/map-servers", {
         method: "POST",
@@ -251,19 +283,26 @@ describe("MCP server (POST /api/mcp)", () => {
         params: { name: "propose_remediation", arguments: { tenantId, incidentId } },
       });
 
-      const afterProposal = await jsonOf(await req(app, `/api/incidents/${incidentId}`, { cookie, tenantId }));
+      const afterProposal = await jsonOf(
+        await req(app, `/api/incidents/${incidentId}`, { cookie, tenantId }),
+      );
       expect(afterProposal.incident.status).toBe("PENDING_APPROVAL");
       const approvalId = afterProposal.resolutions[0].actions[0].approval.id;
 
       const decided = await mcp(app, apiKey, {
         method: "tools/call",
-        params: { name: "decide_approval", arguments: { tenantId, incidentId, approvalId, decision: "APPROVE" } },
+        params: {
+          name: "decide_approval",
+          arguments: { tenantId, incidentId, approvalId, decision: "APPROVE" },
+        },
       });
       expect(decided.body.result.isError).toBeFalsy();
       expect(JSON.parse(decided.body.result.content[0].text).status).toBe("EXECUTED");
 
-      const final = await jsonOf(await req(app, `/api/incidents/${incidentId}`, { cookie, tenantId }));
-      expect(final.incident.status).toBe("RESOLVED");
+      const final = await jsonOf(
+        await req(app, `/api/incidents/${incidentId}`, { cookie, tenantId }),
+      );
+      expect(final.incident.status).toBe("ESCALATED");
     });
 
     it("decide_approval requires ADMIN — a MEMBER's key gets a tool error, not a silent no-op", async () => {
@@ -271,7 +310,7 @@ describe("MCP server (POST /api/mcp)", () => {
       await req(app, `/api/organizations/${tenantId}`, {
         method: "PATCH",
         cookie,
-        body: { resolutionMode: "RECOMMEND" },
+        body: { resolutionMode: "HUMAN_APPROVED" },
       });
       const msRes = await req(app, "/api/map-servers", {
         method: "POST",
@@ -287,13 +326,19 @@ describe("MCP server (POST /api/mcp)", () => {
         body: { enabled: true },
       });
       const incidentId = await ingestNewIncident();
-      await req(app, `/api/incidents/${incidentId}/investigate`, { method: "POST", cookie, tenantId });
+      await req(app, `/api/incidents/${incidentId}/investigate`, {
+        method: "POST",
+        cookie,
+        tenantId,
+      });
       await req(app, `/api/incidents/${incidentId}/propose-remediation`, {
         method: "POST",
         cookie,
         tenantId,
       });
-      const detail = await jsonOf(await req(app, `/api/incidents/${incidentId}`, { cookie, tenantId }));
+      const detail = await jsonOf(
+        await req(app, `/api/incidents/${incidentId}`, { cookie, tenantId }),
+      );
       const approvalId = detail.resolutions[0].actions[0].approval.id;
 
       // A MEMBER, added to the same org, with their own API key.
@@ -318,13 +363,18 @@ describe("MCP server (POST /api/mcp)", () => {
 
       const { body } = await mcp(app, memberApiKey, {
         method: "tools/call",
-        params: { name: "decide_approval", arguments: { tenantId, incidentId, approvalId, decision: "APPROVE" } },
+        params: {
+          name: "decide_approval",
+          arguments: { tenantId, incidentId, approvalId, decision: "APPROVE" },
+        },
       });
       expect(body.result.isError).toBe(true);
       expect(JSON.parse(body.result.content[0].text).error).toMatch(/ADMIN/);
 
       // Untouched — still pending, never executed by the rejected attempt.
-      const stillPending = await jsonOf(await req(app, `/api/incidents/${incidentId}`, { cookie, tenantId }));
+      const stillPending = await jsonOf(
+        await req(app, `/api/incidents/${incidentId}`, { cookie, tenantId }),
+      );
       expect(stillPending.resolutions[0].actions[0].approval.status).toBe("PENDING");
     });
   });

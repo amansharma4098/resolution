@@ -14,7 +14,11 @@ import { createRateLimitStore } from "./middleware/rate-limit";
 import { processIngestionMessage } from "./queue/consumer";
 import { processInvestigationMessage } from "./queue/investigation-consumer";
 import { processRemediationMessage } from "./queue/remediation-consumer";
-import type { IngestionQueueMessage, InvestigationQueueMessage, RemediationQueueMessage } from "./queue/types";
+import type {
+  IngestionQueueMessage,
+  InvestigationQueueMessage,
+  RemediationQueueMessage,
+} from "./queue/types";
 
 // Registers real Map Server providers once per Worker isolate (module-level code runs on
 // cold start, then the isolate is reused across requests) — never inside the fetch handler
@@ -70,6 +74,8 @@ export interface WorkerEnv {
   ANTHROPIC_MODEL?: string;
   RESEND_API_KEY?: string;
   EMAIL_FROM?: string;
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
 }
 
 function loadWorkerEnv(workerEnv: WorkerEnv) {
@@ -84,6 +90,8 @@ function loadWorkerEnv(workerEnv: WorkerEnv) {
     ANTHROPIC_MODEL: workerEnv.ANTHROPIC_MODEL,
     RESEND_API_KEY: workerEnv.RESEND_API_KEY,
     EMAIL_FROM: workerEnv.EMAIL_FROM,
+    STRIPE_SECRET_KEY: workerEnv.STRIPE_SECRET_KEY,
+    STRIPE_WEBHOOK_SECRET: workerEnv.STRIPE_WEBHOOK_SECRET,
   });
 }
 
@@ -142,7 +150,9 @@ export default {
         mockMode: env.MOCK_MODE,
         anthropicApiKey: env.ANTHROPIC_API_KEY,
         anthropicModel: env.ANTHROPIC_MODEL,
-        secretProvider: createSecretProvider(env.SECRET_PROVIDER, { masterKey: env.ENCRYPTION_MASTER_KEY }),
+        secretProvider: createSecretProvider(env.SECRET_PROVIDER, {
+          masterKey: env.ENCRYPTION_MASTER_KEY,
+        }),
       };
       for (const message of batch.messages as MessageBatch<RemediationQueueMessage>["messages"]) {
         try {
@@ -163,16 +173,22 @@ export default {
         mockMode: env.MOCK_MODE,
         anthropicApiKey: env.ANTHROPIC_API_KEY,
         anthropicModel: env.ANTHROPIC_MODEL,
-        secretProvider: createSecretProvider(env.SECRET_PROVIDER, { masterKey: env.ENCRYPTION_MASTER_KEY }),
+        secretProvider: createSecretProvider(env.SECRET_PROVIDER, {
+          masterKey: env.ENCRYPTION_MASTER_KEY,
+        }),
       };
       for (const message of batch.messages as MessageBatch<InvestigationQueueMessage>["messages"]) {
         try {
-          await processInvestigationMessage(db, {
-            ...config,
-            onRcaCompleted: async (evt) => {
-              await workerEnv.INCIDENT_REMEDIATION_QUEUE.send(evt);
+          await processInvestigationMessage(
+            db,
+            {
+              ...config,
+              onRcaCompleted: async (evt) => {
+                await workerEnv.INCIDENT_REMEDIATION_QUEUE.send(evt);
+              },
             },
-          }, message.body);
+            message.body,
+          );
           message.ack();
         } catch (err) {
           // eslint-disable-next-line no-console

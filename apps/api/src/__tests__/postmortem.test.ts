@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { z } from "zod";
-import { __resetRegistryForTests, registerMapServer, type MapServerProvider } from "@resolution/map-servers";
+import {
+  __resetRegistryForTests,
+  registerMapServer,
+  type MapServerProvider,
+} from "@resolution/map-servers";
 import { buildTestApp, jsonOf, req, signupWithOrg } from "./test-helpers";
 import type { FakeDb } from "./fake-db";
 import type { AppEnv } from "../types";
@@ -29,7 +33,10 @@ const k8sProvider: MapServerProvider = {
   type: "KUBERNETES",
   metadata: { displayName: "Kubernetes (fixture)", isMock: true },
   configSchema: z.object({}),
-  authAdapter: { authenticationTypes: ["TOKEN"], testConnection: async () => ({ status: "CONNECTED" }) },
+  authAdapter: {
+    authenticationTypes: ["TOKEN"],
+    testConnection: async () => ({ status: "CONNECTED" }),
+  },
   capabilities: [
     {
       key: "restart_pod",
@@ -39,6 +46,20 @@ const k8sProvider: MapServerProvider = {
       inputSchema: z.object({ podName: z.string().min(1) }),
       outputSchema: z.object({ restarted: z.boolean() }),
       execute: async () => ({ restarted: true }),
+      verification: {
+        capabilityKey: "check_health",
+        buildInput: () => ({}),
+        classify: (result) => ((result as { healthy: boolean }).healthy ? "PASSED" : "FAILED"),
+      },
+    },
+    {
+      key: "check_health",
+      description: "Read current health",
+      riskLevel: "LOW",
+      mutating: false,
+      inputSchema: z.object({}),
+      outputSchema: z.object({ healthy: z.boolean() }),
+      execute: async () => ({ healthy: true }),
     },
   ],
   healthCheck: async () => ({ status: "CONNECTED" }),
@@ -56,7 +77,11 @@ describe("postmortem drafting", () => {
 
   async function createResolvedIncident() {
     registerMapServer(k8sProvider);
-    await req(app, `/api/organizations/${tenantId}`, { method: "PATCH", cookie, body: { resolutionMode: "RECOMMEND" } });
+    await req(app, `/api/organizations/${tenantId}`, {
+      method: "PATCH",
+      cookie,
+      body: { resolutionMode: "HUMAN_APPROVED" },
+    });
 
     const integ = await req(app, "/api/integrations", {
       method: "POST",
@@ -82,7 +107,10 @@ describe("postmortem drafting", () => {
 
     const webhook = await app.request(`/api/webhooks/jira/${integration.id}`, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-webhook-secret": integration.config.webhookSecret },
+      headers: {
+        "content-type": "application/json",
+        "x-webhook-secret": integration.config.webhookSecret,
+      },
       body: JSON.stringify(jiraPayload()),
     });
     expect(webhook.status).toBe(202);
@@ -93,12 +121,16 @@ describe("postmortem drafting", () => {
     const detail = await req(app, `/api/incidents/${incidentId}`, { cookie, tenantId });
     const action = (await jsonOf(detail)).resolutions[0].actions[0];
 
-    const decide = await req(app, `/api/incidents/${incidentId}/approvals/${action.approval.id}/decide`, {
-      method: "POST",
-      cookie,
-      tenantId,
-      body: { decision: "APPROVE" },
-    });
+    const decide = await req(
+      app,
+      `/api/incidents/${incidentId}/approvals/${action.approval.id}/decide`,
+      {
+        method: "POST",
+        cookie,
+        tenantId,
+        body: { decision: "APPROVE" },
+      },
+    );
     expect((await jsonOf(decide)).status).toBe("EXECUTED");
     expect(db._debug.incidents.find((i) => i.id === incidentId)!.status).toBe("RESOLVED");
 
@@ -134,7 +166,10 @@ describe("postmortem drafting", () => {
       const integration = (await jsonOf(integ)).integration;
       await app.request(`/api/webhooks/webhook/${integration.id}`, {
         method: "POST",
-        headers: { "content-type": "application/json", "x-webhook-secret": integration.config.webhookSecret },
+        headers: {
+          "content-type": "application/json",
+          "x-webhook-secret": integration.config.webhookSecret,
+        },
         body: JSON.stringify({ externalId: "x1", title: "Something broke" }),
       });
       const list = await req(app, "/api/incidents", { cookie, tenantId });
@@ -154,11 +189,19 @@ describe("postmortem drafting", () => {
     it("POST /:id/postmortem/regenerate drafts and then replaces the postmortem", async () => {
       const incidentId = await createResolvedIncident();
 
-      const first = await req(app, `/api/incidents/${incidentId}/postmortem/regenerate`, { method: "POST", cookie, tenantId });
+      const first = await req(app, `/api/incidents/${incidentId}/postmortem/regenerate`, {
+        method: "POST",
+        cookie,
+        tenantId,
+      });
       expect(first.status).toBe(200);
       expect((await jsonOf(first)).isMock).toBe(true);
 
-      const second = await req(app, `/api/incidents/${incidentId}/postmortem/regenerate`, { method: "POST", cookie, tenantId });
+      const second = await req(app, `/api/incidents/${incidentId}/postmortem/regenerate`, {
+        method: "POST",
+        cookie,
+        tenantId,
+      });
       expect(second.status).toBe(200);
 
       // Still exactly one Postmortem row for this incident — regenerate replaces, not accumulates.
@@ -167,14 +210,23 @@ describe("postmortem drafting", () => {
 
     it("generate_postmortem and get_postmortem tools (shared by chat and MCP) work end to end", async () => {
       const incidentId = await createResolvedIncident();
-      const apiKeyRes = await req(app, "/api/api-keys", { method: "POST", cookie, body: { name: "Claude Desktop" } });
+      const apiKeyRes = await req(app, "/api/api-keys", {
+        method: "POST",
+        cookie,
+        body: { name: "Claude Desktop" },
+      });
       const apiKey = (await jsonOf(apiKeyRes)).token;
 
       async function mcpCall(name: string, args: Record<string, unknown>) {
         const res = await app.request("/api/mcp", {
           method: "POST",
           headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "tools/call",
+            params: { name, arguments: args },
+          }),
         });
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const body: any = await res.json();

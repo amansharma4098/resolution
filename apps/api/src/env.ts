@@ -58,6 +58,19 @@ export type Env = z.infer<typeof EnvSchema>;
 
 export function loadEnv(source: Record<string, string | undefined>): Env {
   const parsed = EnvSchema.safeParse(source);
+  if (source.NODE_ENV === "production") {
+    if (
+      !source.JWT_SECRET ||
+      source.JWT_SECRET.startsWith("dev-only-") ||
+      !source.ENCRYPTION_MASTER_KEY ||
+      source.ENCRYPTION_MASTER_KEY === "M5MlvZfby1B0D9PY4DHTrTRoFtO3G1wR5oS4pJPnw1g="
+    ) {
+      throw new Error("Production requires dedicated JWT and encryption secrets");
+    }
+    if (source.MOCK_MODE !== "true" && !source.ANTHROPIC_API_KEY) {
+      throw new Error("Production AI requires ANTHROPIC_API_KEY or explicit MOCK_MODE=true");
+    }
+  }
   if (!parsed.success) {
     // eslint-disable-next-line no-console
     console.error("Invalid environment configuration:", parsed.error.flatten().fieldErrors);

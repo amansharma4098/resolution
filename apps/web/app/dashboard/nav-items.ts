@@ -28,7 +28,7 @@ export const NAV_ITEMS: NavItem[] = [
   // one of these can literally be a third-party MCP server, and Resolution exposes its own
   // MCP endpoint too (see docs/mcp-server.md) — so it's named for what it is, not an
   // internal codename ("Map Server" in the DB/API is legacy and stays there, unseen).
-  { label: "MCP Servers", href: "/dashboard/map-servers" },
+  { label: "Connections", href: "/dashboard/map-servers" },
 
   // --- administration (present, not prominent) ---
   { label: "Automation Policies", href: "/dashboard/automation-policies", group: "settings" },

@@ -7,7 +7,7 @@ import type { Env } from "../env";
 import { authenticate } from "../middleware/authenticate";
 import { resolveTenantContext } from "../middleware/tenant-context";
 import { TOOLS, callIncidentTool } from "../lib/incident-tools";
-import { ValidationError } from "../lib/errors";
+import { ValidationError, NotFoundError, ConflictError } from "../lib/errors";
 import type { AppEnv } from "../types";
 import type { IncidentInvestigationQueue, IncidentRemediationQueue } from "../queue/types";
 
@@ -30,14 +30,22 @@ interface ToolResultBlock {
   is_error?: boolean;
 }
 
-const ChatMessage = z.object({
-  role: z.enum(["user", "assistant"]),
-  content: z.unknown(),
-});
-
-const ChatBody = z.object({
-  messages: z.array(ChatMessage).min(1).max(200),
-});
+const ChatBody = z
+  .object({
+    conversationId: z.string().uuid().optional(),
+    message: z.string().trim().min(1).max(10000).optional(),
+    // Compatibility for a single initial user message; never accept client tool history.
+    messages: z
+      .array(
+        z
+          .object({ role: z.literal("user"), content: z.string().trim().min(1).max(10000) })
+          .strict(),
+      )
+      .length(1)
+      .optional(),
+  })
+  .strict()
+  .refine((body) => Boolean(body.message) !== Boolean(body.messages), "Send one user message");
 
 /**
  * The tool catalog's Anthropic-facing view, with `tenantId` stripped from every
@@ -48,10 +56,12 @@ const ChatBody = z.object({
  * a model hallucinating or mistyping an id.
  */
 function chatToolSpecs(): LlmToolSpec[] {
-  return TOOLS.map((tool): LlmToolSpec => {
+  return TOOLS.filter((tool) => tool.name !== "decide_approval").map((tool): LlmToolSpec => {
     const properties = { ...(tool.inputSchema.properties as Record<string, unknown>) };
     delete properties.tenantId;
-    const required = (tool.inputSchema.required as readonly string[]).filter((key) => key !== "tenantId");
+    const required = (tool.inputSchema.required as readonly string[]).filter(
+      (key) => key !== "tenantId",
+    );
     return {
       name: tool.name,
       description: tool.description,
@@ -63,10 +73,10 @@ function chatToolSpecs(): LlmToolSpec[] {
 function buildSystemPrompt(organizationName: string): string {
   return [
     `You are the Resolution assistant, embedded in the incident-response dashboard for "${organizationName}".`,
-    "You can list and inspect incidents, read their root cause analysis, start an investigation, propose a remediation, and approve or reject one — using only the tools you're given, never inventing incident data. You are already scoped to this one organization; never ask the user which organization they mean.",
+    "You can list and inspect incidents, read their root cause analysis, start an investigation, propose a remediation, and direct the user to the Approvals page — using only the tools you're given, never inventing incident data. You are already scoped to this one organization; never ask the user which organization they mean.",
     "When listing incidents, always group and present them by `source` (the platform each one came from — JIRA, SERVICENOW, WEBHOOK) unless the user asks for a flat list.",
-    'When asked to "resolve" an incident: check its current status first (get_incident). If it hasn\'t been investigated yet, call trigger_investigation and tell the user investigation has started — it can run asynchronously in production, so a remediation may not be proposable immediately; say to check back shortly if propose_remediation reports the RCA isn\'t complete yet. Once RCA_COMPLETE, call propose_remediation — you never need to name or guess which system performs the fix; the Resolution Agent automatically picks whichever connected system (including any org-configured MCP server) can actually do it.',
-    "If a remediation ends up PENDING_APPROVAL, tell the user what was proposed and its risk level, and ask whether to approve it — never call decide_approval without the user's explicit go-ahead earlier in this same conversation.",
+    "When asked to \"resolve\" an incident: check its current status first (get_incident). If it hasn't been investigated yet, call trigger_investigation and tell the user investigation has started — it can run asynchronously in production, so a remediation may not be proposable immediately; say to check back shortly if propose_remediation reports the RCA isn't complete yet. Once RCA_COMPLETE, call propose_remediation — you never need to name or guess which system performs the fix; the Resolution Agent automatically picks whichever connected system (including any org-configured MCP server) can actually do it.",
+    "If a remediation ends up PENDING_APPROVAL, tell the user what was proposed and its risk level, and ask whether to approve it — approval must be performed by an authorized user in the Approvals page, never by chat.",
     "Be concise. Always mention an incident's id/title so the user can find it in the dashboard, and an approval's id when one exists.",
   ].join("\n");
 }
@@ -96,43 +106,109 @@ export function buildChatRoutes(deps: ChatRouteDeps): Hono<AppEnv> {
   const auth = authenticate(deps.env.JWT_SECRET);
   const tenantContext = resolveTenantContext(organizationRepository);
 
-  router.post("/", auth, tenantContext, async (c) => {
-    const body = ChatBody.parse(await c.req.json());
-    const tenantId = c.get("tenantId")!;
-    const userId = c.get("userId")!;
-    const requestId = c.get("requestId");
-
-    const organization = await organizationRepository.findById(tenantId);
-    const system = buildSystemPrompt(organization?.name ?? "your organization");
-    const tools = chatToolSpecs();
-    const messages = body.messages as unknown as LlmMessage[];
-
-    for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
-      const turn = await deps.llmClient.send({ system, messages, tools });
-      messages.push({ role: "assistant", content: turn.content });
-
-      if (turn.toolUses.length === 0) {
-        return c.json({ messages, isMock: deps.llmClient.isMock });
-      }
-
-      const toolResults: ToolResultBlock[] = [];
-      for (const toolUse of turn.toolUses) {
-        const args = { ...(toolUse.input as Record<string, unknown>), tenantId };
-        const result = await callIncidentTool(deps, userId, requestId, toolUse.name, args);
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: toolUse.id,
-          content: result.content.map((block) => block.text).join("\n"),
-          is_error: result.isError,
-        });
-      }
-      messages.push({ role: "user", content: toolResults } as unknown as LlmMessage);
-    }
-
-    throw new ValidationError(
-      "The assistant couldn't finish within its tool-call budget for this turn — try a narrower question.",
-    );
+  const scope = (c: import("hono").Context<AppEnv>) => ({
+    tenantId: c.get("tenantId")!,
+    userId: c.get("userId")!,
+  });
+  router.get("/conversations", auth, tenantContext, async (c) => {
+    const conversations = await deps.db.chatConversation.findMany({
+      where: scope(c),
+      orderBy: { updatedAt: "desc" },
+      take: 50,
+      select: { id: true, title: true, updatedAt: true },
+    });
+    return c.json({ conversations });
+  });
+  router.get("/conversations/:id", auth, tenantContext, async (c) => {
+    const row = await deps.db.chatConversation.findFirst({
+      where: { ...scope(c), id: c.req.param("id") },
+    });
+    if (!row) throw new NotFoundError("Conversation not found");
+    return c.json({ conversationId: row.id, messages: JSON.parse(row.messages) });
+  });
+  router.delete("/conversations/:id", auth, tenantContext, async (c) => {
+    const removed = await deps.db.chatConversation.deleteMany({
+      where: { ...scope(c), id: c.req.param("id"), lockedUntil: { lte: Date.now() } },
+    });
+    if (!removed.count) throw new NotFoundError("Conversation not found or currently in use");
+    return c.body(null, 204);
   });
 
+  router.post("/", auth, tenantContext, async (c) => {
+    const body = ChatBody.parse(await c.req.json());
+    const { tenantId, userId } = scope(c);
+    const message = body.message ?? body.messages![0]!.content;
+    const requestId = c.get("requestId");
+    let conversation = body.conversationId
+      ? await deps.db.chatConversation.findFirst({
+          where: { ...scope(c), id: body.conversationId },
+        })
+      : await deps.db.chatConversation.create({
+          data: { ...scope(c), title: message.slice(0, 100) },
+        });
+    if (!conversation) throw new NotFoundError("Conversation not found");
+    const lease = Date.now() + 15 * 60_000;
+    const claimed = await deps.db.chatConversation.updateMany({
+      where: { ...scope(c), id: conversation.id, lockedUntil: { lte: Date.now() } },
+      data: { lockedUntil: lease },
+    });
+    if (!claimed.count)
+      throw new ConflictError("This conversation is already processing a message");
+    // Reload after acquiring the lease so a previous concurrent turn cannot be lost.
+    conversation = (await deps.db.chatConversation.findFirst({
+      where: { ...scope(c), id: conversation.id },
+    }))!;
+    const messages = JSON.parse(conversation.messages) as LlmMessage[];
+    try {
+      if (messages.length > 180) throw new ValidationError("Start a new conversation to continue");
+      messages.push({ role: "user", content: message });
+      const organization = await organizationRepository.findById(tenantId);
+      const system = buildSystemPrompt(organization?.name ?? "your organization");
+      const tools = chatToolSpecs();
+      for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+        const turn = await deps.llmClient.send({ system, messages, tools });
+        messages.push({ role: "assistant", content: turn.content });
+        if (turn.toolUses.length === 0) {
+          return c.json({
+            conversationId: conversation.id,
+            messages,
+            isMock: deps.llmClient.isMock,
+          });
+        }
+        const toolResults: ToolResultBlock[] = [];
+        for (const toolUse of turn.toolUses) {
+          const result =
+            toolUse.name === "decide_approval"
+              ? {
+                  isError: true,
+                  content: [
+                    {
+                      text: "Approval requires an ADMIN or OWNER to review the exact action in the Approvals page. Chat cannot approve actions.",
+                    },
+                  ],
+                }
+              : await callIncidentTool(deps, userId, requestId, toolUse.name, {
+                  ...(toolUse.input as Record<string, unknown>),
+                  tenantId,
+                });
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: toolUse.id,
+            content: result.content.map((block) => block.text).join("\n"),
+            is_error: result.isError,
+          });
+        }
+        messages.push({ role: "user", content: toolResults } as unknown as LlmMessage);
+      }
+      throw new ValidationError(
+        "The assistant reached its tool-call budget. Try a narrower question.",
+      );
+    } finally {
+      await deps.db.chatConversation.updateMany({
+        where: { ...scope(c), id: conversation.id, lockedUntil: lease },
+        data: { messages: JSON.stringify(messages), lockedUntil: 0 },
+      });
+    }
+  });
   return router;
 }

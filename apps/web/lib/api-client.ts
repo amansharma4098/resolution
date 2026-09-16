@@ -3,7 +3,11 @@
  * cookie, never in JS-accessible storage — see packages/security/src/session.ts) and
  * surfaces the API's `{ error: { code, message, requestId } }` shape as a typed error.
  */
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+// Production uses the Pages /api proxy even when the build has no environment file.
+// Next.js embeds this value in the browser bundle; never default production to localhost.
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL ??
+  (process.env.NODE_ENV === "development" ? "http://localhost:8787" : "");
 
 export class ApiError extends Error {
   constructor(
@@ -29,12 +33,21 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
     headers["X-Tenant-Id"] = options.tenantId;
   }
 
-  const res = await fetch(`${API_URL}${path}`, {
-    method: options.method ?? "GET",
-    headers,
-    credentials: "include",
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, {
+      method: options.method ?? "GET",
+      headers,
+      credentials: "include",
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    });
+  } catch {
+    throw new ApiError(
+      "NETWORK_ERROR",
+      "Unable to connect to Resolution. Check your connection and try again.",
+      0,
+    );
+  }
 
   if (res.status === 204) {
     return undefined as T;
@@ -52,5 +65,12 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
     );
   }
 
+  if (json === null) {
+    throw new ApiError(
+      "INVALID_RESPONSE",
+      "Resolution returned an unexpected response. Refresh the page and try again.",
+      res.status,
+    );
+  }
   return json as T;
 }

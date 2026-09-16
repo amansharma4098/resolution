@@ -1,3 +1,4 @@
+import { assertExecutionAllowed } from "./execution-permission";
 import type { PrismaClient } from "@resolution/database";
 import {
   IncidentRepository,
@@ -51,7 +52,9 @@ export async function proposeRemediationForIncident(
   if (!incident) throw new NotFoundError("Incident not found");
 
   if (incident.status !== "RCA_COMPLETE") {
-    throw new ConflictError(`Cannot propose a remediation from status ${incident.status} — needs RCA_COMPLETE`);
+    throw new ConflictError(
+      `Cannot propose a remediation from status ${incident.status} — needs RCA_COMPLETE`,
+    );
   }
 
   await deps.remediationQueue.send({ incidentId: incident.id, tenantId: params.tenantId });
@@ -85,13 +88,26 @@ export async function decideRemediationApproval(
   const action = await remediationRepo.findRemediationActionById(approval.remediationActionId);
   if (!action) throw new NotFoundError("Remediation action not found");
   const resolution = await remediationRepo.findResolutionById(action.resolutionId);
-  if (!resolution || resolution.incidentId !== incident.id) throw new NotFoundError("Approval not found");
+  if (!resolution || resolution.incidentId !== incident.id)
+    throw new NotFoundError("Approval not found");
 
   if (approval.status !== "PENDING") {
     throw new ConflictError(`This approval was already ${approval.status.toLowerCase()}`);
   }
   if (incident.status !== "PENDING_APPROVAL") {
     throw new ConflictError(`Incident is no longer awaiting approval (status: ${incident.status})`);
+  }
+
+  if (params.decision === "APPROVE") {
+    if (!resolution.mapServerId || !resolution.capabilityKey)
+      throw new ValidationError("Resolution has no executable capability");
+    await assertExecutionAllowed(db, {
+      tenantId,
+      incidentId: incident.id,
+      mapServerId: resolution.mapServerId,
+      capabilityKey: resolution.capabilityKey,
+      approved: true,
+    });
   }
 
   const decided = await remediationRepo.decideApproval(approval.id, {
@@ -114,7 +130,7 @@ export async function decideRemediationApproval(
   if (params.decision === "REJECT") {
     await db.incident.update({
       where: { id: incident.id },
-      data: { status: transition(incident.status, "CLOSED") },
+      data: { status: transition(incident.status, "ESCALATED") },
     });
     await db.incidentEvent.create({
       data: {
@@ -139,7 +155,9 @@ export async function decideRemediationApproval(
   }
   let approvalCredential: Record<string, unknown> = {};
   if (mapServer.credentialId) {
-    const credentialRow = await new CredentialRepository(db, tenantId).findById(mapServer.credentialId);
+    const credentialRow = await new CredentialRepository(db, tenantId).findUsableById(
+      mapServer.credentialId,
+    );
     if (credentialRow) {
       approvalCredential = await secretProvider.decrypt(credentialRow.encryptedData, { tenantId });
     }
@@ -179,6 +197,7 @@ export async function decideRemediationApproval(
   // thing inline rather than round-tripping through another queue message.
   await executeAndVerify(db, {
     tenantId,
+    approved: true,
     incidentId: incident.id,
     mapServerId: resolution.mapServerId,
     mapServerType: mapServer.type,

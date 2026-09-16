@@ -1,86 +1,99 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { capabilityFromMcpTool } from "../capability";
+import { capabilityFromMcpTool, mcpToolFingerprint } from "../capability";
 import type { MapServerContext } from "../../types";
+import type { McpTool } from "../client";
 
-const ctx: MapServerContext = {
-  tenantId: "org1",
-  mapServerId: "ms1",
-  environment: "default",
-  credential: { token: "tok" },
-  config: { url: "https://mcp.example.com" },
-  requestId: "req1",
+const tool: McpTool = {
+  name: "get_status",
+  description: "Read service health",
+  inputSchema: { type: "object" },
+  annotations: { readOnlyHint: true },
 };
-
-function jsonResponse(body: unknown) {
-  return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+const ctx: MapServerContext = {
+  tenantId: "tenant1",
+  mapServerId: "server1",
+  environment: "prod",
+  credential: { token: "secret-token" },
+  config: { url: "https://mcp.example.com" },
+  requestId: "request1",
+};
+function mockServer(liveTool = tool, isError = false) {
+  const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+    const body = JSON.parse(init.body as string);
+    if (body.method === "notifications/initialized") return new Response(null, { status: 202 });
+    const result =
+      body.method === "initialize"
+        ? { protocolVersion: "2025-06-18" }
+        : body.method === "tools/list"
+          ? { tools: [liveTool] }
+          : { content: [{ type: "text", text: isError ? "not found" : "healthy" }], isError };
+    return Response.json({ jsonrpc: "2.0", id: body.id, result });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
 }
-
-describe("capabilityFromMcpTool", () => {
+async function reviewedContext() {
+  return {
+    ...ctx,
+    config: {
+      ...ctx.config,
+      toolReviews: { [tool.name]: { access: "READ", fingerprint: await mcpToolFingerprint(tool) } },
+    },
+  };
+}
+describe("MCP reviewed capabilities", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
-
-  it("defaults an undeclared tool to HIGH risk and mutating — safe by default", () => {
-    const capability = capabilityFromMcpTool({ name: "do_thing", inputSchema: {} });
-    expect(capability.riskLevel).toBe("HIGH");
-    expect(capability.mutating).toBe(true);
+  it("does not trust server read-only annotations", () => {
+    expect(capabilityFromMcpTool(tool)).toMatchObject({ riskLevel: "HIGH", mutating: true });
   });
-
-  it("relaxes to LOW/non-mutating only when the server declares readOnlyHint", () => {
-    const capability = capabilityFromMcpTool({
-      name: "get_thing",
-      inputSchema: {},
-      annotations: { readOnlyHint: true },
-    });
-    expect(capability.riskLevel).toBe("LOW");
-    expect(capability.mutating).toBe(false);
+  it("classifies a reviewed read tool as read-only", async () => {
+    expect(
+      capabilityFromMcpTool(tool, { access: "READ", fingerprint: await mcpToolFingerprint(tool) }),
+    ).toMatchObject({ mutating: false });
   });
-
-  it("calls the tool via the MCP client and returns its content", async () => {
-    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
-      const body = JSON.parse(init.body as string);
-      if (body.method === "notifications/initialized") return new Response(null, { status: 202 });
-      if (body.method === "initialize") return jsonResponse({ jsonrpc: "2.0", id: body.id, result: {} });
-      if (body.method === "tools/call") {
-        return jsonResponse({
-          jsonrpc: "2.0",
-          id: body.id,
-          result: { content: [{ type: "text", text: "42" }] },
-        });
-      }
-      throw new Error("unexpected");
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    const capability = capabilityFromMcpTool({ name: "get_thing", inputSchema: { type: "object" } });
-    const result = await capability.execute(ctx, {});
-    expect(result).toEqual({ content: [{ type: "text", text: "42" }] });
+  it("blocks execution without review before sending credentials", async () => {
+    const fetch = mockServer();
+    await expect(capabilityFromMcpTool(tool).execute(ctx, {})).rejects.toThrow(/review/);
+    expect(fetch).not.toHaveBeenCalled();
   });
-
-  it("throws when the tool call reports isError, surfacing the tool's own error text", async () => {
-    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
-      const body = JSON.parse(init.body as string);
-      if (body.method === "notifications/initialized") return new Response(null, { status: 202 });
-      if (body.method === "initialize") return jsonResponse({ jsonrpc: "2.0", id: body.id, result: {} });
-      return jsonResponse({
-        jsonrpc: "2.0",
-        id: body.id,
-        result: { content: [{ type: "text", text: "not found" }], isError: true },
-      });
+  it("executes a reviewed unchanged tool", async () => {
+    mockServer();
+    expect(await capabilityFromMcpTool(tool).execute(await reviewedContext(), {})).toMatchObject({
+      content: [{ text: "healthy" }],
     });
-    vi.stubGlobal("fetch", fetchMock);
-
-    const capability = capabilityFromMcpTool({ name: "get_thing", inputSchema: {} });
-    await expect(capability.execute(ctx, {})).rejects.toThrow(/not found/);
   });
-
-  it("validates input against the tool's translated schema", () => {
-    const capability = capabilityFromMcpTool({
-      name: "get_thing",
-      inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
-    });
-    expect(() => capability.inputSchema.parse({})).toThrow();
-    expect(capability.inputSchema.parse({ id: "x" })).toEqual({ id: "x" });
+  it("blocks changed tool definitions before tools/call", async () => {
+    const fetch = mockServer({ ...tool, description: "Delete service" });
+    await expect(capabilityFromMcpTool(tool).execute(await reviewedContext(), {})).rejects.toThrow(
+      /changed/,
+    );
+    expect(
+      fetch.mock.calls.some(([, init]) => JSON.parse(init.body as string).method === "tools/call"),
+    ).toBe(false);
+  });
+  it("blocks a disabled connection", async () => {
+    const reviewed = await reviewedContext();
+    await expect(
+      capabilityFromMcpTool(tool).execute(
+        { ...reviewed, config: { ...reviewed.config, disabled: true } },
+        {},
+      ),
+    ).rejects.toThrow(/disabled/);
+  });
+  it("propagates tool failure", async () => {
+    mockServer(tool, true);
+    await expect(capabilityFromMcpTool(tool).execute(await reviewedContext(), {})).rejects.toThrow(
+      /not found/,
+    );
+  });
+  it("uses stable fingerprints for reordered schema properties", async () => {
+    expect(
+      await mcpToolFingerprint({ name: "x", inputSchema: { type: "object", properties: {} } }),
+    ).toBe(
+      await mcpToolFingerprint({ inputSchema: { properties: {}, type: "object" }, name: "x" }),
+    );
   });
 });

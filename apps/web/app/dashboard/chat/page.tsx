@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 import Link from "next/link";
 import { StatusBadge, domainStatusMap } from "@resolution/ui";
 import { Button } from "@/components/ui/button";
@@ -83,6 +90,45 @@ function groupBySource(incidents: IncidentSummary[]): Map<string, IncidentSummar
 export default function ChatPage() {
   const { currentTenantId } = useSession();
   const [messages, setMessages] = useState<unknown[]>([]);
+  const [conversationId, setConversationId] = useState<string | undefined>();
+  const [conversations, setConversations] = useState<Array<{ id: string; title: string }>>([]);
+  const tenantRef = useRef(currentTenantId);
+  tenantRef.current = currentTenantId;
+  useEffect(() => {
+    setMessages([]);
+    setConversationId(undefined);
+    setConversations([]);
+    setError(null);
+    setSending(false);
+    if (currentTenantId)
+      void apiRequest<{ conversations: Array<{ id: string; title: string }> }>(
+        "/api/chat/conversations",
+        { tenantId: currentTenantId },
+      )
+        .then((r) => {
+          if (tenantRef.current === currentTenantId) setConversations(r.conversations);
+        })
+        .catch(() => setError("Could not load saved conversations"));
+  }, [currentTenantId]);
+  async function openConversation(id: string) {
+    if (!currentTenantId || sending) return;
+    if (!id) {
+      setConversationId(undefined);
+      setMessages([]);
+      return;
+    }
+    try {
+      const r = await apiRequest<{ messages: unknown[] }>(`/api/chat/conversations/${id}`, {
+        tenantId: currentTenantId,
+      });
+      if (tenantRef.current === currentTenantId) {
+        setConversationId(id);
+        setMessages(r.messages);
+      }
+    } catch {
+      setError("Could not open conversation");
+    }
+  }
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,20 +143,32 @@ export default function ChatPage() {
     setError(null);
     setSending(true);
     try {
-      const res = await apiRequest<{ messages: unknown[]; isMock: boolean }>("/api/chat", {
+      const res = await apiRequest<{
+        messages: unknown[];
+        isMock: boolean;
+        conversationId: string;
+      }>("/api/chat", {
         method: "POST",
         tenantId: currentTenantId,
-        body: { messages: nextMessages },
+        body: { conversationId, message: input.trim() },
       });
+      if (tenantRef.current !== currentTenantId) return;
+      setConversationId(res.conversationId);
+      setConversations((prev) =>
+        prev.some((c) => c.id === res.conversationId)
+          ? prev
+          : [{ id: res.conversationId, title: input.trim().slice(0, 100) }, ...prev],
+      );
       setMessages(res.messages);
       setMockMode(res.isMock);
       setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "The assistant didn't respond");
+      if (tenantRef.current === currentTenantId)
+        setError(err instanceof ApiError ? err.message : "The assistant didn't respond");
     } finally {
-      setSending(false);
+      if (tenantRef.current === currentTenantId) setSending(false);
     }
-  }, [currentTenantId, input, messages, sending]);
+  }, [currentTenantId, input, messages, sending, conversationId]);
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -132,12 +190,31 @@ export default function ChatPage() {
         <span className="kicker">Assistant</span>
         <h1 className="mt-1 font-display text-2xl font-semibold text-ink">Chat</h1>
         <p className="mt-1 text-sm text-subink">
-          Ask about incidents across every connected platform, or tell it to resolve one —
-          it investigates, proposes a remediation (picking whichever connected system can
-          actually perform the fix), and asks before approving anything.
+          Ask about incidents across every connected platform, or tell it to resolve one — it
+          investigates, proposes a remediation (picking whichever connected system can actually
+          perform the fix), and directs you to review proposed actions in Approvals.
         </p>
       </div>
 
+      <div className="flex items-center gap-3">
+        <select
+          aria-label="Saved conversations"
+          className="rounded border border-border bg-surface p-2 text-sm"
+          value={conversationId ?? ""}
+          disabled={sending}
+          onChange={(e) => void openConversation(e.target.value)}
+        >
+          <option value="">New conversation</option>
+          {conversations.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.title}
+            </option>
+          ))}
+        </select>
+        <Link href="/dashboard/approvals" className="text-sm underline">
+          Review approvals
+        </Link>
+      </div>
       {mockMode && (
         <p className="rounded border border-warning bg-background px-3 py-2 text-xs text-subink">
           Running in <span className="font-mono">MOCK_MODE</span> — no{" "}
@@ -150,8 +227,8 @@ export default function ChatPage() {
         <CardContent className="flex flex-1 flex-col gap-3 overflow-y-auto py-4">
           {displayItems.length === 0 ? (
             <p className="text-sm text-subink">
-              Try: &ldquo;what incidents are open right now?&rdquo; or &ldquo;resolve the
-              latest critical incident&rdquo;.
+              Try: &ldquo;what incidents are open right now?&rdquo; or &ldquo;resolve the latest
+              critical incident&rdquo;.
             </p>
           ) : (
             displayItems.map((item, i) => {
@@ -196,7 +273,9 @@ export default function ChatPage() {
                 <div key={i} className={item.kind === "user" ? "self-end" : "self-start"}>
                   <div
                     className={`max-w-xl whitespace-pre-wrap rounded px-3 py-2 text-sm ${
-                      item.kind === "user" ? "bg-navy text-white" : "border border-border bg-background text-ink"
+                      item.kind === "user"
+                        ? "bg-navy text-white"
+                        : "border border-border bg-background text-ink"
                     }`}
                   >
                     {item.text}

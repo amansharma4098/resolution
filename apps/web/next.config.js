@@ -1,3 +1,15 @@
+// A local URL in an exported production bundle sends customer requests to their own
+// computers. Reject that build instead of publishing a broken authentication flow.
+const configuredApi = process.env.NEXT_PUBLIC_API_URL;
+if (process.env.NODE_ENV === "production" && configuredApi) {
+  const endpoint = new URL(configuredApi);
+  if (endpoint.protocol !== "https:" || /^(localhost|127\.|0\.|\[::1\])/.test(endpoint.hostname)) {
+    throw new Error(
+      "Production NEXT_PUBLIC_API_URL must be empty (same-origin proxy) or a public HTTPS URL",
+    );
+  }
+}
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,

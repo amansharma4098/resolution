@@ -13,7 +13,7 @@ import type { OrganizationRepository } from "@resolution/database";
 import type { Env } from "../env";
 import { authenticate } from "../middleware/authenticate";
 import { requireMinimumRole, resolveTenantContext } from "../middleware/tenant-context";
-import { NotFoundError } from "../lib/errors";
+import { NotFoundError, ValidationError } from "../lib/errors";
 import type { AppEnv } from "../types";
 
 const AUTHENTICATION_TYPES = Object.keys(CredentialPayloadSchemas) as [
@@ -94,7 +94,9 @@ export function buildCredentialRoutes(deps: {
     });
 
     return c.json(
-      { credential: toPublicCredential(credential, maskedHintFor(body.authenticationType, payload)) },
+      {
+        credential: toPublicCredential(credential, maskedHintFor(body.authenticationType, payload)),
+      },
       201,
     );
   });
@@ -130,6 +132,22 @@ export function buildCredentialRoutes(deps: {
     return c.body(null, 204);
   });
 
+  router.post("/:id/revoke", auth, tenantContext, requireAdmin, async (c) => {
+    const repo = new CredentialRepository(db, c.get("tenantId")!);
+    const updated = await repo.updateStatus(c.req.param("id"), "REVOKED");
+    if (!updated) throw new NotFoundError("Credential not found");
+    await writeAuditLog(auditLogWriter(db), {
+      tenantId: c.get("tenantId"),
+      actorType: "user",
+      actorId: c.get("userId"),
+      action: "credential.revoked",
+      targetType: "Credential",
+      targetId: updated.id,
+      requestId: c.get("requestId"),
+    });
+    return c.json({ credential: toPublicCredential(updated, genericMaskedHint) });
+  });
+
   // Full live connectivity testing happens through a Map Server's own authAdapter once one
   // references this credential (see packages/map-servers) — a credential is provider-
   // agnostic and may be reused by several Map Servers, so it has no single "connection" of
@@ -141,6 +159,8 @@ export function buildCredentialRoutes(deps: {
     const credential = await credentials.findById(c.req.param("id"));
     if (!credential) throw new NotFoundError("Credential not found");
 
+    if (credential.status === "REVOKED")
+      throw new ValidationError("Rotate this revoked credential before testing it");
     let valid = true;
     let detail = "Credential payload decrypts and matches its expected shape";
     try {
@@ -202,7 +222,10 @@ export function buildCredentialRoutes(deps: {
     return c.json({
       credential: toPublicCredential(
         updated,
-        maskedHintFor(existing.authenticationType as keyof typeof CredentialPayloadSchemas, payload),
+        maskedHintFor(
+          existing.authenticationType as keyof typeof CredentialPayloadSchemas,
+          payload,
+        ),
       ),
     });
   });

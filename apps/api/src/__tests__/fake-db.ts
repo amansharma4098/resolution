@@ -1,3 +1,4 @@
+import { fakeConversations } from "./fake-conversations";
 import { randomUUID } from "node:crypto";
 
 /**
@@ -301,6 +302,7 @@ function fakeTenantCollection<T extends { id: string; tenantId: string }>(rows: 
 }
 
 export interface FakeDb {
+  chatConversation: ReturnType<typeof fakeConversations>;
   user: {
     findUnique(args: { where: { email?: string; id?: string } }): Promise<FakeUser | null>;
     create(args: { data: Partial<FakeUser> }): Promise<FakeUser>;
@@ -318,18 +320,28 @@ export interface FakeDb {
   };
   apiKey: {
     create(args: { data: Partial<FakeApiKey> }): Promise<FakeApiKey>;
-    findFirst(args: { where: { keyHash?: string; revokedAt?: null; id?: string; userId?: string } }): Promise<FakeApiKey | null>;
-    findMany(args: { where: { userId: string }; orderBy?: { createdAt: "asc" | "desc" } }): Promise<FakeApiKey[]>;
+    findFirst(args: {
+      where: { keyHash?: string; revokedAt?: null; id?: string; userId?: string };
+    }): Promise<FakeApiKey | null>;
+    findMany(args: {
+      where: { userId: string };
+      orderBy?: { createdAt: "asc" | "desc" };
+    }): Promise<FakeApiKey[]>;
     update(args: { where: { id: string }; data: Partial<FakeApiKey> }): Promise<FakeApiKey>;
   };
   creditWallet: {
     create(args: { data: Partial<FakeCreditWallet> }): Promise<FakeCreditWallet>;
     findUnique(args: { where: { tenantId: string } }): Promise<FakeCreditWallet | null>;
-    update(args: { where: { tenantId: string }; data: Partial<FakeCreditWallet> }): Promise<FakeCreditWallet>;
+    update(args: {
+      where: { tenantId: string };
+      data: Partial<FakeCreditWallet>;
+    }): Promise<FakeCreditWallet>;
   };
   creditTransaction: {
     create(args: { data: Partial<FakeCreditTransaction> }): Promise<FakeCreditTransaction>;
-    findUnique(args: { where: { stripeCheckoutSessionId: string } }): Promise<FakeCreditTransaction | null>;
+    findUnique(args: {
+      where: { stripeCheckoutSessionId: string };
+    }): Promise<FakeCreditTransaction | null>;
     findMany(args: {
       where: { tenantId: string };
       orderBy?: { createdAt: "asc" | "desc" };
@@ -339,7 +351,10 @@ export interface FakeDb {
   organization: {
     create(args: { data: Partial<FakeOrganization> }): Promise<FakeOrganization>;
     findUnique(args: { where: { id?: string; slug?: string } }): Promise<FakeOrganization | null>;
-    update(args: { where: { id: string }; data: Partial<FakeOrganization> }): Promise<FakeOrganization>;
+    update(args: {
+      where: { id: string };
+      data: Partial<FakeOrganization>;
+    }): Promise<FakeOrganization>;
     findMany(args?: {
       include?: { _count?: { select: { members?: boolean; incidents?: boolean } } };
       orderBy?: { createdAt: "asc" | "desc" };
@@ -350,9 +365,7 @@ export interface FakeDb {
     findMany(args: {
       where: { userId?: string; tenantId?: string };
       include?: { organization?: boolean; user?: boolean };
-    }): Promise<
-      (FakeMembership & { organization?: FakeOrganization; user?: FakeUser })[]
-    >;
+    }): Promise<(FakeMembership & { organization?: FakeOrganization; user?: FakeUser })[]>;
     findUnique(args: {
       where: { tenantId_userId: { tenantId: string; userId: string } };
     }): Promise<FakeMembership | null>;
@@ -395,7 +408,10 @@ export interface FakeDb {
     findMany(args: { where: { tenantId: string } }): Promise<FakeIntegration[]>;
     findFirst(args: { where: OrgScopedWhere }): Promise<FakeIntegration | null>;
     findUnique(args: { where: { id: string } }): Promise<FakeIntegration | null>;
-    update(args: { where: { id: string }; data: Partial<FakeIntegration> }): Promise<FakeIntegration>;
+    update(args: {
+      where: { id: string };
+      data: Partial<FakeIntegration>;
+    }): Promise<FakeIntegration>;
     delete(args: { where: { id: string } }): Promise<FakeIntegration>;
   };
   incident: {
@@ -472,6 +488,10 @@ export interface FakeDb {
     }): Promise<FakeResolution[]>;
   };
   remediationAction: {
+    updateMany(args: {
+      where: { id: string; status: string };
+      data: Partial<FakeRemediationAction>;
+    }): Promise<{ count: number }>;
     create(args: { data: Partial<FakeRemediationAction> }): Promise<FakeRemediationAction>;
     findUnique(args: { where: { id: string } }): Promise<FakeRemediationAction | null>;
     findMany(args: { where: { resolutionId: string } }): Promise<FakeRemediationAction[]>;
@@ -481,8 +501,14 @@ export interface FakeDb {
     }): Promise<FakeRemediationAction>;
   };
   approval: {
+    updateMany(args: {
+      where: { id: string; status: string };
+      data: Partial<FakeApproval>;
+    }): Promise<{ count: number }>;
     create(args: { data: Partial<FakeApproval> }): Promise<FakeApproval>;
-    findUnique(args: { where: { id?: string; remediationActionId?: string } }): Promise<FakeApproval | null>;
+    findUnique(args: {
+      where: { id?: string; remediationActionId?: string };
+    }): Promise<FakeApproval | null>;
     update(args: { where: { id: string }; data: Partial<FakeApproval> }): Promise<FakeApproval>;
   };
   verification: {
@@ -495,7 +521,9 @@ export interface FakeDb {
   webhookEvent: {
     create(args: { data: Partial<FakeWebhookEvent> }): Promise<FakeWebhookEvent>;
     findUnique(args: {
-      where: { source_externalId_eventHash: { source: string; externalId: string; eventHash: string } };
+      where: {
+        source_externalId_eventHash: { source: string; externalId: string; eventHash: string };
+      };
     }): Promise<FakeWebhookEvent | null>;
   };
   auditLog: {
@@ -560,6 +588,7 @@ export function createFakeDb(): FakeDb {
   const auditLogs: FakeAuditLog[] = [];
 
   const db: FakeDb = {
+    chatConversation: fakeConversations(),
     user: {
       async findUnique({ where }: { where: { email?: string; id?: string } }) {
         if (where.email) return users.find((u) => u.email === where.email) ?? null;
@@ -698,7 +727,13 @@ export function createFakeDb(): FakeDb {
       async findUnique({ where }: { where: { tenantId: string } }) {
         return creditWallets.find((w) => w.tenantId === where.tenantId) ?? null;
       },
-      async update({ where, data }: { where: { tenantId: string }; data: Partial<FakeCreditWallet> }) {
+      async update({
+        where,
+        data,
+      }: {
+        where: { tenantId: string };
+        data: Partial<FakeCreditWallet>;
+      }) {
         const wallet = creditWallets.find((w) => w.tenantId === where.tenantId);
         if (!wallet) throw new Error(`fake credit wallet for tenant ${where.tenantId} not found`);
         Object.assign(wallet, data, { updatedAt: new Date() });
@@ -722,7 +757,11 @@ export function createFakeDb(): FakeDb {
         return transaction;
       },
       async findUnique({ where }: { where: { stripeCheckoutSessionId: string } }) {
-        return creditTransactions.find((t) => t.stripeCheckoutSessionId === where.stripeCheckoutSessionId) ?? null;
+        return (
+          creditTransactions.find(
+            (t) => t.stripeCheckoutSessionId === where.stripeCheckoutSessionId,
+          ) ?? null
+        );
       },
       async findMany({
         where,
@@ -824,10 +863,7 @@ export function createFakeDb(): FakeDb {
         where: { tenantId_userId: { tenantId: string; userId: string } };
       }) {
         const { tenantId, userId } = where.tenantId_userId;
-        return (
-          memberships.find((m) => m.tenantId === tenantId && m.userId === userId) ??
-          null
-        );
+        return memberships.find((m) => m.tenantId === tenantId && m.userId === userId) ?? null;
       },
       async count({ where }: { where: { tenantId: string; role: string } }) {
         return memberships.filter((m) => m.tenantId === where.tenantId && m.role === where.role)
@@ -921,7 +957,9 @@ export function createFakeDb(): FakeDb {
         where: { mapServerId_key: { mapServerId: string; key: string } };
       }) {
         const { mapServerId, key } = where.mapServerId_key;
-        return mapServerCapabilities.find((c) => c.mapServerId === mapServerId && c.key === key) ?? null;
+        return (
+          mapServerCapabilities.find((c) => c.mapServerId === mapServerId && c.key === key) ?? null
+        );
       },
       async update({
         where,
@@ -931,7 +969,9 @@ export function createFakeDb(): FakeDb {
         data: Partial<FakeMapServerCapability>;
       }) {
         const { mapServerId, key } = where.mapServerId_key;
-        const row = mapServerCapabilities.find((c) => c.mapServerId === mapServerId && c.key === key);
+        const row = mapServerCapabilities.find(
+          (c) => c.mapServerId === mapServerId && c.key === key,
+        );
         if (!row) throw new Error("fake capability not found");
         Object.assign(row, data);
         return row;
@@ -1050,7 +1090,8 @@ export function createFakeDb(): FakeDb {
         orderBy?: { createdAt: "asc" | "desc" };
       }) {
         const rows = incidentEvents.filter((e) => e.incidentId === where.incidentId);
-        if (orderBy?.createdAt === "desc") rows.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        if (orderBy?.createdAt === "desc")
+          rows.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
         else rows.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
         return rows;
       },
@@ -1078,7 +1119,8 @@ export function createFakeDb(): FakeDb {
         orderBy?: { collectedAt: "asc" | "desc" };
       }) {
         const rows = incidentEvidence.filter((e) => e.incidentId === where.incidentId);
-        if (orderBy?.collectedAt === "desc") rows.sort((a, b) => b.collectedAt.getTime() - a.collectedAt.getTime());
+        if (orderBy?.collectedAt === "desc")
+          rows.sort((a, b) => b.collectedAt.getTime() - a.collectedAt.getTime());
         else rows.sort((a, b) => a.collectedAt.getTime() - b.collectedAt.getTime());
         return rows;
       },
@@ -1158,7 +1200,8 @@ export function createFakeDb(): FakeDb {
           };
         };
       }) {
-        const { tenantId, mapServerType, capabilityKey } = where.tenantId_mapServerType_capabilityKey;
+        const { tenantId, mapServerType, capabilityKey } =
+          where.tenantId_mapServerType_capabilityKey;
         return (
           automationPolicies.find(
             (p) =>
@@ -1188,7 +1231,8 @@ export function createFakeDb(): FakeDb {
         create: Partial<FakeAutomationPolicy>;
         update: Partial<FakeAutomationPolicy>;
       }) {
-        const { tenantId, mapServerType, capabilityKey } = where.tenantId_mapServerType_capabilityKey;
+        const { tenantId, mapServerType, capabilityKey } =
+          where.tenantId_mapServerType_capabilityKey;
         const existing = automationPolicies.find(
           (p) =>
             p.tenantId === tenantId &&
@@ -1246,12 +1290,25 @@ export function createFakeDb(): FakeDb {
         orderBy?: { createdAt: "asc" | "desc" };
       }) {
         const rows = resolutions.filter((r) => r.incidentId === where.incidentId);
-        if (orderBy?.createdAt === "desc") rows.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        if (orderBy?.createdAt === "desc")
+          rows.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
         else rows.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
         return rows;
       },
     },
     remediationAction: {
+      async updateMany({
+        where,
+        data,
+      }: {
+        where: { id: string; status: string };
+        data: Partial<FakeRemediationAction>;
+      }) {
+        const row = remediationActions.find((r) => r.id === where.id && r.status === where.status);
+        if (!row) return { count: 0 };
+        Object.assign(row, data);
+        return { count: 1 };
+      },
       async create({ data }: { data: Partial<FakeRemediationAction> }) {
         const row: FakeRemediationAction = {
           id: randomUUID(),
@@ -1272,7 +1329,13 @@ export function createFakeDb(): FakeDb {
       async findMany({ where }: { where: { resolutionId: string } }) {
         return remediationActions.filter((a) => a.resolutionId === where.resolutionId);
       },
-      async update({ where, data }: { where: { id: string }; data: Partial<FakeRemediationAction> }) {
+      async update({
+        where,
+        data,
+      }: {
+        where: { id: string };
+        data: Partial<FakeRemediationAction>;
+      }) {
         const row = remediationActions.find((a) => a.id === where.id);
         if (!row) throw new Error(`fake remediation action ${where.id} not found`);
         Object.assign(row, data, { updatedAt: new Date() });
@@ -1280,6 +1343,18 @@ export function createFakeDb(): FakeDb {
       },
     },
     approval: {
+      async updateMany({
+        where,
+        data,
+      }: {
+        where: { id: string; status: string };
+        data: Partial<FakeApproval>;
+      }) {
+        const row = approvals.find((r) => r.id === where.id && r.status === where.status);
+        if (!row) return { count: 0 };
+        Object.assign(row, data);
+        return { count: 1 };
+      },
       async create({ data }: { data: Partial<FakeApproval> }) {
         const row: FakeApproval = {
           id: randomUUID(),
@@ -1328,8 +1403,11 @@ export function createFakeDb(): FakeDb {
         where: { remediationActionId: string };
         orderBy?: { checkedAt: "asc" | "desc" };
       }) {
-        const rows = verifications.filter((v) => v.remediationActionId === where.remediationActionId);
-        if (orderBy?.checkedAt === "desc") rows.sort((a, b) => b.checkedAt.getTime() - a.checkedAt.getTime());
+        const rows = verifications.filter(
+          (v) => v.remediationActionId === where.remediationActionId,
+        );
+        if (orderBy?.checkedAt === "desc")
+          rows.sort((a, b) => b.checkedAt.getTime() - a.checkedAt.getTime());
         else rows.sort((a, b) => a.checkedAt.getTime() - b.checkedAt.getTime());
         return rows;
       },
@@ -1352,7 +1430,9 @@ export function createFakeDb(): FakeDb {
       async findUnique({
         where,
       }: {
-        where: { source_externalId_eventHash: { source: string; externalId: string; eventHash: string } };
+        where: {
+          source_externalId_eventHash: { source: string; externalId: string; eventHash: string };
+        };
       }) {
         const { source, externalId, eventHash } = where.source_externalId_eventHash;
         return (

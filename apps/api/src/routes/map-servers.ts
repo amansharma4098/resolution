@@ -3,7 +3,12 @@ import { z } from "zod";
 import { MapServerType } from "@resolution/shared";
 import type { MapServer, PrismaClient } from "@resolution/database";
 import { CredentialRepository, MapServerRepository, auditLogWriter } from "@resolution/database";
-import { getMapServerCatalog, getMapServerProvider } from "@resolution/map-servers";
+import {
+  getMapServerCatalog,
+  getMapServerProvider,
+  mcpClientFromContext,
+  mcpToolFingerprint,
+} from "@resolution/map-servers";
 import type { SecretProvider } from "@resolution/credentials";
 import { writeAuditLog } from "@resolution/security";
 import type { OrganizationRepository } from "@resolution/database";
@@ -21,10 +26,16 @@ const CreateMapServerBody = z.object({
   config: z.record(z.unknown()).default({}),
 });
 
-const SetCapabilityBody = z.object({ enabled: z.boolean() });
+const SetCapabilityBody = z.object({
+  enabled: z.boolean(),
+  access: z.enum(["READ", "WRITE"]).optional(),
+  fingerprint: z.string().optional(),
+});
 
 function toPublicMapServer(mapServer: MapServer) {
-  return mapServer;
+  const config = { ...mapServer.config };
+  delete config.headers;
+  return { ...mapServer, config };
 }
 
 export function buildMapServerRoutes(deps: {
@@ -52,13 +63,27 @@ export function buildMapServerRoutes(deps: {
 
     if (body.credentialId) {
       const credentials = new CredentialRepository(db, c.get("tenantId")!);
-      const credential = await credentials.findById(body.credentialId);
+      const credential = await credentials.findUsableById(body.credentialId);
       if (!credential) {
-        throw new ValidationError("credentialId does not reference a credential in this organization");
+        throw new ValidationError(
+          "credentialId does not reference a credential in this organization",
+        );
       }
     }
 
     const provider = getMapServerProvider(body.type);
+    if (body.type === "MCP") {
+      body.config = provider?.configSchema.parse({ url: body.config.url }) ?? body.config;
+      if (
+        Object.keys(CreateMapServerBody.parse(await c.req.json()).config).some(
+          (key) => key !== "url",
+        )
+      ) {
+        throw new ValidationError(
+          "MCP configuration accepts only a URL. Store tokens in Credentials.",
+        );
+      }
+    }
     const mapServers = new MapServerRepository(db, c.get("tenantId")!);
     const mapServer = await mapServers.create({
       type: body.type,
@@ -104,7 +129,32 @@ export function buildMapServerRoutes(deps: {
     const mapServer = await mapServers.findById(c.req.param("id"));
     if (!mapServer) throw new NotFoundError("Map Server not found");
     const capabilities = await mapServers.listCapabilities(mapServer.id);
-    return c.json({ mapServer: toPublicMapServer(mapServer), capabilities });
+    const catalog = (mapServer.config.toolCatalog ?? {}) as Record<string, object>;
+    return c.json({
+      mapServer: toPublicMapServer(mapServer),
+      capabilities: capabilities.map((cap) => ({ ...cap, ...catalog[cap.key] })),
+    });
+  });
+
+  router.patch("/:id", auth, tenantContext, requireAdmin, async (c) => {
+    const body = z.object({ disabled: z.boolean() }).parse(await c.req.json());
+    const repo = new MapServerRepository(db, c.get("tenantId")!);
+    const server = await repo.findById(c.req.param("id"));
+    if (!server) throw new NotFoundError("Connection not found");
+    const updated = await repo.updateConfig(server.id, {
+      ...server.config,
+      disabled: body.disabled,
+    });
+    await writeAuditLog(auditLogWriter(db), {
+      tenantId: c.get("tenantId"),
+      actorType: "user",
+      actorId: c.get("userId"),
+      action: body.disabled ? "connection.disabled" : "connection.enabled",
+      targetType: "MapServer",
+      targetId: server.id,
+      requestId: c.get("requestId"),
+    });
+    return c.json({ mapServer: toPublicMapServer(updated!) });
   });
 
   router.delete("/:id", auth, tenantContext, requireAdmin, async (c) => {
@@ -131,7 +181,56 @@ export function buildMapServerRoutes(deps: {
     if (!mapServer) throw new NotFoundError("Map Server not found");
 
     const body = SetCapabilityBody.parse(await c.req.json());
-    const updated = await mapServers.setCapabilityEnabled(mapServer.id, c.req.param("key"), body.enabled);
+    if (mapServer.type === "MCP" && body.enabled) {
+      if (!body.access)
+        throw new ValidationError("Review this tool as READ or WRITE before enabling it");
+      if (mapServer.config.disabled)
+        throw new ValidationError("Enable the connection before reviewing tools");
+      const credential =
+        mapServer.credentialId &&
+        (await new CredentialRepository(db, c.get("tenantId")!).findUsableById(
+          mapServer.credentialId,
+        ));
+      if (!credential) throw new ValidationError("Attach a credential before reviewing tools");
+      const ctx = {
+        tenantId: c.get("tenantId")!,
+        mapServerId: mapServer.id,
+        environment: mapServer.environments[0] ?? "default",
+        config: mapServer.config,
+        credential: await secretProvider.decrypt(credential.encryptedData, {
+          tenantId: c.get("tenantId")!,
+        }),
+        requestId: c.get("requestId"),
+      };
+      const tool = (await mcpClientFromContext(ctx).listTools()).find(
+        (t) => t.name === c.req.param("key"),
+      );
+      if (!tool) throw new NotFoundError("Tool is no longer available");
+      if (!body.fingerprint || body.fingerprint !== (await mcpToolFingerprint(tool))) {
+        throw new ValidationError(
+          "Tool definition changed or has not been reviewed. Discover tools and review again.",
+        );
+      }
+      await mapServers.updateConfig(mapServer.id, {
+        ...mapServer.config,
+        toolReviews: {
+          ...((mapServer.config.toolReviews as object) ?? {}),
+          [tool.name]: { access: body.access, fingerprint: await mcpToolFingerprint(tool) },
+        },
+      });
+      await db.mapServerCapability.update({
+        where: { mapServerId_key: { mapServerId: mapServer.id, key: tool.name } },
+        data: {
+          mutating: body.access === "WRITE",
+          riskLevel: body.access === "READ" ? "LOW" : "HIGH",
+        },
+      });
+    }
+    const updated = await mapServers.setCapabilityEnabled(
+      mapServer.id,
+      c.req.param("key"),
+      body.enabled,
+    );
     if (!updated) throw new NotFoundError("Capability not found");
 
     await writeAuditLog(auditLogWriter(db), {
@@ -142,7 +241,7 @@ export function buildMapServerRoutes(deps: {
       targetType: "MapServer",
       targetId: mapServer.id,
       requestId: c.get("requestId"),
-      metadata: { key: c.req.param("key"), enabled: body.enabled },
+      metadata: { key: c.req.param("key"), enabled: body.enabled, access: body.access },
     });
 
     return c.json({ capability: updated });
@@ -168,7 +267,7 @@ export function buildMapServerRoutes(deps: {
       result = { status: "DISCONNECTED", detail: "No credential attached to this Map Server" };
     } else {
       const credentials = new CredentialRepository(db, c.get("tenantId")!);
-      const credential = await credentials.findById(mapServer.credentialId);
+      const credential = await credentials.findUsableById(mapServer.credentialId);
       if (!credential) {
         result = { status: "DISCONNECTED", detail: "Attached credential no longer exists" };
       } else {
@@ -217,16 +316,21 @@ export function buildMapServerRoutes(deps: {
     if (!mapServer) throw new NotFoundError("Map Server not found");
 
     const provider = getMapServerProvider(mapServer.type);
-    if (!provider) throw new ValidationError(`No provider is registered for ${mapServer.type} yet in this deployment`);
+    if (!provider)
+      throw new ValidationError(
+        `No provider is registered for ${mapServer.type} yet in this deployment`,
+      );
     if (!provider.discoverCapabilities) {
-      throw new ValidationError(`${provider.metadata.displayName} has a fixed capability set — nothing to refresh`);
+      throw new ValidationError(
+        `${provider.metadata.displayName} has a fixed capability set — nothing to refresh`,
+      );
     }
     if (!mapServer.credentialId) {
       throw new ValidationError("Attach a credential before discovering capabilities");
     }
 
     const credentials = new CredentialRepository(db, c.get("tenantId")!);
-    const credential = await credentials.findById(mapServer.credentialId);
+    const credential = await credentials.findUsableById(mapServer.credentialId);
     if (!credential) throw new ValidationError("Attached credential no longer exists");
 
     const decrypted = await secretProvider.decrypt(credential.encryptedData, {
@@ -241,6 +345,10 @@ export function buildMapServerRoutes(deps: {
       requestId: c.get("requestId"),
     });
     await mapServers.syncCapabilitiesFromProvider(mapServer.id, discovered);
+    const catalog = Object.fromEntries(
+      discovered.filter((cap) => cap.definition).map((cap) => [cap.key, cap.definition]),
+    );
+    await mapServers.updateConfig(mapServer.id, { ...mapServer.config, toolCatalog: catalog });
 
     await writeAuditLog(auditLogWriter(db), {
       tenantId: c.get("tenantId"),
@@ -254,7 +362,7 @@ export function buildMapServerRoutes(deps: {
     });
 
     const capabilities = await mapServers.listCapabilities(mapServer.id);
-    return c.json({ capabilities });
+    return c.json({ capabilities: capabilities.map((cap) => ({ ...cap, ...catalog[cap.key] })) });
   });
 
   return router;

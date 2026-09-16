@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import type { Hono } from "hono";
-import { __resetRegistryForTests, registerMapServer, type MapServerProvider } from "@resolution/map-servers";
+import {
+  __resetRegistryForTests,
+  registerMapServer,
+  type MapServerProvider,
+} from "@resolution/map-servers";
 import { buildTestApp, jsonOf, req, signupWithOrg } from "./test-helpers";
 import type { FakeDb } from "./fake-db";
 import type { AppEnv } from "../types";
@@ -10,7 +14,10 @@ const k8sProvider: MapServerProvider = {
   type: "KUBERNETES",
   metadata: { displayName: "Kubernetes (fixture)", isMock: true },
   configSchema: z.object({}),
-  authAdapter: { authenticationTypes: ["TOKEN"], testConnection: async () => ({ status: "CONNECTED" }) },
+  authAdapter: {
+    authenticationTypes: ["TOKEN"],
+    testConnection: async () => ({ status: "CONNECTED" }),
+  },
   capabilities: [
     {
       key: "restart_pod",
@@ -20,6 +27,20 @@ const k8sProvider: MapServerProvider = {
       inputSchema: z.object({ podName: z.string().min(1) }),
       outputSchema: z.object({ restarted: z.boolean() }),
       execute: async () => ({ restarted: true }),
+      verification: {
+        capabilityKey: "check_health",
+        buildInput: () => ({}),
+        classify: (result) => ((result as { healthy: boolean }).healthy ? "PASSED" : "FAILED"),
+      },
+    },
+    {
+      key: "check_health",
+      description: "Read current health",
+      riskLevel: "LOW",
+      mutating: false,
+      inputSchema: z.object({}),
+      outputSchema: z.object({ healthy: z.boolean() }),
+      execute: async () => ({ healthy: true }),
     },
   ],
   healthCheck: async () => ({ status: "CONNECTED" }),
@@ -110,7 +131,10 @@ describe("metrics routes", () => {
 
     await app.request(`/api/webhooks/jira/${integration.id}`, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-webhook-secret": integration.config.webhookSecret },
+      headers: {
+        "content-type": "application/json",
+        "x-webhook-secret": integration.config.webhookSecret,
+      },
       body: JSON.stringify(jiraPayload("OPS-1")),
     });
 
@@ -139,7 +163,10 @@ describe("metrics routes", () => {
     const integration = (await jsonOf(integ)).integration;
     await app.request(`/api/webhooks/jira/${integration.id}`, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-webhook-secret": integration.config.webhookSecret },
+      headers: {
+        "content-type": "application/json",
+        "x-webhook-secret": integration.config.webhookSecret,
+      },
       body: JSON.stringify(jiraPayload("OPS-2")),
     });
 

@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { z } from "zod";
-import { __resetRegistryForTests, registerMapServer, type MapServerProvider } from "@resolution/map-servers";
+import {
+  __resetRegistryForTests,
+  registerMapServer,
+  type MapServerProvider,
+} from "@resolution/map-servers";
 import { buildTestApp, jsonOf, req, signupWithOrg } from "./test-helpers";
 import type { FakeDb } from "./fake-db";
 import type { AppEnv } from "../types";
@@ -10,7 +14,10 @@ const fixtureProvider: MapServerProvider = {
   type: "DATABRICKS",
   metadata: { displayName: "Databricks (fixture)", isMock: true },
   configSchema: z.object({}),
-  authAdapter: { authenticationTypes: ["SERVICE_PRINCIPAL"], testConnection: async () => ({ status: "CONNECTED" }) },
+  authAdapter: {
+    authenticationTypes: ["SERVICE_PRINCIPAL"],
+    testConnection: async () => ({ status: "CONNECTED" }),
+  },
   capabilities: [
     {
       key: "get_job_run",
@@ -86,7 +93,10 @@ describe("incident routes — investigation (Phase 7)", () => {
 
       const webhook = await app.request(`/api/webhooks/jira/${integration.id}`, {
         method: "POST",
-        headers: { "content-type": "application/json", "x-webhook-secret": integration.config.webhookSecret },
+        headers: {
+          "content-type": "application/json",
+          "x-webhook-secret": integration.config.webhookSecret,
+        },
         body: JSON.stringify(jiraPayload()),
       });
       expect(webhook.status).toBe(202);
@@ -101,7 +111,10 @@ describe("incident routes — investigation (Phase 7)", () => {
 
       expect(body.incident.status).toBe("RCA_COMPLETE");
       expect(body.evidence.length).toBeGreaterThan(0);
-      expect(body.evidence[0]).toMatchObject({ source: mapServer.id, capabilityKey: "get_job_run" });
+      expect(body.evidence[0]).toMatchObject({
+        source: mapServer.id,
+        capabilityKey: "get_job_run",
+      });
       expect(body.rca).toMatchObject({ incidentId: incidentSummary.id });
       expect(body.rca.claims.length).toBeGreaterThan(0);
 
@@ -128,7 +141,10 @@ describe("incident routes — investigation (Phase 7)", () => {
       const integration = (await jsonOf(created)).integration;
       await app.request(`/api/webhooks/jira/${integration.id}`, {
         method: "POST",
-        headers: { "content-type": "application/json", "x-webhook-secret": integration.config.webhookSecret },
+        headers: {
+          "content-type": "application/json",
+          "x-webhook-secret": integration.config.webhookSecret,
+        },
         body: JSON.stringify(jiraPayload()),
       });
       const list = await req(app, "/api/incidents", { cookie, tenantId });
@@ -154,13 +170,20 @@ describe("incident routes — investigation (Phase 7)", () => {
       const integration = (await jsonOf(created)).integration;
       await app.request(`/api/webhooks/jira/${integration.id}`, {
         method: "POST",
-        headers: { "content-type": "application/json", "x-webhook-secret": integration.config.webhookSecret },
+        headers: {
+          "content-type": "application/json",
+          "x-webhook-secret": integration.config.webhookSecret,
+        },
         body: JSON.stringify(jiraPayload()),
       });
       const list = await req(app, "/api/incidents", { cookie, tenantId });
       const incidentId = (await jsonOf(list)).incidents[0].id;
 
-      await req(app, `/api/incidents/${incidentId}/investigate`, { method: "POST", cookie, tenantId });
+      await req(app, `/api/incidents/${incidentId}/investigate`, {
+        method: "POST",
+        cookie,
+        tenantId,
+      });
       const second = await req(app, `/api/incidents/${incidentId}/investigate`, {
         method: "POST",
         cookie,
@@ -179,7 +202,10 @@ describe("incident routes — investigation (Phase 7)", () => {
       const integration = (await jsonOf(created)).integration;
       await app.request(`/api/webhooks/jira/${integration.id}`, {
         method: "POST",
-        headers: { "content-type": "application/json", "x-webhook-secret": integration.config.webhookSecret },
+        headers: {
+          "content-type": "application/json",
+          "x-webhook-secret": integration.config.webhookSecret,
+        },
         body: JSON.stringify(jiraPayload()),
       });
       const list = await req(app, "/api/incidents", { cookie, tenantId });
@@ -200,7 +226,10 @@ describe("incident routes — investigation (Phase 7)", () => {
       type: "KUBERNETES",
       metadata: { displayName: "Kubernetes (fixture)", isMock: true },
       configSchema: z.object({}),
-      authAdapter: { authenticationTypes: ["TOKEN"], testConnection: async () => ({ status: "CONNECTED" }) },
+      authAdapter: {
+        authenticationTypes: ["TOKEN"],
+        testConnection: async () => ({ status: "CONNECTED" }),
+      },
       capabilities: [
         {
           key: "restart_pod",
@@ -222,13 +251,13 @@ describe("incident routes — investigation (Phase 7)", () => {
 
     async function createEscalatableIncident() {
       registerMapServer(k8sProvider);
-      // RECOMMEND (or above) — the default policy engine floor. Below RECOMMEND every
+      // HUMAN_APPROVED (or above) — the default policy engine floor. Below HUMAN_APPROVED every
       // capability denies outright (see policy-engine.ts's DEFAULT_POLICY), so the proposal
       // above would never even reach an Approval row.
       await req(app, `/api/organizations/${tenantId}`, {
         method: "PATCH",
         cookie,
-        body: { resolutionMode: "RECOMMEND" },
+        body: { resolutionMode: "HUMAN_APPROVED" },
       });
 
       const integ = await req(app, "/api/integrations", {
@@ -255,7 +284,10 @@ describe("incident routes — investigation (Phase 7)", () => {
 
       const webhook = await app.request(`/api/webhooks/jira/${integration.id}`, {
         method: "POST",
-        headers: { "content-type": "application/json", "x-webhook-secret": integration.config.webhookSecret },
+        headers: {
+          "content-type": "application/json",
+          "x-webhook-secret": integration.config.webhookSecret,
+        },
         body: JSON.stringify(jiraPayload()),
       });
       expect(webhook.status).toBe(202);
@@ -264,7 +296,7 @@ describe("incident routes — investigation (Phase 7)", () => {
       return (await jsonOf(list)).incidents[0].id as string;
     }
 
-    it("a proposed remediation under RECOMMEND mode lands PENDING_APPROVAL, and approving it executes and resolves", async () => {
+    it("a proposed remediation under HUMAN_APPROVED mode lands PENDING_APPROVAL, and approving it executes and escalates without verification", async () => {
       const incidentId = await createEscalatableIncident();
       expect(db._debug.incidents.find((i) => i.id === incidentId)!.status).toBe("PENDING_APPROVAL");
 
@@ -274,18 +306,24 @@ describe("incident routes — investigation (Phase 7)", () => {
       const action = body.resolutions[0].actions[0];
       expect(action.approval.status).toBe("PENDING");
 
-      const decide = await req(app, `/api/incidents/${incidentId}/approvals/${action.approval.id}/decide`, {
-        method: "POST",
-        cookie,
-        tenantId,
-        body: { decision: "APPROVE" },
-      });
+      const decide = await req(
+        app,
+        `/api/incidents/${incidentId}/approvals/${action.approval.id}/decide`,
+        {
+          method: "POST",
+          cookie,
+          tenantId,
+          body: { decision: "APPROVE" },
+        },
+      );
       expect(decide.status).toBe(200);
       expect((await jsonOf(decide)).status).toBe("EXECUTED");
 
       const finalIncident = db._debug.incidents.find((i) => i.id === incidentId)!;
-      expect(finalIncident.status).toBe("RESOLVED");
-      expect(db._debug.remediationActions.find((a) => a.id === action.id)!.status).toBe("SUCCEEDED");
+      expect(finalIncident.status).toBe("ESCALATED");
+      expect(db._debug.remediationActions.find((a) => a.id === action.id)!.status).toBe(
+        "SUCCEEDED",
+      );
     });
 
     it("rejecting an approval closes the incident and never executes the capability", async () => {
@@ -293,16 +331,20 @@ describe("incident routes — investigation (Phase 7)", () => {
       const detail = await req(app, `/api/incidents/${incidentId}`, { cookie, tenantId });
       const action = (await jsonOf(detail)).resolutions[0].actions[0];
 
-      const decide = await req(app, `/api/incidents/${incidentId}/approvals/${action.approval.id}/decide`, {
-        method: "POST",
-        cookie,
-        tenantId,
-        body: { decision: "REJECT", reason: "Too risky right now" },
-      });
+      const decide = await req(
+        app,
+        `/api/incidents/${incidentId}/approvals/${action.approval.id}/decide`,
+        {
+          method: "POST",
+          cookie,
+          tenantId,
+          body: { decision: "REJECT", reason: "Too risky right now" },
+        },
+      );
       expect(decide.status).toBe(200);
       expect((await jsonOf(decide)).status).toBe("REJECTED");
 
-      expect(db._debug.incidents.find((i) => i.id === incidentId)!.status).toBe("CLOSED");
+      expect(db._debug.incidents.find((i) => i.id === incidentId)!.status).toBe("ESCALATED");
       expect(db._debug.remediationActions.find((a) => a.id === action.id)!.status).toBe("PENDING");
     });
 
@@ -317,12 +359,16 @@ describe("incident routes — investigation (Phase 7)", () => {
         tenantId,
         body: { decision: "APPROVE" },
       });
-      const second = await req(app, `/api/incidents/${incidentId}/approvals/${action.approval.id}/decide`, {
-        method: "POST",
-        cookie,
-        tenantId,
-        body: { decision: "APPROVE" },
-      });
+      const second = await req(
+        app,
+        `/api/incidents/${incidentId}/approvals/${action.approval.id}/decide`,
+        {
+          method: "POST",
+          cookie,
+          tenantId,
+          body: { decision: "APPROVE" },
+        },
+      );
       expect(second.status).toBe(409);
     });
 
@@ -335,12 +381,16 @@ describe("incident routes — investigation (Phase 7)", () => {
       expect(pendingBody.pending).toHaveLength(1);
       expect(pendingBody.pending[0]).toMatchObject({ incidentId, riskLevel: "MEDIUM" });
 
-      await req(app, `/api/incidents/${incidentId}/approvals/${pendingBody.pending[0].approvalId}/decide`, {
-        method: "POST",
-        cookie,
-        tenantId,
-        body: { decision: "APPROVE" },
-      });
+      await req(
+        app,
+        `/api/incidents/${incidentId}/approvals/${pendingBody.pending[0].approvalId}/decide`,
+        {
+          method: "POST",
+          cookie,
+          tenantId,
+          body: { decision: "APPROVE" },
+        },
+      );
 
       const after = await req(app, "/api/incidents/approvals/pending", { cookie, tenantId });
       expect((await jsonOf(after)).pending).toHaveLength(0);
@@ -365,12 +415,16 @@ describe("incident routes — investigation (Phase 7)", () => {
       });
       const memberCookie = login.headers.get("set-cookie")!.split(";")[0]!;
 
-      const res = await req(app, `/api/incidents/${incidentId}/approvals/${action.approval.id}/decide`, {
-        method: "POST",
-        cookie: memberCookie,
-        tenantId,
-        body: { decision: "APPROVE" },
-      });
+      const res = await req(
+        app,
+        `/api/incidents/${incidentId}/approvals/${action.approval.id}/decide`,
+        {
+          method: "POST",
+          cookie: memberCookie,
+          tenantId,
+          body: { decision: "APPROVE" },
+        },
+      );
       expect(res.status).toBe(403);
     });
   });

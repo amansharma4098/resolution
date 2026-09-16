@@ -98,6 +98,16 @@ export class MapServerRepository extends TenantScopedRepository {
     return row ? toPublic(row) : null;
   }
 
+  async updateConfig(id: string, config: Record<string, unknown>): Promise<MapServer | null> {
+    if (!(await this.findById(id))) return null;
+    return toPublic(
+      await this.db.mapServer.update({
+        where: { id },
+        data: { config: serializeJsonField(config) },
+      }),
+    );
+  }
+
   async updateStatus(id: string, status: ConnectionStatus): Promise<MapServer | null> {
     if (!(await this.findById(id))) return null;
     const row = await this.db.mapServer.update({
@@ -142,19 +152,8 @@ export class MapServerRepository extends TenantScopedRepository {
     );
   }
 
-  /**
-   * The discovery-driven counterpart to `createCapabilitiesFromProvider` — for a provider
-   * whose capability set can change after the Map Server already exists (the generic `MCP`
-   * provider: an org's server can add/remove tools at any time), called by
-   * `POST /:id/refresh-capabilities` instead of only once at creation. Additive and
-   * non-destructive by design: a newly-seen key is added `enabled: false` (same "nothing
-   * runs until explicitly enabled" rule as creation), an existing key's `riskLevel`/
-   * `mutating` are refreshed to whatever the provider reports now, but its `enabled` state
-   * is never touched — and a key the provider no longer reports is left alone rather than
-   * deleted, since silently disabling something already relied on (an AutomationPolicy may
-   * reference it) on nothing more than a transient discovery hiccup would be a worse
-   * failure mode than one stale row an admin can still see and disable by hand.
-   */
+  /** Refresh discovery metadata and disable returned tools until reviewed again.
+   * Removed tools cannot execute because live resolution no longer finds them. */
   async syncCapabilitiesFromProvider(
     mapServerId: string,
     providerCapabilities: AnyCapability[],
@@ -166,12 +165,18 @@ export class MapServerRepository extends TenantScopedRepository {
       const current = existingByKey.get(cap.key);
       if (!current) {
         return this.db.mapServerCapability.create({
-          data: { mapServerId, key: cap.key, riskLevel: cap.riskLevel, mutating: cap.mutating, enabled: false },
+          data: {
+            mapServerId,
+            key: cap.key,
+            riskLevel: cap.riskLevel,
+            mutating: cap.mutating,
+            enabled: false,
+          },
         });
       }
       return this.db.mapServerCapability.update({
         where: { mapServerId_key: { mapServerId, key: cap.key } },
-        data: { riskLevel: cap.riskLevel, mutating: cap.mutating },
+        data: { riskLevel: cap.riskLevel, mutating: cap.mutating, enabled: false },
       });
     });
     if (writes.length > 0) {

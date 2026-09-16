@@ -15,7 +15,9 @@ function NavLink({ item, isActive }: { item: NavItem; isActive: boolean }) {
         className="flex cursor-not-allowed items-center justify-between rounded px-3 py-2 text-sm text-subink opacity-50"
       >
         {item.label}
-        <span className="rounded-full bg-border px-1.5 py-0.5 font-mono text-[10px] text-subink">soon</span>
+        <span className="rounded-full bg-border px-1.5 py-0.5 font-mono text-[10px] text-subink">
+          soon
+        </span>
       </span>
     );
   }
@@ -32,12 +34,21 @@ function NavLink({ item, isActive }: { item: NavItem; isActive: boolean }) {
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, organizations, currentTenantId, currentOrganization, loading, logout, setCurrentTenantId } =
-    useSession();
+  const {
+    user,
+    organizations,
+    currentTenantId,
+    currentOrganization,
+    loading,
+    logout,
+    setCurrentTenantId,
+  } = useSession();
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const isNewOrgPage = pathname === "/dashboard/new-organization";
-  const settingsItemActive = NAV_ITEMS.some((item) => item.group === "settings" && item.href === pathname);
+  const settingsItemActive = NAV_ITEMS.some(
+    (item) => item.group === "settings" && item.href === pathname,
+  );
 
   useEffect(() => {
     if (loading) return;
@@ -104,7 +115,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {(settingsOpen || settingsItemActive) && (
             <div className="flex flex-col gap-0.5">
               {NAV_ITEMS.filter(
-                (item) => item.group === "settings" && (!item.minRole || currentOrganization?.role === item.minRole),
+                (item) =>
+                  item.group === "settings" &&
+                  (!item.minRole || currentOrganization?.role === item.minRole),
               ).map((item) => (
                 <NavLink key={item.href} item={item} isActive={pathname === item.href} />
               ))}
@@ -118,7 +131,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               Platform Admin →
             </Link>
           )}
-          <Button variant="ghost" size="sm" className="mt-1 w-full justify-start px-0" onClick={() => void logout().then(() => router.push("/login"))}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mt-1 w-full justify-start px-0"
+            onClick={() => void logout().then(() => router.push("/login"))}
+          >
             Sign out
           </Button>
         </div>
@@ -146,7 +164,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </span>
           )}
         </header>
-        <main className="flex-1 p-6">{children}</main>
+        <main key={currentOrganization?.id} className="flex-1 p-6">
+          {children}
+        </main>
       </div>
     </div>
   );

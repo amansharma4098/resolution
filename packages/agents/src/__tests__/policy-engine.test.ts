@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { ResolutionMode } from "@resolution/shared";
-import { DEFAULT_POLICY, evaluatePolicy, resolutionModeCeiling, stricterBehavior } from "../policy-engine";
+import {
+  DEFAULT_POLICY,
+  evaluatePolicy,
+  resolutionModeCeiling,
+  stricterBehavior,
+} from "../policy-engine";
 
 describe("resolutionModeCeiling", () => {
   it("maps each resolution mode to its ceiling behavior", () => {
     expect(resolutionModeCeiling("OBSERVE_ONLY")).toBe("DENY");
-    expect(resolutionModeCeiling("RECOMMEND")).toBe("APPROVAL");
+    expect(resolutionModeCeiling("RECOMMEND")).toBe("DENY");
     expect(resolutionModeCeiling("HUMAN_APPROVED")).toBe("APPROVAL");
     expect(resolutionModeCeiling("AUTONOMOUS")).toBe("AUTO");
   });
@@ -22,7 +27,7 @@ describe("stricterBehavior", () => {
 describe("evaluatePolicy", () => {
   it("an AUTO policy only actually runs AUTO once the org is AUTONOMOUS", () => {
     const policy = { behavior: "AUTO" as const, resolutionModeFloor: "RECOMMEND" as const };
-    expect(evaluatePolicy("RECOMMEND", policy)).toBe("APPROVAL"); // capped by ceiling
+    expect(evaluatePolicy("RECOMMEND", policy)).toBe("DENY"); // capped by ceiling
     expect(evaluatePolicy("HUMAN_APPROVED", policy)).toBe("APPROVAL"); // capped by ceiling
     expect(evaluatePolicy("AUTONOMOUS", policy)).toBe("AUTO"); // ceiling lifts
   });
@@ -45,7 +50,7 @@ describe("evaluatePolicy", () => {
 
   it("with no explicit policy row, defaults to APPROVAL once eligible and DENY below it", () => {
     expect(evaluatePolicy("OBSERVE_ONLY")).toBe("DENY");
-    expect(evaluatePolicy("RECOMMEND")).toBe("APPROVAL");
+    expect(evaluatePolicy("RECOMMEND")).toBe("DENY");
     expect(evaluatePolicy("AUTONOMOUS")).toBe("APPROVAL"); // default never auto-executes unconfigured
     expect(DEFAULT_POLICY.behavior).toBe("APPROVAL");
   });
@@ -56,7 +61,9 @@ describe("evaluatePolicy", () => {
     for (const mode of modes) {
       for (const behavior of behaviors) {
         for (const floor of modes) {
-          expect(() => evaluatePolicy(mode, { behavior, resolutionModeFloor: floor })).not.toThrow();
+          expect(() =>
+            evaluatePolicy(mode, { behavior, resolutionModeFloor: floor }),
+          ).not.toThrow();
         }
       }
     }

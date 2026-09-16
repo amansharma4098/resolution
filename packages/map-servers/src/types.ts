@@ -6,13 +6,7 @@ export type { MapServerType };
 export type ConnectionStatus = "CONNECTED" | "DEGRADED" | "DISCONNECTED" | "UNCONFIGURED";
 
 export type AuthenticationType =
-  | "OAUTH"
-  | "API_KEY"
-  | "CLIENT_SECRET"
-  | "SERVICE_PRINCIPAL"
-  | "BASIC_AUTH"
-  | "TOKEN"
-  | "CUSTOM";
+  "OAUTH" | "API_KEY" | "CLIENT_SECRET" | "SERVICE_PRINCIPAL" | "BASIC_AUTH" | "TOKEN" | "CUSTOM";
 
 /**
  * Everything a capability's execute() needs, and nothing more — ARCHITECTURE.md §4. The
@@ -64,6 +58,7 @@ export interface VerificationSpec<Input = unknown, Output = unknown> {
  */
 export interface Capability<Input = unknown, Output = unknown> {
   key: string;
+  definition?: { fingerprint: string; description: string; inputSchema: Record<string, unknown> };
   description: string;
   riskLevel: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
   inputSchema: ZodSchema<Input>;

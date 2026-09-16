@@ -4,6 +4,7 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done. Update this
 lands — it's the source of truth for what's actually built vs. spec'd.
 
 ## Phase 0 — Foundation docs & repo ✅ complete
+
 - [x] `ARCHITECTURE.md`
 - [x] `IMPLEMENTATION_PLAN.md`
 - [x] Git repo initialized, pushed to `github.com/amansharma4098/resolution`
@@ -13,6 +14,7 @@ lands — it's the source of truth for what's actually built vs. spec'd.
 - [x] `docker-compose.yml` (Postgres+pgvector, Redis) for local dev
 
 ## Phase 1 — Foundation (app skeleton, auth, orgs, RBAC) ✅ complete
+
 - [x] Turborepo/npm-workspaces root config, shared `tsconfig`, `eslint`, `prettier`
 - [x] `packages/database`: Prisma schema (28 models per ARCHITECTURE.md §8), migrations —
       `UserRepository`, `OrganizationRepository`, `TenantScopedRepository` base class,
@@ -39,7 +41,7 @@ lands — it's the source of truth for what's actually built vs. spec'd.
 - [x] Audit log write on `organization.created` (identity events — signup/login — have no
       org yet; `AuditLog.tenantId` made nullable to allow future account-level events)
 - [x] Tests + typecheck + lint green: 37 tests across 6 packages, full `turbo run
-      typecheck|lint|test|build` green, real `apps/api` server smoke-tested booting and
+    typecheck|lint|test|build` green, real `apps/api` server smoke-tested booting and
       serving requests end to end (DB-dependent routes correctly 500 without a live
       Postgres, confirming wiring rather than masking failures)
 
@@ -49,6 +51,7 @@ the same route behavior); OAuth login (email/password only so far); organization
 invite/management UI.
 
 ## Phase 2 — Configuration system ✅ complete (capability toggling deferred to Phase 5)
+
 - [x] `packages/credentials`: `SecretProvider` interface + `EncryptedDbSecretProvider` (real
       envelope encryption — random per-credential data key, wrapped by a root key, AES-256-
       GCM, tenantId as AAD so a blob can't decrypt under the wrong org's context) +
@@ -115,6 +118,7 @@ deferred to Phase 7. There is no separate `apps/worker` — queue consumers live
 `apps/api/src/queue/`, run by the same Worker as the HTTP API (see ARCHITECTURE.md §3).
 
 ## Phase 3 — Jira integration (real) ✅ mostly complete
+
 - [x] Auth: HTTP Basic (email + Atlassian API token) via the existing Credential system —
       chosen over OAuth 2.0 (3LO) because that needs an app registered in the Atlassian
       developer console with a callback URL, a customer-side setup step this doesn't
@@ -132,7 +136,7 @@ deferred to Phase 7. There is no separate `apps/worker` — queue consumers live
 - [x] Real connectivity test: `POST /api/integrations/:id/test` calls the actual Jira
       `/rest/api/3/myself` endpoint with the attached, decrypted credential
 - [x] Write-back capability built (`JiraClient.addComment`/`transitionIssue`) — not yet
-      *triggered* by anything, since that requires Phase 6's incident lifecycle /
+      _triggered_ by anything, since that requires Phase 6's incident lifecycle /
       Phase 8's remediation flow to decide when to call it
 - [ ] Not tested against a real Jira tenant (no test Atlassian account available in this
       environment) — the API calls match Atlassian's published REST v3 docs exactly, but
@@ -159,11 +163,12 @@ possible but never exposed.
       a reasonable Phase 12 (or sooner, on request) addition
 
 ## Phase 4 — ServiceNow integration (real) ✅ mostly complete
+
 - [x] Auth: HTTP Basic (ServiceNow username + password) via the existing Credential
       system — same reasoning as Jira's Basic Auth choice over OAuth2
       (`packages/integrations/src/servicenow/client.ts`)
 - [x] Incident ingestion: webhook, not polling — `POST
-      /api/webhooks/servicenow/:integrationId`, sharing the exact same secret-header
+    /api/webhooks/servicenow/:integrationId`, sharing the exact same secret-header
       auth, idempotency (WebhookEvent + Incident unique constraints), and inline-
       processing pattern as Jira's webhook (both now go through one shared
       `ingestWebhook` helper in `apps/api/src/routes/webhooks.ts`). ServiceNow has no
@@ -180,6 +185,7 @@ possible but never exposed.
       rather than claimed as integration-tested
 
 ## Phase 5 — Fabric Map Server (real) ✅ mostly complete
+
 - [x] Service-principal auth adapter: Azure AD OAuth2 client-credentials against the
       standard `login.microsoftonline.com` v2.0 token endpoint (well-documented, solid
       ground) authorizing calls to the Fabric REST API (`packages/map-servers/src/fabric/`)
@@ -206,6 +212,7 @@ possible but never exposed.
       standardized than Jira's/ServiceNow's, so the risk of a shape mismatch is higher
 
 ## Phase 6 — Incident engine ✅ mostly complete
+
 - [x] `packages/agents` (new): the `IncidentStatus` state machine — pure code
       (ARCHITECTURE.md §6: deterministic business logic is never LLM-driven), a documented
       transition table (`transition()`/`canTransition()`/`isTerminal()`), 9 tests covering
@@ -237,6 +244,7 @@ possible but never exposed.
 - [x] `IncidentEvidence` storage — landed with Phase 7 below, as planned
 
 ## Phase 7 — AI: investigation, RCA ✅ mostly complete
+
 - [x] `packages/ai` (new): `LlmClient` interface with two implementations — a real Anthropic
       client (`@anthropic-ai/sdk`, model `claude-opus-5`, adaptive thinking) and a
       deterministic `MOCK_MODE` client. The mock isn't a canned-response stub: it inspects
@@ -255,12 +263,12 @@ possible but never exposed.
       tool-calling loop (not the SDK's beta Tool Runner — the tool list is assembled
       dynamically per-org from the Map Server registry, and each call needs bespoke side
       effects a generic runner doesn't fit as directly as owning the loop does). Tools are
-      built only from capabilities an org has both enabled *and* whose provider marks
+      built only from capabilities an org has both enabled _and_ whose provider marks
       `mutating: false` — a mutating capability is invisible to investigation regardless of
       its enabled state; that's Phase 8 remediation's territory, gated by policy + approval
 - [x] RCA is a forced tool call (`submit_rca`), not `output_config.format` — its JSON schema
       comes from `packages/shared/src/rca.ts`'s `RootCauseAnalysisOutput`, and the agent
-      re-validates the model's tool input against that *same Zod schema* (not just its
+      re-validates the model's tool input against that _same Zod schema_ (not just its
       JSON-schema shape) before accepting it, so the "a FACT claim must cite at least one
       evidenceId" `.refine()` rule is actually enforced — an invalid submission is rejected
       with a specific error and the model gets to retry, not silently coerced or dropped
@@ -295,6 +303,7 @@ possible but never exposed.
   zero-credential path for local dev/CI and is still what every automated test runs against
 
 ## Phase 8 — Remediation ✅ complete
+
 - [x] Policy engine (`packages/agents/src/policy-engine.ts`) — pure code, no LLM
       (ARCHITECTURE.md §6). Effective behavior = the stricter of an AutomationPolicy row's
       own `behavior` and the org's `resolutionMode` ceiling; a `resolutionModeFloor` below
@@ -313,7 +322,7 @@ possible but never exposed.
       APPROVAL in the policy engine for now — see policy-engine.ts's header comment for why
 - [x] Resolution Agent (`packages/agents/src/remediation/resolution-agent.ts`) — same
       hand-written tool-calling pattern as Phase 7's Investigation Agent, offered only the
-      org's enabled *mutating* capabilities (the inverse filter from investigation) plus an
+      org's enabled _mutating_ capabilities (the inverse filter from investigation) plus an
       explicit `no_remediation_needed` decline tool, so "no safe automated fix exists" is a
       real, honest outcome rather than a forced guess. Proposes at most one remediation —
       never executes it directly; that's gated by the policy engine below
@@ -349,7 +358,7 @@ possible but never exposed.
       `claude-opus-5` correctly **declined** to remediate both times, for good reasons: (1)
       an incident with zero evidence and no pipeline identifiers, where inventing
       `workspaceId`/`pipelineId` to call the tool would have violated its own "never invent
-      a value not offered to you" instruction; (2) an incident that *did* name a specific
+      a value not offered to you" instruction; (2) an incident that _did_ name a specific
       pipeline, where it reasoned that a nightly-recurring "transient" timeout reliably
       cleared by retry is more likely a deterministic condition the retry would mask, not
       fix — and that the RCA's own recommended fix (a pipeline-level retry policy) isn't
@@ -362,6 +371,7 @@ possible but never exposed.
       investigate → RCA → propose → PENDING_APPROVAL → approve → executed → RESOLVED)
 
 ## Phase 9 — Dashboard ✅ mostly complete
+
 - [x] Metrics — `GET /api/metrics`, computed live from Incident/Resolution/RemediationAction/
       Approval rows on every request, not a precomputed `UsageMetric` rollup table. Deliberate:
       this project's current data volume doesn't justify a scheduled rollup job yet, and
@@ -431,7 +441,7 @@ and its initial admin user directly, without that admin needing to sign themselv
 first.
 
 - [x] `User.isSuperAdmin` (new migration, `packages/database/prisma/migrations/
-      00000000000001_add_super_admin`) — platform-level, orthogonal to
+    00000000000001_add_super_admin`) — platform-level, orthogonal to
       `OrganizationMember.role`; a Super Admin isn't a member of any particular tenant.
       Provisioned directly in the database only — no self-serve or API path to grant it,
       same bootstrap discipline as every other root credential in this project
@@ -461,13 +471,13 @@ close two real gaps found while there: no self-service recovery path for a locke
 and a rate-limit bug that made brute-force protection a no-op in production.
 
 - [x] `/login`/`/signup` UI: shared `AuthLayout` split-screen shell (`apps/web/components/
-      auth-layout.tsx`) reusing the landing page's dark-navy hero treatment, plus a small
+    auth-layout.tsx`) reusing the landing page's dark-navy hero treatment, plus a small
       `Logo` wordmark component — no external asset
 - [x] **Found and fixed**: `middleware/rate-limit.ts`'s in-memory hit log was created fresh
       inside `buildApp`, which `worker.ts`'s `fetch` handler calls on every request — so the
       "per-isolate" store documented in its own header comment never actually persisted
       across requests and silently rate-limited nothing in production. Fixed by hoisting the
-      stores to module scope in `worker.ts` (outside `fetch`, where Worker isolates *do*
+      stores to module scope in `worker.ts` (outside `fetch`, where Worker isolates _do_
       keep state across requests) and threading them into `buildApp`/`buildAuthRoutes` as an
       injectable `rateLimitStores` option — tests/local dev still get fresh, isolated stores
       by default
@@ -494,8 +504,8 @@ and a rate-limit bug that made brute-force protection a no-op in production.
 ## Interlude — MCP: a generic connector, and being one ✅ complete
 
 Not a planned phase — added on explicit direction. Two independent features sharing the
-"MCP" (Model Context Protocol) name: this platform can now *consume* any org's MCP server
-as a Map Server, and *is* one itself for read-only incident lookup. See `docs/mcp-server.md`
+"MCP" (Model Context Protocol) name: this platform can now _consume_ any org's MCP server
+as a Map Server, and _is_ one itself for read-only incident lookup. See `docs/mcp-server.md`
 for the full writeup; summarized here.
 
 - [x] **Consuming**: `packages/map-servers/src/mcp` — a Workers-native JSON-RPC client
@@ -515,7 +525,7 @@ for the full writeup; summarized here.
       `get_incident`, `get_rca` (read-only) plus, on explicit follow-up direction,
       `trigger_investigation`, `propose_remediation`, and `decide_approval` — an incident
       can now be fully investigated and resolved through MCP tool calls alone. These three
-      call the *exact same* functions (extracted into a new
+      call the _exact same_ functions (extracted into a new
       `apps/api/src/lib/incident-actions.ts`) that `routes/incidents.ts`'s HTTP handlers
       call — never a re-implementation that could drift from the state-machine checks,
       policy-engine approval gating, or audit logging the dashboard enforces.
@@ -541,16 +551,16 @@ honest "listed but not built" treatment as an unregistered `MapServerType`). Bui
 explicit direction, alongside widening `POST /api/mcp` above. See `docs/webhooks.md`.
 
 - [x] `packages/integrations/src/webhook/normalize.ts` — unlike Jira/ServiceNow (which
-      mirror a real vendor's payload), there's no vendor shape to match here, so this *is*
+      mirror a real vendor's payload), there's no vendor shape to match here, so this _is_
       the shape: a small Zod schema (`externalId`, `title` required; `description`,
       `severity`, `priority`, `service`, `environment`, `resource`, `metadata` optional with
       sensible defaults) mapping directly onto `NormalizedIncident`
 - [x] `POST /api/webhooks/webhook/:integrationId` — same secret-header auth and 202-then-
       async-processing shape as Jira/ServiceNow (ARCHITECTURE.md §10), but validates the
-      body fully against that schema *before* the 202 (Jira/ServiceNow only sanity-check a
+      body fully against that schema _before_ the 202 (Jira/ServiceNow only sanity-check a
       couple of fields, since an event type they don't handle is an expected, silently
       ignored case for a documented third-party shape — a caller integrating directly
-      against *our* schema benefits far more from an immediate, specific `400`)
+      against _our_ schema benefits far more from an immediate, specific `400`)
 - [x] Integrations UI: the "New integration" webhook-URL reveal now shows the exact JSON
       shape to `POST` when the type is `WEBHOOK`; the Test button reports "nothing to test"
       instead of a misleading `DISCONNECTED` (a purely inbound webhook has no outbound
@@ -566,7 +576,7 @@ typing, instead of clicking through the dashboard. See `docs/chat.md`.
 
 - [x] Extracted `POST /api/mcp`'s tool catalog and execution out of `routes/mcp.ts` into a
       shared `apps/api/src/lib/incident-tools.ts` — chat and the MCP server are two entry
-      points onto the *exact same* six tools (list/get incidents, get RCA, investigate,
+      points onto the _exact same_ six tools (list/get incidents, get RCA, investigate,
       propose remediation, decide approval), never two implementations that could drift
       apart. `list_incidents`' output gained a `source` field so results can be grouped by
       platform, as asked
@@ -627,12 +637,14 @@ real, end-to-end, both as a Map Server and as an incident source — see `docs/d
       `next build`
 
 ## Phase 10 — Mock providers
+
 - [ ] Mock Map Servers: Databricks, Snowflake, Airflow, Azure, AWS, GCP, Kubernetes, Splunk, Dynatrace, New Relic (Datadog is now real — see the Interlude above)
 - [ ] Mock incident source: PagerDuty
 - [ ] `MOCK` badge component + enforcement (never disguised as real)
 - [ ] `MOCK_MODE=true` full end-to-end demo path
 
 ## Phase 11 — Billing ✅ mostly complete — see the Interlude below for what shipped
+
 - [x] Stripe adapter (`packages/billing`) + `CreditWallet`/`CreditTransaction` + Billing UI —
       one-time credit-pack purchases, real end to end
 - [ ] Auto-recharge (off-session charge on a saved card when the balance crosses a
@@ -711,12 +723,14 @@ Done already named ("historical search") but nothing had built yet. See
       typecheck/test green across the monorepo (410 tests total)
 
 ## Phase 12 — Production hardening
+
 - [ ] Security review pass (`security-review` skill) on full diff
 - [ ] Load test critical paths (webhook ingestion, investigation queue)
 - [ ] Dark mode pass on design tokens
 - [ ] Final docs pass (`docs/*.md` complete and accurate)
 
 ## Definition of done
+
 See ARCHITECTURE.md is not the DoD — the DoD is the full user journey in the original
 spec §17: signup → org → incident source → credential → Map Server → environment →
 capabilities → policy → test → activate → real incident → AI investigation (dynamic Map
@@ -724,3 +738,20 @@ Server + credential selection) → evidence → historical search → RCA → re
 policy evaluation → approval (if required) → remediation → verification → incident
 resolved on source → audit trail → dashboard reflects it. This must work with **zero**
 production credentials via `MOCK_MODE`.
+
+## September 2026 — SaaS hardening release
+
+See `docs/saas-release.md` for the implemented behavior, deployment requirements and remaining
+enterprise roadmap. This section supersedes older entries describing browser-owned chat history,
+readOnlyHint-based permissions, RECOMMEND approvals, unverified resolution and production mock billing.
+
+- [x] Private persisted chat and serialized turns; browser cannot supply authoritative tool history.
+- [x] Human approvals excluded from chat tools and enforced by the backend.
+- [x] Tenant connection switch, reviewed MCP definitions, vault-only tokens, HTTPS/redirect controls.
+- [x] Credential rotation/revocation UI and execution checks.
+- [x] Current environment/policy checks, atomic action/approval claims and stable proposal keys.
+- [x] Missing verification and rejected remediation escalate instead of closing incidents.
+- [x] Production configuration guards, email/Stripe bindings and optimistic wallet concurrency.
+- [x] Real SQLite migration/concurrency/cascade tests plus route and MCP regression coverage.
+- [ ] MCP OAuth, SSO/MFA/SCIM, private connectors, durable recovery, subscriptions and usage metering.
+- [ ] Enterprise security audit, load testing, retention and disaster-recovery acceptance gates.

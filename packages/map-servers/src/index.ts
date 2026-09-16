@@ -12,3 +12,6 @@ export { datadogProvider } from "./datadog";
 export { DatadogClient, DatadogApiError } from "./datadog";
 export { mcpProvider } from "./mcp";
 export type { McpTool, McpToolCallResult } from "./mcp";
+
+export { mcpToolFingerprint } from "./mcp/capability";
+export { mcpClientFromContext } from "./mcp/context";

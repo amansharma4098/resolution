@@ -18,15 +18,7 @@ import type { PolicyBehavior, ResolutionMode } from "@resolution/shared";
  * behavior — a floor exists specifically so an admin can say "don't even consider this
  * automatable until we're at least in HUMAN_APPROVED mode", not just "cap it at APPROVAL".
  *
- * Design simplification, stated plainly rather than left implicit: the four-tier
- * `resolutionMode` (OBSERVE_ONLY/RECOMMEND/HUMAN_APPROVED/AUTONOMOUS) collapses to three
- * `PolicyBehavior` ceilings here — RECOMMEND and HUMAN_APPROVED both cap at APPROVAL. The
- * spec's distinction between them (RECOMMEND = "surface a suggestion", HUMAN_APPROVED =
- * "create a real, executable, approval-gated action") is a UI/workflow distinction Phase 8
- * doesn't further separate at the policy-engine layer — both modes produce a real
- * `Resolution` + `RemediationAction` row gated on human approval; a future phase could add a
- * genuinely non-actionable "recommend only, never even propose a capability call" mode if
- * that distinction turns out to matter in practice.
+ * RECOMMEND permits proposals but never creates executable approvals.
  */
 
 const BEHAVIOR_STRICTNESS: Record<PolicyBehavior, number> = { DENY: 0, APPROVAL: 1, AUTO: 2 };
@@ -42,6 +34,7 @@ export function resolutionModeCeiling(mode: ResolutionMode): PolicyBehavior {
     case "OBSERVE_ONLY":
       return "DENY";
     case "RECOMMEND":
+      return "DENY";
     case "HUMAN_APPROVED":
       return "APPROVAL";
     case "AUTONOMOUS":
@@ -64,7 +57,10 @@ export interface PolicyRow {
  *  never usable at all in OBSERVE_ONLY) until an admin configures something more specific. */
 export const DEFAULT_POLICY: PolicyRow = { behavior: "APPROVAL", resolutionModeFloor: "RECOMMEND" };
 
-export function evaluatePolicy(orgResolutionMode: ResolutionMode, policy?: PolicyRow): PolicyBehavior {
+export function evaluatePolicy(
+  orgResolutionMode: ResolutionMode,
+  policy?: PolicyRow,
+): PolicyBehavior {
   const effective = policy ?? DEFAULT_POLICY;
   if (MODE_ORDER[orgResolutionMode] < MODE_ORDER[effective.resolutionModeFloor]) {
     return "DENY";
