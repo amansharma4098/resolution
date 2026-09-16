@@ -1,3 +1,4 @@
+import { validateSourceUrl } from "../source-url";
 /**
  * A thin wrapper over ServiceNow's real Table API — no SDK, just typed fetch calls. Auth is
  * HTTP Basic (a ServiceNow username + password), the simplest and most broadly-supported
@@ -47,8 +48,10 @@ export class ServiceNowClient {
   }
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
-    const res = await fetch(`${this.instanceUrl.replace(/\/$/, "")}${path}`, {
+    const res = await fetch(`${validateSourceUrl(this.instanceUrl, "SERVICENOW")}${path}`, {
       ...init,
+      redirect: "error",
+      signal: AbortSignal.timeout(15000),
       headers: {
         Authorization: this.authHeader(),
         Accept: "application/json",
@@ -57,11 +60,7 @@ export class ServiceNowClient {
       },
     });
     if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new ServiceNowApiError(
-        `ServiceNow API ${path} returned ${res.status}: ${body.slice(0, 500)}`,
-        res.status,
-      );
+      throw new ServiceNowApiError(`ServiceNow API ${path} returned ${res.status}`, res.status);
     }
     return (await res.json()) as T;
   }
@@ -71,6 +70,28 @@ export class ServiceNowClient {
    *  instance. */
   async testConnection(): Promise<void> {
     await this.request("/api/now/table/incident?sysparm_limit=1");
+  }
+
+  async listIncidents(offset = 0): Promise<ServiceNowIncident[]> {
+    const query = new URLSearchParams({
+      sysparm_query: "active=true^ORDERBYsys_id",
+      sysparm_limit: "100",
+      sysparm_offset: String(offset),
+      sysparm_fields: "sys_id,number,short_description,description,priority,state,category",
+    });
+    return (
+      await this.request<{ result: ServiceNowIncident[] }>(`/api/now/table/incident?${query}`)
+    ).result;
+  }
+
+  async resolveIncident(sysId: string, closeCode: string, notes: string): Promise<void> {
+    if (["6", "7"].includes((await this.getIncident(sysId)).state ?? "")) return;
+    await this.request(`/api/now/table/incident/${encodeURIComponent(sysId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ state: "6", close_code: closeCode, close_notes: notes }),
+    });
+    if (!["6", "7"].includes((await this.getIncident(sysId)).state ?? ""))
+      throw new Error("ServiceNow resolution has not been confirmed");
   }
 
   async getIncident(sysId: string): Promise<ServiceNowIncident> {

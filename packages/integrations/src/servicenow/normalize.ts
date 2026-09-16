@@ -40,7 +40,19 @@ const SERVICENOW_PRIORITY_MAP: Record<string, { severity: Severity; priority: Pr
 export function normalizeServiceNowWebhook(
   payload: ServiceNowWebhookPayload,
 ): Omit<NormalizedIncident, "id" | "tenantId" | "createdAt"> {
-  const mapped = (payload.priority ? SERVICENOW_PRIORITY_MAP[payload.priority] : undefined) ?? {
+  const mapped = (payload.priority
+    ? SERVICENOW_PRIORITY_MAP[
+        (
+          {
+            "1": "1 - Critical",
+            "2": "2 - High",
+            "3": "3 - Moderate",
+            "4": "4 - Low",
+            "5": "5 - Planning",
+          } as Record<string, string>
+        )[payload.priority] ?? payload.priority
+      ]
+    : undefined) ?? {
     severity: "MEDIUM" as const,
     priority: "P3" as const,
   };

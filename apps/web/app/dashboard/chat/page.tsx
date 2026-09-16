@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Suspense,
   useCallback,
   useEffect,
   useRef,
@@ -9,6 +10,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { StatusBadge, domainStatusMap } from "@resolution/ui";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -88,6 +90,16 @@ function groupBySource(incidents: IncidentSummary[]): Map<string, IncidentSummar
 }
 
 export default function ChatPage() {
+  return (
+    <Suspense fallback={<p>Loading incident assistant…</p>}>
+      <IncidentChat />
+    </Suspense>
+  );
+}
+function IncidentChat() {
+  const params = useSearchParams();
+  const [incidentId, setIncidentId] = useState(params.get("incidentId") ?? undefined);
+  const [incidentTitle, setIncidentTitle] = useState<string>();
   const { currentTenantId } = useSession();
   const [messages, setMessages] = useState<unknown[]>([]);
   const [conversationId, setConversationId] = useState<string | undefined>();
@@ -100,16 +112,35 @@ export default function ChatPage() {
     setConversations([]);
     setError(null);
     setSending(false);
+  }, [currentTenantId]);
+  useEffect(() => {
+    let active = true;
     if (currentTenantId)
       void apiRequest<{ conversations: Array<{ id: string; title: string }> }>(
-        "/api/chat/conversations",
+        `/api/chat/conversations${incidentId ? `?incidentId=${encodeURIComponent(incidentId)}` : ""}`,
         { tenantId: currentTenantId },
       )
         .then((r) => {
-          if (tenantRef.current === currentTenantId) setConversations(r.conversations);
+          if (active && tenantRef.current === currentTenantId) setConversations(r.conversations);
         })
-        .catch(() => setError("Could not load saved conversations"));
-  }, [currentTenantId]);
+        .catch(() => {
+          if (active) setError("Could not load saved conversations");
+        });
+    setIncidentTitle(undefined);
+    if (currentTenantId && incidentId)
+      void apiRequest<{ incident: { title: string } }>(`/api/incidents/${incidentId}`, {
+        tenantId: currentTenantId,
+      })
+        .then((r) => {
+          if (active && tenantRef.current === currentTenantId) setIncidentTitle(r.incident.title);
+        })
+        .catch(() => {
+          if (active) setError("This incident is unavailable in the selected workspace");
+        });
+    return () => {
+      active = false;
+    };
+  }, [currentTenantId, incidentId]);
   async function openConversation(id: string) {
     if (!currentTenantId || sending) return;
     if (!id) {
@@ -118,10 +149,14 @@ export default function ChatPage() {
       return;
     }
     try {
-      const r = await apiRequest<{ messages: unknown[] }>(`/api/chat/conversations/${id}`, {
-        tenantId: currentTenantId,
-      });
+      const r = await apiRequest<{ messages: unknown[]; incidentId?: string }>(
+        `/api/chat/conversations/${id}`,
+        {
+          tenantId: currentTenantId,
+        },
+      );
       if (tenantRef.current === currentTenantId) {
+        setIncidentId(r.incidentId ?? undefined);
         setConversationId(id);
         setMessages(r.messages);
       }
@@ -150,7 +185,7 @@ export default function ChatPage() {
       }>("/api/chat", {
         method: "POST",
         tenantId: currentTenantId,
-        body: { conversationId, message: input.trim() },
+        body: { conversationId, incidentId, message: input.trim() },
       });
       if (tenantRef.current !== currentTenantId) return;
       setConversationId(res.conversationId);
@@ -168,7 +203,7 @@ export default function ChatPage() {
     } finally {
       if (tenantRef.current === currentTenantId) setSending(false);
     }
-  }, [currentTenantId, input, messages, sending, conversationId]);
+  }, [currentTenantId, input, messages, sending, conversationId, incidentId]);
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -188,7 +223,9 @@ export default function ChatPage() {
     <div className="flex h-[calc(100vh-8rem)] flex-col gap-4">
       <div>
         <span className="kicker">Assistant</span>
-        <h1 className="mt-1 font-display text-2xl font-semibold text-ink">Chat</h1>
+        <h1 className="mt-1 font-display text-2xl font-semibold text-ink">
+          {incidentId ? "Incident assistant" : "AI assistant"}
+        </h1>
         <p className="mt-1 text-sm text-subink">
           Ask about incidents across every connected platform, or tell it to resolve one — it
           investigates, proposes a remediation (picking whichever connected system can actually
@@ -196,6 +233,46 @@ export default function ChatPage() {
         </p>
       </div>
 
+      {incidentId && (
+        <div className="rounded border border-border bg-surface p-3 text-sm">
+          <span className="kicker">Working on</span>
+          <p className="mt-1 font-medium">{incidentTitle ?? "Loading incident…"}</p>
+          <Link className="text-xs underline" href={`/dashboard/incidents/detail?id=${incidentId}`}>
+            View evidence, actions and recovery checks
+          </Link>
+          <button
+            className="ml-4 text-xs underline"
+            disabled={sending}
+            onClick={() => {
+              setIncidentId(undefined);
+              setMessages([]);
+              setConversationId(undefined);
+            }}
+          >
+            Workspace chat
+          </button>
+        </div>
+      )}
+      <div className="flex flex-wrap gap-2">
+        {(incidentId
+          ? [
+              "Explain the root cause and supporting evidence",
+              "Give me ordered resolution steps, risks and recovery checks",
+              "Propose a repair using the connected tools",
+            ]
+          : ["Show critical open incidents", "Which incidents need human approval?"]
+        ).map((prompt) => (
+          <Button
+            size="sm"
+            variant="secondary"
+            key={prompt}
+            disabled={sending}
+            onClick={() => setInput(prompt)}
+          >
+            {prompt}
+          </Button>
+        ))}
+      </div>
       <div className="flex items-center gap-3">
         <select
           aria-label="Saved conversations"

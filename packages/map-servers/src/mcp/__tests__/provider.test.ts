@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { mcpToolFingerprint } from "../capability";
 import { mcpProvider } from "../provider";
 import type { MapServerContext } from "../../types";
 
@@ -80,6 +81,39 @@ describe("mcpProvider", () => {
     const result = await mcpProvider.healthCheck(ctx);
     expect(result.status).toBe("CONNECTED");
     expect(result.detail).toContain("2 tool(s)");
+  });
+
+  it("attaches a recovery rule only while both tool definitions match administrator review", async () => {
+    const action = { name: "restart", inputSchema: { type: "object" as const } };
+    const health = { name: "health", inputSchema: { type: "object" as const } };
+    const a = await mcpToolFingerprint(action);
+    const h = await mcpToolFingerprint(health);
+    const config = {
+      ...ctx.config,
+      toolReviews: {
+        restart: { access: "WRITE", fingerprint: a },
+        health: { access: "READ", fingerprint: h },
+      },
+      recoveryRules: {
+        restart: {
+          tool: "health",
+          input: {},
+          inputBindings: {},
+          resultPath: "healthy",
+          equals: true,
+          actionFingerprint: a,
+          verifierFingerprint: h,
+        },
+      },
+    };
+    stubMcpServer([action, health]);
+    expect(
+      (await mcpProvider.discoverCapabilities!({ ...ctx, config }))[0]!.verification,
+    ).toBeDefined();
+    stubMcpServer([action, { ...health, description: "Changed behavior" }]);
+    expect(
+      (await mcpProvider.discoverCapabilities!({ ...ctx, config }))[0]!.verification,
+    ).toBeUndefined();
   });
 
   it("rejects config missing a url", () => {

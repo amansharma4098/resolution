@@ -1,6 +1,13 @@
+import type { SecretProvider } from "@resolution/credentials";
+import { syncSource } from "../lib/source-sync";
+import { closeIncidentSource } from "../lib/source-closure";
 import type { PrismaClient } from "@resolution/database";
 import { processIngestionMessage } from "./consumer";
-import type { IncidentIngestionQueue, IncidentInvestigationQueue, IngestionQueueMessage } from "./types";
+import type {
+  IncidentIngestionQueue,
+  IncidentInvestigationQueue,
+  IngestionQueueMessage,
+} from "./types";
 
 /**
  * Tests and local dev don't run under Miniflare's real Queue emulation (plain Vitest +
@@ -17,14 +24,22 @@ import type { IncidentIngestionQueue, IncidentInvestigationQueue, IngestionQueue
 export function createInlineIngestionQueue(
   db: PrismaClient,
   investigationQueue?: IncidentInvestigationQueue,
+  secretProvider?: SecretProvider,
 ): IncidentIngestionQueue {
-  return {
+  const queue: IncidentIngestionQueue = {
     async send(message: IngestionQueueMessage): Promise<void> {
+      if (message.kind) {
+        if (!secretProvider) throw new Error("Source maintenance needs a secret provider");
+        if (message.kind === "SYNC")
+          await syncSource(db, secretProvider, queue, message.integrationId);
+        else if (message.incidentId && message.tenantId)
+          await closeIncidentSource(db, secretProvider, message.tenantId, message.incidentId);
+        return;
+      }
       await processIngestionMessage(db, message, {
-        onIncidentCreated: investigationQueue
-          ? (evt) => investigationQueue.send(evt)
-          : undefined,
+        onIncidentCreated: investigationQueue ? (evt) => investigationQueue.send(evt) : undefined,
       });
     },
   };
+  return queue;
 }

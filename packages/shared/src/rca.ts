@@ -27,5 +27,15 @@ export const RootCauseAnalysisOutput = z.object({
   claims: z.array(RcaClaim).min(1),
   confidence: z.number().min(0).max(1),
   alternativeHypotheses: z.array(z.string()).default([]),
+  recommendedSteps: z
+    .array(
+      z.object({
+        action: z.string().min(1).max(2000),
+        risk: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]),
+        verification: z.string().min(1).max(1000),
+      }),
+    )
+    .max(8)
+    .optional(),
 });
 export type RootCauseAnalysisOutput = z.infer<typeof RootCauseAnalysisOutput>;

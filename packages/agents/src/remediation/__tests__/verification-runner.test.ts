@@ -1,13 +1,20 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
-import { __resetRegistryForTests, registerMapServer, type MapServerProvider } from "@resolution/map-servers";
+import {
+  __resetRegistryForTests,
+  registerMapServer,
+  type MapServerProvider,
+} from "@resolution/map-servers";
 import { runVerification } from "../verification-runner";
 
 const provider: MapServerProvider = {
   type: "FABRIC",
   metadata: { displayName: "Fabric (fixture)", isMock: false },
   configSchema: z.object({}),
-  authAdapter: { authenticationTypes: ["SERVICE_PRINCIPAL"], testConnection: async () => ({ status: "CONNECTED" }) },
+  authAdapter: {
+    authenticationTypes: ["SERVICE_PRINCIPAL"],
+    testConnection: async () => ({ status: "CONNECTED" }),
+  },
   capabilities: [
     {
       key: "retry_pipeline",
@@ -74,6 +81,21 @@ const contextFor = async () => ({
 
 describe("runVerification", () => {
   afterEach(() => __resetRegistryForTests());
+
+  it("refuses a recovery tool whose current permission was revoked", async () => {
+    registerMapServer(provider);
+    expect(
+      await runVerification({
+        mapServerType: "FABRIC",
+        mapServerId: "ms1",
+        capabilityKey: "retry_pipeline",
+        mutatingInput: { pipelineId: "pipeline1" },
+        mutatingOutput: { jobInstanceId: "job1" },
+        contextFor,
+        canReadCapability: async () => false,
+      }),
+    ).toBeNull();
+  });
 
   it("classifies PASSED when the companion capability reports success", async () => {
     registerMapServer(provider);

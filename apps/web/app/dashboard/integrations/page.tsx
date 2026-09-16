@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { StatusBadge, domainStatusMap } from "@resolution/ui";
 import { Button } from "@/components/ui/button";
@@ -10,8 +11,23 @@ import { Select } from "@/components/ui/select";
 import { ApiError, apiRequest } from "@/lib/api-client";
 import { useSession } from "@/hooks/use-session";
 
-const INCIDENT_SOURCE_TYPES = ["JIRA", "SERVICENOW", "PAGERDUTY", "WEBHOOK", "DATADOG"] as const;
+const INCIDENT_SOURCE_TYPES = [
+  "JIRA",
+  "AZURE_MONITOR",
+  "SERVICENOW",
+  "DATADOG",
+  "WEBHOOK",
+] as const;
 const WEBHOOK_BASED = new Set(["JIRA", "SERVICENOW", "WEBHOOK", "DATADOG"]);
+
+const POLLING = new Set(["JIRA", "AZURE_MONITOR", "SERVICENOW"]);
+const SOURCE_NAMES: Record<string, string> = {
+  JIRA: "Jira Cloud",
+  AZURE_MONITOR: "Azure Monitor",
+  SERVICENOW: "ServiceNow",
+  DATADOG: "Datadog",
+  WEBHOOK: "Other platform (webhook)",
+};
 
 interface IntegrationSummary {
   id: string;
@@ -19,6 +35,10 @@ interface IntegrationSummary {
   name: string;
   status: "CONNECTED" | "DEGRADED" | "DISCONNECTED" | "UNCONFIGURED";
   config: Record<string, unknown>;
+  credentialId?: string;
+  syncEnabled?: boolean;
+  lastSyncedAt?: string;
+  syncError?: string;
 }
 
 interface CredentialOption {
@@ -33,8 +53,13 @@ export default function IntegrationsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState<IntegrationSummary | undefined>();
   const [testDetail, setTestDetail] = useState<Record<string, string>>({});
-  const [webhookNotice, setWebhookNotice] = useState<{ url: string; secret: string; type: string } | null>(null);
+  const [webhookNotice, setWebhookNotice] = useState<{
+    url: string;
+    secret: string;
+    type: string;
+  } | null>(null);
 
   const load = useCallback(async () => {
     if (!currentTenantId) return;
@@ -89,19 +114,58 @@ export default function IntegrationsPage() {
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <div>
-          <span className="kicker">Configuration</span>
-          <h1 className="mt-1 font-display text-2xl font-semibold text-ink">Integrations</h1>
+          <span className="kicker">1 · Detect</span>
+          <h1 className="mt-1 font-display text-2xl font-semibold text-ink">Incident sources</h1>
           <p className="mt-1 text-sm text-subink">
-            Where incidents originate. Jira, ServiceNow and Datadog are all real end to end
-            (connectivity test hits the real API — Datadog monitors auto-create incidents,
-            which the AI agent can then auto-resolve). A generic Webhook source is real too
-            — for anything without a bespoke connector, POST your own JSON to it. PagerDuty
-            is next.
+            Automatically collect incidents from Jira, Azure Monitor and ServiceNow every five
+            minutes. Receive Datadog and other platform alerts by webhook. New incidents start an AI
+            investigation.
           </p>
         </div>
-        <Button onClick={() => setShowForm((s) => !s)}>{showForm ? "Cancel" : "New integration"}</Button>
+        <Button
+          onClick={() => {
+            setEditing(undefined);
+            setShowForm((s) => !s);
+          }}
+        >
+          {showForm ? "Cancel" : "Connect source"}
+        </Button>
       </div>
 
+      <div className="grid gap-3 sm:grid-cols-3">
+        {[
+          {
+            title: "1. Collect alerts",
+            text: "Connect a source and choose the service and environment.",
+          },
+          {
+            title: "2. Investigate together",
+            text: "The agent gathers evidence and recommends resolution steps.",
+          },
+          {
+            title: "3. Repair and verify",
+            text: "Approved MCP tools apply the fix. Recovery checks gate closure.",
+          },
+        ].map((step) => (
+          <Card key={step.title}>
+            <CardContent className="py-4">
+              <p className="font-medium text-ink">{step.title}</p>
+              <p className="mt-1 text-sm text-subink">{step.text}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+      <p className="text-sm text-subink">
+        Next:{" "}
+        <Link className="underline" href="/dashboard/map-servers">
+          connect investigation and repair tools
+        </Link>
+        , then{" "}
+        <Link className="underline" href="/dashboard/incidents">
+          open the incident inbox
+        </Link>
+        .
+      </p>
       {error && <p className="text-sm text-error">{error}</p>}
 
       {webhookNotice && (
@@ -112,15 +176,21 @@ export default function IntegrationsPage() {
                 ? "Send events here, with header"
                 : webhookNotice.type === "DATADOG"
                   ? "In Datadog, add a Webhooks integration pointing here, with a custom header"
-                  : `Configure your ${webhookNotice.type === "JIRA" ? "Jira" : "ServiceNow"} instance to send its webhook here, with header`}{" "}
-              <code className="rounded bg-white/10 px-1 py-0.5 font-mono text-xs">X-Webhook-Secret</code>{" "}
+                  : `Optional: receive faster updates from ${webhookNotice.type === "JIRA" ? "Jira" : "ServiceNow"} by sending webhooks here, with header`}{" "}
+              <code className="rounded bg-white/10 px-1 py-0.5 font-mono text-xs">
+                X-Webhook-Secret
+              </code>{" "}
               set to the value below — shown once, won&apos;t be shown again:
             </p>
-            <p className="rounded bg-white/10 px-3 py-2 font-mono text-xs break-all">{webhookNotice.url}</p>
-            <p className="rounded bg-white/10 px-3 py-2 font-mono text-xs break-all">{webhookNotice.secret}</p>
+            <p className="rounded bg-white/10 px-3 py-2 font-mono text-xs break-all">
+              {webhookNotice.url}
+            </p>
+            <p className="rounded bg-white/10 px-3 py-2 font-mono text-xs break-all">
+              {webhookNotice.secret}
+            </p>
             {webhookNotice.type === "WEBHOOK" && (
               <pre className="overflow-x-auto rounded bg-white/10 px-3 py-2 font-mono text-xs">
-{`POST, with X-Webhook-Secret set as above:
+                {`POST, with X-Webhook-Secret set as above:
 {
   "externalId": "your-own-idempotency-key",
   "title": "Disk usage above 95%",
@@ -141,11 +211,11 @@ export default function IntegrationsPage() {
                   substitutes the <span className="font-mono">$VARIABLE</span> tokens before
                   sending) — then add it as a notification target on any monitor, e.g.{" "}
                   <span className="font-mono">@webhook-resolution</span>. Only Triggered/
-                  Re-Triggered alerts create an incident; other transitions (Recovered, Warn,
-                  …) update nothing.
+                  Re-Triggered alerts create an incident; other transitions (Recovered, Warn, …)
+                  update nothing.
                 </p>
                 <pre className="overflow-x-auto rounded bg-white/10 px-3 py-2 font-mono text-xs">
-{`{
+                  {`{
   "alert_id": "$ALERT_ID",
   "alert_transition": "$ALERT_TRANSITION",
   "alert_title": "$ALERT_TITLE",
@@ -159,7 +229,12 @@ export default function IntegrationsPage() {
                 </pre>
               </>
             )}
-            <Button size="sm" variant="secondary" className="self-start" onClick={() => setWebhookNotice(null)}>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="self-start"
+              onClick={() => setWebhookNotice(null)}
+            >
               Dismiss
             </Button>
           </CardContent>
@@ -168,6 +243,8 @@ export default function IntegrationsPage() {
 
       {showForm && (
         <CreateIntegrationForm
+          key={editing?.id ?? "new"}
+          existing={editing}
           credentials={credentials}
           onCreated={(webhook) => {
             setShowForm(false);
@@ -183,7 +260,7 @@ export default function IntegrationsPage() {
       ) : integrations.length === 0 ? (
         <Card>
           <CardContent className="py-8 text-center text-sm text-subink">
-            No integrations configured yet.
+            Connect your first source to start collecting incidents automatically.
           </CardContent>
         </Card>
       ) : (
@@ -194,12 +271,81 @@ export default function IntegrationsPage() {
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-ink">{i.name}</span>
-                    <StatusBadge status={domainStatusMap.connection[i.status]}>{i.status}</StatusBadge>
+                    <StatusBadge status={domainStatusMap.connection[i.status]}>
+                      {i.status}
+                    </StatusBadge>
                   </div>
-                  <span className="font-mono text-xs text-subink">{i.type}</span>
+                  <span className="font-mono text-xs text-subink">
+                    {SOURCE_NAMES[i.type] ?? i.type} ·{" "}
+                    {i.syncEnabled
+                      ? "Collecting every 5 minutes"
+                      : POLLING.has(i.type)
+                        ? "Collection paused"
+                        : "Webhook delivery"}
+                  </span>
+                  <p className="text-xs text-subink">
+                    {i.lastSyncedAt
+                      ? `Last collection: ${new Date(i.lastSyncedAt).toLocaleString()}`
+                      : "No scheduled collection completed yet"}{" "}
+                    · Source closure {i.config.autoClose ? "enabled after verification" : "off"}
+                  </p>
+                  {i.syncError && <p className="text-xs text-error">{i.syncError}</p>}
                   {testDetail[i.id] && <p className="text-xs text-subink">{testDetail[i.id]}</p>}
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => {
+                      setEditing(i);
+                      setShowForm(true);
+                    }}
+                  >
+                    Settings
+                  </Button>
+                  {POLLING.has(i.type) && (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={!i.syncEnabled}
+                        onClick={async () => {
+                          try {
+                            await apiRequest(`/api/integrations/${i.id}/sync`, {
+                              method: "POST",
+                              tenantId: currentTenantId!,
+                            });
+                            setTestDetail((d) => ({
+                              ...d,
+                              [i.id]: "Collection queued. Results will appear shortly.",
+                            }));
+                          } catch (err) {
+                            setError(err instanceof Error ? err.message : "Collection failed");
+                          }
+                        }}
+                      >
+                        Collect now
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={async () => {
+                          try {
+                            await apiRequest(`/api/integrations/${i.id}`, {
+                              method: "PATCH",
+                              tenantId: currentTenantId!,
+                              body: { syncEnabled: !i.syncEnabled },
+                            });
+                            await load();
+                          } catch (err) {
+                            setError(err instanceof Error ? err.message : "Update failed");
+                          }
+                        }}
+                      >
+                        {i.syncEnabled ? "Pause" : "Resume"}
+                      </Button>
+                    </>
+                  )}
                   <Button size="sm" variant="secondary" onClick={() => void handleTest(i.id)}>
                     Test
                   </Button>
@@ -218,18 +364,39 @@ export default function IntegrationsPage() {
 
 function CreateIntegrationForm({
   credentials,
+  existing,
   onCreated,
   onError,
 }: {
   credentials: CredentialOption[];
+  existing?: IntegrationSummary;
   onCreated: (webhook: { url: string; secret: string; type: string } | null) => void;
   onError: (msg: string) => void;
 }) {
   const { currentTenantId } = useSession();
-  const [type, setType] = useState<(typeof INCIDENT_SOURCE_TYPES)[number]>("JIRA");
-  const [name, setName] = useState("");
-  const [credentialId, setCredentialId] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
+  const [type, setType] = useState<(typeof INCIDENT_SOURCE_TYPES)[number]>(
+    (existing?.type as (typeof INCIDENT_SOURCE_TYPES)[number]) ?? "JIRA",
+  );
+  const [name, setName] = useState(existing?.name ?? "");
+  const [credentialId, setCredentialId] = useState(existing?.credentialId ?? "");
+  const [baseUrl, setBaseUrl] = useState(
+    String(existing?.config.baseUrl ?? existing?.config.site ?? ""),
+  );
+  const [subscriptionId, setSubscriptionId] = useState(
+    String(existing?.config.subscriptionId ?? ""),
+  );
+  const [environment, setEnvironment] = useState(
+    String(existing?.config.environment ?? "production"),
+  );
+  const [service, setService] = useState(String(existing?.config.service ?? ""));
+  const [jql, setJql] = useState(
+    String(existing?.config.jql ?? "statusCategory != Done ORDER BY created ASC"),
+  );
+  const [syncEnabled, setSyncEnabled] = useState(existing?.syncEnabled ?? true);
+  const [autoClose, setAutoClose] = useState(existing?.config.autoClose === true);
+  const [closeValue, setCloseValue] = useState(
+    String(existing?.config.resolutionTransitionId ?? existing?.config.closeCode ?? ""),
+  );
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
@@ -237,17 +404,33 @@ function CreateIntegrationForm({
     if (!currentTenantId) return;
     setSubmitting(true);
     try {
-      const config: Record<string, unknown> = {};
+      const config: Record<string, unknown> = {
+        environment,
+        service,
+        autoClose: POLLING.has(type) && autoClose,
+      };
+      if (type === "AZURE_MONITOR") config.subscriptionId = subscriptionId;
+      if (type === "JIRA") {
+        config.jql = jql;
+        config.resolutionTransitionId = closeValue;
+      }
+      if (type === "SERVICENOW") config.closeCode = closeValue;
       if ((type === "JIRA" || type === "SERVICENOW") && baseUrl) config.baseUrl = baseUrl;
       if (type === "DATADOG" && baseUrl) config.site = baseUrl;
 
       const res = await apiRequest<{
         integration: IntegrationSummary;
         webhookUrl?: string;
-      }>("/api/integrations", {
-        method: "POST",
+      }>(existing ? `/api/integrations/${existing.id}` : "/api/integrations", {
+        method: existing ? "PATCH" : "POST",
         tenantId: currentTenantId,
-        body: { type, name, credentialId: credentialId || undefined, config },
+        body: {
+          ...(existing ? {} : { type }),
+          name,
+          credentialId: credentialId || undefined,
+          config,
+          syncEnabled: POLLING.has(type) && syncEnabled,
+        },
       });
 
       onCreated(
@@ -265,7 +448,7 @@ function CreateIntegrationForm({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>New integration</CardTitle>
+        <CardTitle>{existing ? "Source settings" : "Connect a source"}</CardTitle>
         <CardDescription>Where incidents will come from.</CardDescription>
       </CardHeader>
       <CardContent>
@@ -275,25 +458,35 @@ function CreateIntegrationForm({
               <Label htmlFor="int-type">Type</Label>
               <Select
                 id="int-type"
+                disabled={Boolean(existing)}
                 value={type}
                 onChange={(e) => setType(e.target.value as (typeof INCIDENT_SOURCE_TYPES)[number])}
               >
                 {INCIDENT_SOURCE_TYPES.map((t) => (
                   <option key={t} value={t}>
-                    {t}
+                    {SOURCE_NAMES[t]}
                   </option>
                 ))}
               </Select>
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="int-name">Name</Label>
-              <Input id="int-name" required value={name} onChange={(e) => setName(e.target.value)} />
+              <Input
+                id="int-name"
+                required
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
             </div>
           </div>
           {(type === "JIRA" || type === "SERVICENOW" || type === "DATADOG") && (
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="int-base-url">
-                {type === "JIRA" ? "Jira site URL" : type === "SERVICENOW" ? "ServiceNow instance URL" : "Datadog site (optional)"}
+                {type === "JIRA"
+                  ? "Jira site URL"
+                  : type === "SERVICENOW"
+                    ? "ServiceNow instance URL"
+                    : "Datadog site (optional)"}
               </Label>
               <Input
                 id="int-base-url"
@@ -309,9 +502,97 @@ function CreateIntegrationForm({
               />
             </div>
           )}
+          {type === "AZURE_MONITOR" && (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="subscription">Azure subscription ID</Label>
+              <Input
+                id="subscription"
+                required
+                value={subscriptionId}
+                onChange={(e) => setSubscriptionId(e.target.value)}
+              />
+              <p className="text-xs text-subink">
+                Use a SERVICE_PRINCIPAL credential with directory tenant ID, client ID and client
+                secret. Grant Monitoring Reader to collect alerts; grant alert state write
+                permission only if enabling source closure.
+              </p>
+            </div>
+          )}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="source-env">Environment</Label>
+              <Input
+                id="source-env"
+                required
+                value={environment}
+                onChange={(e) => setEnvironment(e.target.value)}
+              />
+              <p className="text-xs text-subink">Match this name on your MCP connections.</p>
+            </div>
+            <div>
+              <Label htmlFor="source-service">Default service</Label>
+              <Input
+                id="source-service"
+                value={service}
+                onChange={(e) => setService(e.target.value)}
+              />
+            </div>
+          </div>
+          {type === "JIRA" && (
+            <div>
+              <Label htmlFor="source-jql">Jira collection filter (JQL)</Label>
+              <Input id="source-jql" value={jql} onChange={(e) => setJql(e.target.value)} />
+              <p className="text-xs text-subink">
+                Narrow to your incident project or issue type. Done issues are excluded.
+              </p>
+            </div>
+          )}
+          {POLLING.has(type) && (
+            <div className="flex flex-col gap-3 rounded border border-border p-4">
+              <label className="flex gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={syncEnabled}
+                  onChange={(e) => setSyncEnabled(e.target.checked)}
+                />
+                Automatically collect every five minutes
+              </label>
+              <label className="flex gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={autoClose}
+                  onChange={(e) => setAutoClose(e.target.checked)}
+                />
+                Update the source as resolved after verified recovery
+              </label>
+              {autoClose && type !== "AZURE_MONITOR" && (
+                <div>
+                  <Label htmlFor="close-value">
+                    {type === "JIRA" ? "Jira Done transition ID" : "ServiceNow close code"}
+                  </Label>
+                  <Input
+                    id="close-value"
+                    required
+                    value={closeValue}
+                    onChange={(e) => setCloseValue(e.target.value)}
+                  />
+                </div>
+              )}
+              {autoClose && type === "AZURE_MONITOR" && (
+                <p className="text-xs text-subink">
+                  Azure must also report the monitor condition as recovered before FixCaptain closes
+                  the alert.
+                </p>
+              )}
+            </div>
+          )}
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="int-credential">Credential</Label>
-            <Select id="int-credential" value={credentialId} onChange={(e) => setCredentialId(e.target.value)}>
+            <Select
+              id="int-credential"
+              value={credentialId}
+              onChange={(e) => setCredentialId(e.target.value)}
+            >
               <option value="">None</option>
               {credentials.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -319,38 +600,39 @@ function CreateIntegrationForm({
                 </option>
               ))}
             </Select>
+            <Link href="/dashboard/credentials" className="text-xs underline">
+              Manage credentials in the encrypted vault
+            </Link>
             {type === "JIRA" && (
               <p className="text-xs text-subink">
-                Use a BASIC_AUTH credential — username is your Atlassian account email,
-                password is an API token from id.atlassian.com/manage-profile/security/api-tokens.
+                Use a BASIC_AUTH credential — username is your Atlassian account email, password is
+                an API token from id.atlassian.com/manage-profile/security/api-tokens.
               </p>
             )}
             {type === "SERVICENOW" && (
               <p className="text-xs text-subink">
-                Use a BASIC_AUTH credential with a ServiceNow username and password that
-                has Table API access.
+                Use a BASIC_AUTH credential with a ServiceNow username and password that has Table
+                API access.
               </p>
             )}
             {type === "DATADOG" && (
               <p className="text-xs text-subink">
-                Use a CUSTOM credential with fields <span className="font-mono">apiKey</span>{" "}
-                and <span className="font-mono">applicationKey</span> — an API key and an
-                Application key from Organization Settings in Datadog. This one connection
-                covers both directions: monitors auto-create incidents here, and the agent
-                can use the same credential to query metrics/logs and mute monitors during
-                investigation and remediation — a matching MCP Server is set up for you
-                automatically, nothing to configure twice.
+                Use a CUSTOM credential with fields <span className="font-mono">apiKey</span> and{" "}
+                <span className="font-mono">applicationKey</span> — an API key and an Application
+                key from Organization Settings in Datadog. This one connection supports incident
+                delivery and agent access. Review and enable the specific tools under MCP
+                Connections after setup.
               </p>
             )}
           </div>
           {WEBHOOK_BASED.has(type) && (
             <p className="text-xs text-subink">
-              A webhook URL and secret are generated after creation — configure your source
-              system&apos;s outgoing webhook with them.
+              {POLLING.has(type) ? "Optional: a" : "A"} webhook URL and secret are generated after
+              creation — configure your source system&apos;s outgoing webhook with them.
             </p>
           )}
           <Button type="submit" disabled={submitting} className="self-start">
-            {submitting ? "Creating…" : "Create integration"}
+            {submitting ? "Saving…" : existing ? "Save settings" : "Connect source"}
           </Button>
         </form>
       </CardContent>

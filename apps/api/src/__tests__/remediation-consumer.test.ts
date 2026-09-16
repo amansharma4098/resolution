@@ -150,6 +150,15 @@ describe("processRemediationMessage", () => {
     await db.mapServerCapability.create({
       data: {
         mapServerId: mapServer.id,
+        key: "get_pipeline_run",
+        riskLevel: "LOW",
+        mutating: false,
+        enabled: true,
+      },
+    });
+    await db.mapServerCapability.create({
+      data: {
+        mapServerId: mapServer.id,
         key: "retry_pipeline",
         riskLevel: "LOW",
         mutating: true,
@@ -186,6 +195,15 @@ describe("processRemediationMessage", () => {
     await db.mapServerCapability.create({
       data: {
         mapServerId: mapServer.id,
+        key: "get_pipeline_run",
+        riskLevel: "LOW",
+        mutating: false,
+        enabled: true,
+      },
+    });
+    await db.mapServerCapability.create({
+      data: {
+        mapServerId: mapServer.id,
         key: "retry_pipeline",
         riskLevel: "LOW",
         mutating: true,
@@ -210,6 +228,15 @@ describe("processRemediationMessage", () => {
     await db.organization.update({ where: { id: org.id }, data: { resolutionMode: "AUTONOMOUS" } });
     const mapServer = await db.mapServer.create({
       data: { tenantId: org.id, type: "FABRIC", name: "Prod Fabric", environments: ["prod"] },
+    });
+    await db.mapServerCapability.create({
+      data: {
+        mapServerId: mapServer.id,
+        key: "get_pipeline_run",
+        riskLevel: "LOW",
+        mutating: false,
+        enabled: true,
+      },
     });
     await db.mapServerCapability.create({
       data: {
@@ -265,6 +292,15 @@ describe("processRemediationMessage", () => {
     await db.mapServerCapability.create({
       data: {
         mapServerId: mapServer.id,
+        key: "get_pipeline_run",
+        riskLevel: "LOW",
+        mutating: false,
+        enabled: true,
+      },
+    });
+    await db.mapServerCapability.create({
+      data: {
+        mapServerId: mapServer.id,
         key: "retry_pipeline",
         riskLevel: "LOW",
         mutating: true,
@@ -300,6 +336,15 @@ describe("processRemediationMessage", () => {
     await db.organization.update({ where: { id: org.id }, data: { resolutionMode: "AUTONOMOUS" } });
     const mapServer = await db.mapServer.create({
       data: { tenantId: org.id, type: "FABRIC", name: "Prod Fabric", environments: ["prod"] },
+    });
+    await db.mapServerCapability.create({
+      data: {
+        mapServerId: mapServer.id,
+        key: "get_pipeline_run",
+        riskLevel: "LOW",
+        mutating: false,
+        enabled: true,
+      },
     });
     await db.mapServerCapability.create({
       data: {
@@ -363,6 +408,15 @@ describe("processRemediationMessage", () => {
     await db.mapServerCapability.create({
       data: {
         mapServerId: mapServer.id,
+        key: "get_pipeline_run",
+        riskLevel: "LOW",
+        mutating: false,
+        enabled: true,
+      },
+    });
+    await db.mapServerCapability.create({
+      data: {
+        mapServerId: mapServer.id,
         key: "retry_pipeline",
         riskLevel: "LOW",
         mutating: true,
@@ -403,6 +457,15 @@ describe("processRemediationMessage", () => {
     await db.organization.update({ where: { id: org.id }, data: { resolutionMode: "AUTONOMOUS" } });
     const mapServer = await db.mapServer.create({
       data: { tenantId: org.id, type: "FABRIC", name: "Prod Fabric", environments: ["prod"] },
+    });
+    await db.mapServerCapability.create({
+      data: {
+        mapServerId: mapServer.id,
+        key: "get_pipeline_run",
+        riskLevel: "LOW",
+        mutating: false,
+        enabled: true,
+      },
     });
     await db.mapServerCapability.create({
       data: {

@@ -110,6 +110,12 @@ describe("metrics routes", () => {
       body: { type: "KUBERNETES", name: "Prod K8s", environments: ["prod"], config: {} },
     });
     const mapServer = (await jsonOf(msRes)).mapServer;
+    await req(app, `/api/map-servers/${mapServer.id}/capabilities/check_health`, {
+      method: "PATCH",
+      cookie,
+      tenantId,
+      body: { enabled: true },
+    });
     await req(app, `/api/map-servers/${mapServer.id}/capabilities/restart_pod`, {
       method: "PATCH",
       cookie,

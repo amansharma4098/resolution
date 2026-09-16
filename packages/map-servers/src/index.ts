@@ -15,3 +15,5 @@ export type { McpTool, McpToolCallResult } from "./mcp";
 
 export { mcpToolFingerprint } from "./mcp/capability";
 export { mcpClientFromContext } from "./mcp/context";
+
+export { McpRecoveryRuleSchema } from "./mcp/verification";

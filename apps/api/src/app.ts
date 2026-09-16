@@ -133,7 +133,8 @@ export function buildApp({
       anthropicModel: env.ANTHROPIC_MODEL,
       secretProvider: resolvedSecretProvider,
     });
-  const resolvedQueue = incidentIngestionQueue ?? createInlineIngestionQueue(db);
+  const resolvedQueue =
+    incidentIngestionQueue ?? createInlineIngestionQueue(db, undefined, resolvedSecretProvider);
   const organizationRepository = new OrganizationRepository(db);
 
   // Request IDs threaded through logs and returned to the client — ARCHITECTURE.md §11.
@@ -186,6 +187,7 @@ export function buildApp({
     "/api/integrations",
     buildIntegrationRoutes({
       db,
+      ingestionQueue: resolvedQueue,
       env,
       secretProvider: resolvedSecretProvider,
       organizationRepository,

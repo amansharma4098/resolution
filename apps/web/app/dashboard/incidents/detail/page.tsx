@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { StatusBadge, domainStatusMap } from "@resolution/ui";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,6 +23,8 @@ interface IncidentDetail {
   resource: string | null;
   metadata: Record<string, unknown>;
   createdAt: string;
+  sourceSyncStatus?: string;
+  sourceSyncError?: string;
 }
 
 interface Evidence {
@@ -47,6 +50,7 @@ interface Rca {
   claims: RcaClaim[];
   confidence: number;
   alternativeHypotheses: string[];
+  recommendedSteps?: Array<{ action: string; risk: string; verification: string }>;
   createdAt: string;
 }
 
@@ -126,7 +130,10 @@ interface IncidentDetailResponse {
 // with canTransition() itself and returns 409 if this ever drifts out of sync.
 const INVESTIGATABLE_STATUSES = new Set(["NEW", "ESCALATED", "FAILED"]);
 
-const REMEDIATION_STATUS_MAP: Record<RemediationAction["status"], "success" | "warning" | "error" | "critical" | "info" | "neutral"> = {
+const REMEDIATION_STATUS_MAP: Record<
+  RemediationAction["status"],
+  "success" | "warning" | "error" | "critical" | "info" | "neutral"
+> = {
   PENDING: "neutral",
   APPROVED: "info",
   EXECUTING: "info",
@@ -135,7 +142,10 @@ const REMEDIATION_STATUS_MAP: Record<RemediationAction["status"], "success" | "w
   ROLLED_BACK: "warning",
 };
 
-const VERIFICATION_STATUS_MAP: Record<Verification["status"], "success" | "warning" | "error" | "critical" | "info" | "neutral"> = {
+const VERIFICATION_STATUS_MAP: Record<
+  Verification["status"],
+  "success" | "warning" | "error" | "critical" | "info" | "neutral"
+> = {
   PENDING: "neutral",
   PASSED: "success",
   FAILED: "critical",
@@ -191,7 +201,10 @@ function IncidentDetailContent() {
       // in whatever status it's at until the queue consumer actually runs. Reloading right
       // after mainly matters for local/test setups, where the inline stand-in processes
       // synchronously; a real deployment needs a manual refresh or poll to see the result.
-      await apiRequest(`/api/incidents/${id}/investigate`, { method: "POST", tenantId: currentTenantId });
+      await apiRequest(`/api/incidents/${id}/investigate`, {
+        method: "POST",
+        tenantId: currentTenantId,
+      });
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to start investigation");
@@ -220,7 +233,10 @@ function IncidentDetailContent() {
     if (!currentTenantId || !id) return;
     setDraftingPostmortem(true);
     try {
-      await apiRequest(`/api/incidents/${id}/postmortem/regenerate`, { method: "POST", tenantId: currentTenantId });
+      await apiRequest(`/api/incidents/${id}/postmortem/regenerate`, {
+        method: "POST",
+        tenantId: currentTenantId,
+      });
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to draft a postmortem");
@@ -262,7 +278,9 @@ function IncidentDetailContent() {
         <span className="kicker">Incident</span>
         <div className="mt-1 flex flex-wrap items-center gap-2">
           <h1 className="font-display text-2xl font-semibold text-ink">{incident.title}</h1>
-          <StatusBadge status={domainStatusMap.severity[incident.severity]}>{incident.severity}</StatusBadge>
+          <StatusBadge status={domainStatusMap.severity[incident.severity]}>
+            {incident.severity}
+          </StatusBadge>
           <StatusBadge status={domainStatusMap.incidentStatus[incident.status] ?? "neutral"}>
             {incident.status}
           </StatusBadge>
@@ -271,6 +289,39 @@ function IncidentDetailContent() {
           {incident.source} · {incident.externalId} · {incident.priority}
         </p>
       </div>
+
+      <Card>
+        <CardContent className="py-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="font-medium text-ink">
+                Investigate → Plan → Repair → Verify → Close source
+              </p>
+              <p className="mt-1 text-sm text-subink">
+                Ask the agent for the evidence, resolution steps, or a repair proposal for this
+                incident.
+              </p>
+            </div>
+            <Link
+              className="rounded bg-navy px-4 py-2 text-sm text-white"
+              href={`/dashboard/chat?incidentId=${incident.id}`}
+            >
+              Open incident assistant
+            </Link>
+          </div>
+          {incident.status === "RESOLVED" && (
+            <p className="mt-3 text-sm text-subink">
+              Source update:{" "}
+              {incident.sourceSyncStatus === "SYNCED"
+                ? "Confirmed resolved in the source platform"
+                : incident.sourceSyncStatus === "NOT_REQUESTED"
+                  ? "Automatic source closure is off"
+                  : "Waiting for source confirmation"}
+              {incident.sourceSyncError ? ` — ${incident.sourceSyncError}` : ""}
+            </p>
+          )}
+        </CardContent>
+      </Card>
 
       {INVESTIGATABLE_STATUSES.has(incident.status) && (
         <div>
@@ -293,7 +344,9 @@ function IncidentDetailContent() {
           <CardTitle>Description</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="whitespace-pre-wrap text-sm text-ink">{incident.description || "No description."}</p>
+          <p className="whitespace-pre-wrap text-sm text-ink">
+            {incident.description || "No description."}
+          </p>
         </CardContent>
       </Card>
 
@@ -331,7 +384,8 @@ function IncidentDetailContent() {
                 <p className="text-sm text-ink">{rca.summary}</p>
               </div>
               <p className="text-xs text-subink">
-                Overall confidence: {Math.round(rca.confidence * 100)}% · {new Date(rca.createdAt).toLocaleString()}
+                Overall confidence: {Math.round(rca.confidence * 100)}% ·{" "}
+                {new Date(rca.createdAt).toLocaleString()}
               </p>
               <ul className="flex flex-col gap-2">
                 {rca.claims.map((claim, i) => (
@@ -340,7 +394,9 @@ function IncidentDetailContent() {
                       <StatusBadge status={domainStatusMap.rcaClaimType[claim.claimType]}>
                         {claim.claimType}
                       </StatusBadge>
-                      <span className="text-xs text-subink">{Math.round(claim.confidence * 100)}% confidence</span>
+                      <span className="text-xs text-subink">
+                        {Math.round(claim.confidence * 100)}% confidence
+                      </span>
                     </div>
                     <p className="mt-1 text-sm text-ink">{claim.text}</p>
                     {claim.evidenceIds.length > 0 && (
@@ -369,6 +425,29 @@ function IncidentDetailContent() {
         </CardContent>
       </Card>
 
+      {Boolean(rca?.recommendedSteps?.length) && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Recommended resolution steps</CardTitle>
+            <CardDescription>
+              Suggested by the investigation agent. Execution is recorded separately below.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ol className="list-decimal space-y-3 pl-5">
+              {rca!.recommendedSteps!.map((step, index) => (
+                <li key={index} className="text-sm">
+                  <p className="font-medium text-ink">{step.action}</p>
+                  <p className="mt-1 text-xs text-subink">
+                    Risk: {step.risk} · Verify: {step.verification}
+                  </p>
+                </li>
+              ))}
+            </ol>
+          </CardContent>
+        </Card>
+      )}
+
       {similarIncidents.length > 0 && (
         <Card>
           <CardHeader>
@@ -380,13 +459,23 @@ function IncidentDetailContent() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-sm font-medium text-ink">{s.title}</p>
                   <StatusBadge
-                    status={s.outcome === "succeeded" ? "success" : s.outcome === "failed" ? "critical" : "neutral"}
+                    status={
+                      s.outcome === "succeeded"
+                        ? "success"
+                        : s.outcome === "failed"
+                          ? "critical"
+                          : "neutral"
+                    }
                   >
                     {s.outcome}
                   </StatusBadge>
                 </div>
-                {s.rootCause && <p className="mt-1 text-sm text-subink">Root cause: {s.rootCause}</p>}
-                {s.actionTaken && <p className="mt-1 text-sm text-subink">Action taken: {s.actionTaken}</p>}
+                {s.rootCause && (
+                  <p className="mt-1 text-sm text-subink">Root cause: {s.rootCause}</p>
+                )}
+                {s.actionTaken && (
+                  <p className="mt-1 text-sm text-subink">Action taken: {s.actionTaken}</p>
+                )}
                 <p className="mt-1 font-mono text-xs text-subink">
                   matched on: {s.matchedOn.join(", ")}
                   {s.resolvedAt && ` · resolved ${new Date(s.resolvedAt).toLocaleDateString()}`}
@@ -409,17 +498,27 @@ function IncidentDetailContent() {
               <div key={resolution.id} className="rounded border border-border bg-background p-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="text-sm font-medium text-ink">{resolution.proposedAction}</p>
-                  <StatusBadge status={domainStatusMap.severity[resolution.riskLevel as keyof typeof domainStatusMap.severity] ?? "neutral"}>
+                  <StatusBadge
+                    status={
+                      domainStatusMap.severity[
+                        resolution.riskLevel as keyof typeof domainStatusMap.severity
+                      ] ?? "neutral"
+                    }
+                  >
                     {resolution.riskLevel}
                   </StatusBadge>
                 </div>
-                <p className="mt-1 text-xs text-subink">{new Date(resolution.createdAt).toLocaleString()}</p>
+                <p className="mt-1 text-xs text-subink">
+                  {new Date(resolution.createdAt).toLocaleString()}
+                </p>
 
                 {resolution.actions.map((action) => (
                   <div key={action.id} className="mt-3 rounded border border-border bg-surface p-3">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-xs font-medium text-subink">Action</span>
-                      <StatusBadge status={REMEDIATION_STATUS_MAP[action.status]}>{action.status}</StatusBadge>
+                      <StatusBadge status={REMEDIATION_STATUS_MAP[action.status]}>
+                        {action.status}
+                      </StatusBadge>
                       {action.executedAt && (
                         <span className="text-xs text-subink">
                           executed {new Date(action.executedAt).toLocaleString()}
@@ -471,7 +570,9 @@ function IncidentDetailContent() {
                         <ul className="mt-1 flex flex-col gap-1">
                           {action.verifications.map((v) => (
                             <li key={v.id} className="flex items-center gap-2 text-xs">
-                              <StatusBadge status={VERIFICATION_STATUS_MAP[v.status]}>{v.status}</StatusBadge>
+                              <StatusBadge status={VERIFICATION_STATUS_MAP[v.status]}>
+                                {v.status}
+                              </StatusBadge>
                               <span className="text-subink">
                                 attempt {v.attempt} · {new Date(v.checkedAt).toLocaleString()}
                               </span>
@@ -498,7 +599,12 @@ function IncidentDetailContent() {
                 : "Drafted automatically once this incident resolves — or generate one now to see where things stand."}
             </CardDescription>
           </div>
-          <Button size="sm" variant="secondary" disabled={draftingPostmortem} onClick={() => void regeneratePostmortem()}>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={draftingPostmortem}
+            onClick={() => void regeneratePostmortem()}
+          >
             {draftingPostmortem ? "Drafting…" : postmortem ? "Regenerate" : "Generate"}
           </Button>
         </CardHeader>
@@ -532,7 +638,8 @@ function IncidentDetailContent() {
               {evidence.map((e) => (
                 <li key={e.id} className="rounded border border-border bg-background p-3">
                   <p className="font-mono text-xs text-subink">
-                    {e.type} · {e.capabilityKey ?? "manual"} · {new Date(e.collectedAt).toLocaleString()}
+                    {e.type} · {e.capabilityKey ?? "manual"} ·{" "}
+                    {new Date(e.collectedAt).toLocaleString()}
                   </p>
                   <p className="mt-1 text-sm text-ink">{e.summary}</p>
                 </li>
@@ -549,7 +656,10 @@ function IncidentDetailContent() {
         <CardContent>
           <ul className="flex flex-col gap-2">
             {events.map((e) => (
-              <li key={e.id} className="flex items-start justify-between gap-4 border-b border-border pb-2 text-sm">
+              <li
+                key={e.id}
+                className="flex items-start justify-between gap-4 border-b border-border pb-2 text-sm"
+              >
                 <div>
                   <span className="font-medium text-ink">{e.type}</span>{" "}
                   <span className="text-xs text-subink">by {e.actor}</span>

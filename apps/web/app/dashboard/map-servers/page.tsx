@@ -1,5 +1,6 @@
 "use client";
 
+import { RecoveryRuleForm } from "@/components/recovery-rule-form";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { StatusBadge, domainStatusMap } from "@resolution/ui";
 import { Button } from "@/components/ui/button";
@@ -24,7 +25,7 @@ interface MapServerSummary {
   type: string;
   name: string;
   credentialId: string | null;
-  config: { disabled?: boolean };
+  config: { disabled?: boolean; recoveryRules?: Record<string, Record<string, unknown>> };
   environments: string[];
   isMock: boolean;
   status: "CONNECTED" | "DEGRADED" | "DISCONNECTED" | "UNCONFIGURED";
@@ -312,6 +313,19 @@ export default function MapServersPage() {
                           </label>
                           {cap.description && (
                             <p className="mt-2 text-xs text-subink">{cap.description}</p>
+                          )}
+                          {ms.type === "MCP" && cap.enabled && cap.mutating && (
+                            <RecoveryRuleForm
+                              serverId={ms.id}
+                              action={cap}
+                              tools={capabilitiesByServer[ms.id]!}
+                              saved={
+                                (
+                                  ms.config.recoveryRules as
+                                    Record<string, Record<string, unknown>> | undefined
+                                )?.[cap.key]
+                              }
+                            />
                           )}
                           {cap.inputSchema && (
                             <details className="mt-2 text-xs text-subink">

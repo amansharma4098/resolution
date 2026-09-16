@@ -8,6 +8,7 @@ import {
   getMapServerProvider,
   mcpClientFromContext,
   mcpToolFingerprint,
+  McpRecoveryRuleSchema,
 } from "@resolution/map-servers";
 import type { SecretProvider } from "@resolution/credentials";
 import { writeAuditLog } from "@resolution/security";
@@ -173,6 +174,50 @@ export function buildMapServerRoutes(deps: {
     });
 
     return c.body(null, 204);
+  });
+
+  router.put("/:id/capabilities/:key/recovery", auth, tenantContext, requireAdmin, async (c) => {
+    const repo = new MapServerRepository(db, c.get("tenantId")!);
+    const server = await repo.findById(c.req.param("id"));
+    if (!server || server.type !== "MCP") throw new NotFoundError("MCP server not found");
+    const rule = McpRecoveryRuleSchema.parse(await c.req.json());
+    const capabilities = await repo.listCapabilities(server.id);
+    const action = capabilities.find(
+      (cap) => cap.key === c.req.param("key") && cap.enabled && cap.mutating,
+    );
+    const verifier = capabilities.find(
+      (cap) => cap.key === rule.tool && cap.enabled && !cap.mutating,
+    );
+    const reviews = server.config.toolReviews as Record<
+      string,
+      { access: string; fingerprint: string }
+    >;
+    if (
+      !action ||
+      !verifier ||
+      reviews?.[action.key]?.access !== "WRITE" ||
+      reviews?.[rule.tool]?.access !== "READ" ||
+      rule.actionFingerprint !== reviews[action.key]?.fingerprint ||
+      rule.verifierFingerprint !== reviews[rule.tool]?.fingerprint
+    ) {
+      throw new ValidationError(
+        "Enable and review the repair tool and its read-only recovery tool before saving a recovery check",
+      );
+    }
+    await repo.updateConfig(server.id, {
+      ...server.config,
+      recoveryRules: { ...((server.config.recoveryRules as object) ?? {}), [action.key]: rule },
+    });
+    await writeAuditLog(auditLogWriter(db), {
+      tenantId: c.get("tenantId"),
+      actorType: "user",
+      actorId: c.get("userId"),
+      action: "map_server.recovery_configured",
+      targetType: "MapServer",
+      targetId: server.id,
+      metadata: { action: action.key, verifier: rule.tool, resultPath: rule.resultPath },
+    });
+    return c.json({ recovery: rule });
   });
 
   router.patch("/:id/capabilities/:key", auth, tenantContext, requireAdmin, async (c) => {

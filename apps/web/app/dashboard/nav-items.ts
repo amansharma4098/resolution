@@ -19,11 +19,12 @@ export const NAV_ITEMS: NavItem[] = [
   // --- the product itself ---
   { label: "Dashboard", href: "/dashboard" },
   { label: "Incidents", href: "/dashboard/incidents" },
-  { label: "Chat", href: "/dashboard/chat" },
+  { label: "AI assistant", href: "/dashboard/chat" },
+  { label: "Approvals", href: "/dashboard/approvals" },
   // AI investigation (evidence, RCA) lives inline on each incident's detail page, not a
   // separate list — every incident is investigated, so a dedicated "AI Investigations" nav
   // item would just be a second, redundant path to the same Incidents list.
-  { label: "Integrations", href: "/dashboard/integrations" },
+  { label: "Incident sources", href: "/dashboard/integrations" },
   // The AI agent's connection to a system it can act on. This is Model Context Protocol —
   // one of these can literally be a third-party MCP server, and Resolution exposes its own
   // MCP endpoint too (see docs/mcp-server.md) — so it's named for what it is, not an
@@ -32,7 +33,7 @@ export const NAV_ITEMS: NavItem[] = [
 
   // --- administration (present, not prominent) ---
   { label: "Automation Policies", href: "/dashboard/automation-policies", group: "settings" },
-  { label: "Approvals", href: "/dashboard/approvals", group: "settings" },
+
   { label: "Credentials", href: "/dashboard/credentials", group: "settings" },
   { label: "Knowledge", href: "/dashboard/knowledge", builtInPhase: 7, group: "settings" },
   { label: "Runbooks", href: "/dashboard/runbooks", builtInPhase: 8, group: "settings" },

@@ -128,10 +128,11 @@ export async function processInvestigationMessage(
       model: config.anthropicModel,
     });
 
-  await db.incident.update({
-    where: { id: incident.id },
+  const claimed = await db.incident.updateMany({
+    where: { id: incident.id, tenantId: message.tenantId, status: "NEW" },
     data: { status: transition(incident.status, "INVESTIGATING") },
   });
+  if (!claimed.count) return;
   await db.incidentEvent.create({
     data: {
       incidentId: incident.id,
@@ -214,7 +215,17 @@ export async function processInvestigationMessage(
         mock: llmClient.isMock,
       },
     });
-    await config.onRcaCompleted?.({ incidentId: incident.id, tenantId: message.tenantId });
+    if (config.onRcaCompleted) {
+      try {
+        await config.onRcaCompleted({ incidentId: incident.id, tenantId: message.tenantId });
+        await db.incident.update({
+          where: { id: incident.id },
+          data: { remediationDispatchedAt: new Date() },
+        });
+      } catch {
+        /* The scheduler retries undispatched RCA_COMPLETE incidents. */
+      }
+    }
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     await db.incident.update({

@@ -1,3 +1,4 @@
+import { mcpRecoverySpec } from "./verification";
 import type { MapServerProvider } from "../types";
 import { McpConfigSchema } from "./config.schema";
 import { mcpClientFromContext } from "./context";
@@ -51,7 +52,19 @@ export const mcpProvider: MapServerProvider = {
       tools.map(async (tool) => {
         const review = config.toolReviews[tool.name];
         const fingerprint = await mcpToolFingerprint(tool);
+        const rule = config.recoveryRules[tool.name];
+        const verifier = rule && tools.find((t) => t.name === rule.tool);
+        const canVerify =
+          rule &&
+          verifier &&
+          review?.access === "WRITE" &&
+          review.fingerprint === fingerprint &&
+          rule.actionFingerprint === fingerprint &&
+          config.toolReviews[rule.tool]?.access === "READ" &&
+          rule.verifierFingerprint === config.toolReviews[rule.tool]?.fingerprint &&
+          rule.verifierFingerprint === (await mcpToolFingerprint(verifier));
         return {
+          ...(canVerify ? { verification: mcpRecoverySpec(rule) } : {}),
           ...capabilityFromMcpTool(tool, review?.fingerprint === fingerprint ? review : undefined),
           definition: {
             fingerprint,

@@ -1,3 +1,4 @@
+import { closeIncidentSource } from "../lib/source-closure";
 import { assertExecutionAllowed } from "../lib/execution-permission";
 import type { PrismaClient } from "@resolution/database";
 import {
@@ -357,6 +358,14 @@ export async function executeAndVerify(
     const server = await mapServers.findById(mapServerId);
     if (!server || server.config.disabled)
       throw new Error("Connection is disabled or no longer exists");
+    const currentIncident = await db.incident.findFirst({
+      where: { id: params.incidentId, tenantId: params.tenantId },
+    });
+    if (
+      !currentIncident ||
+      (currentIncident.environment && !server.environments.includes(currentIncident.environment))
+    )
+      throw new Error("Connection no longer permits this incident environment");
     let credential: Record<string, unknown> = {};
     if (server?.credentialId) {
       const credentialRow = await credentials.findUsableById(server.credentialId);
@@ -453,14 +462,37 @@ export async function executeAndVerify(
   }
 
   for (let attempt = 1; attempt <= MAX_VERIFY_ATTEMPTS; attempt++) {
-    const result = await runVerification({
-      mapServerType: params.mapServerType,
-      mapServerId: params.mapServerId,
-      capabilityKey: params.capability.key,
-      mutatingInput: params.input,
-      mutatingOutput: output,
-      contextFor,
-    });
+    let result;
+    try {
+      const currentRows = await mapServers.listCapabilities(params.mapServerId);
+      if (
+        !currentRows.some(
+          (row) =>
+            row.key === params.capability.verification!.capabilityKey &&
+            row.enabled &&
+            !row.mutating,
+        )
+      )
+        throw new Error("Recovery tool is disabled");
+      result = await runVerification({
+        mapServerType: params.mapServerType,
+        mapServerId: params.mapServerId,
+        capabilityKey: params.capability.key,
+        mutatingInput: params.input,
+        mutatingOutput: output,
+        contextFor,
+        canReadCapability: async (key) =>
+          (await mapServers.listCapabilities(params.mapServerId)).some(
+            (row) => row.key === key && row.enabled && !row.mutating,
+          ),
+      });
+    } catch (error) {
+      result = {
+        status: "RETRYING" as const,
+        expectedState: { checkedVia: params.capability.verification.capabilityKey },
+        actualState: { error: error instanceof Error ? error.message : "Recovery check failed" },
+      };
+    }
 
     if (!result) {
       // Declared verification but the runner couldn't actually run it (misconfigured
@@ -493,7 +525,11 @@ export async function executeAndVerify(
     if (result.status === "PASSED") {
       await db.incident.update({
         where: { id: params.incidentId },
-        data: { status: transition("VERIFYING", "RESOLVED"), resolvedAt: new Date() },
+        data: {
+          status: transition("VERIFYING", "RESOLVED"),
+          resolvedAt: new Date(),
+          sourceSyncStatus: "PENDING",
+        },
       });
       await db.incidentEvent.create({
         data: {
@@ -503,6 +539,7 @@ export async function executeAndVerify(
           detail: serializeJsonField({ verified: true }),
         },
       });
+      await closeIncidentSource(db, params.secretProvider, params.tenantId, params.incidentId);
       await draftPostmortemBestEffort(db, params.llmClient, params.tenantId, params.incidentId);
       return;
     }

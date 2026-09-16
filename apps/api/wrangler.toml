@@ -75,3 +75,6 @@ MOCK_MODE = "false"
 ANTHROPIC_MODEL = "claude-opus-5"
 # Email sender address is configuration; the API key is stored as a Worker secret.
 EMAIL_FROM = "FixCaptain <onboarding@resend.dev>"
+
+[triggers]
+crons = ["*/5 * * * *"]

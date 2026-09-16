@@ -1,7 +1,13 @@
 import type { PrismaClient } from "@resolution/database";
-import { IncidentRepository, IntegrationRepository, auditLogWriter, serializeJsonField } from "@resolution/database";
+import {
+  IncidentRepository,
+  IntegrationRepository,
+  auditLogWriter,
+  serializeJsonField,
+} from "@resolution/database";
 import {
   GenericWebhookPayloadSchema,
+  normalizeAzureMonitor,
   normalizeDatadogWebhook,
   normalizeGenericWebhook,
   normalizeJiraWebhook,
@@ -28,22 +34,9 @@ export interface IngestionResult {
   incidentId?: string;
 }
 
-/**
- * The actual ingestion work, run by the Cloudflare Queue consumer (worker.ts's `queue`
- * handler) in production and synchronously by inline-queue.ts in tests/local dev —
- * ARCHITECTURE.md §10: webhook handlers (routes/webhooks.ts) do only auth + shape
- * validation and return immediately; this is the "heavy work [that] runs async off the
- * queue". Cloudflare Queues deliver at-least-once, so this must be safely re-runnable —
- * dedup via WebhookEvent's unique constraint and Incident's own (org+source+externalId)
- * constraint, not by anything the producer does.
- */
+/** At-least-once ingestion; event identity is scoped to a tenant and source instance. */
 export interface ProcessIngestionDeps {
-  /** Fired exactly once, right after a genuinely new Incident row is inserted — never on the
-   *  already_processed/already_ingested/ignored branches, so a redelivered webhook (Cloudflare
-   *  Queues are at-least-once) never enqueues a duplicate investigation. Wired in production
-   *  (worker.ts) to enqueue onto the real incident-investigation queue; in tests/local dev
-   *  (inline-queue.ts) to run the investigation inline, synchronously, the same way ingestion
-   *  itself does. */
+  /** May be repeated after an uncertain queue send. The consumer must atomically claim NEW. */
   onIncidentCreated?: (evt: { incidentId: string; tenantId: string }) => Promise<void>;
 }
 
@@ -60,6 +53,8 @@ export async function processIngestionMessage(
     return { status: "unknown_integration" };
   }
 
+  if (integration.config.disabled === true) return { status: "ignored" };
+
   let normalized: NormalizedFields | null;
   let externalId: string;
   try {
@@ -71,6 +66,9 @@ export async function processIngestionMessage(
       const payload: ServiceNowWebhookPayload = JSON.parse(message.rawBody);
       externalId = payload.number;
       normalized = normalizeServiceNowWebhook(payload);
+    } else if (message.source === "AZURE_MONITOR") {
+      normalized = normalizeAzureMonitor(JSON.parse(message.rawBody));
+      externalId = normalized?.externalId ?? "recovered";
     } else if (message.source === "DATADOG") {
       const payload: DatadogWebhookPayload = JSON.parse(message.rawBody);
       externalId = payload.alert_id;
@@ -93,7 +91,7 @@ export async function processIngestionMessage(
     return { status: "ignored" };
   }
 
-  const eventHash = await sha256Hex(message.rawBody);
+  const eventHash = await sha256Hex(`${integration.tenantId}:${integration.id}:${message.rawBody}`);
   const existingEvent = await db.webhookEvent.findUnique({
     where: { source_externalId_eventHash: { source: message.source, externalId, eventHash } },
   });
@@ -101,48 +99,100 @@ export async function processIngestionMessage(
     return { status: "already_processed" };
   }
 
-  await db.webhookEvent.create({
-    data: {
-      tenantId: integration.tenantId,
-      source: message.source,
-      externalId,
-      eventHash,
-      payload: message.rawBody,
-      processedAt: new Date(),
-    },
-  });
-
   if (!normalized) {
     return { status: "ignored" };
   }
 
   const incidents = new IncidentRepository(db, integration.tenantId);
-  const existingIncident = await incidents.findByExternalId(message.source, normalized.externalId);
-  if (existingIncident) {
-    return { status: "already_ingested", incidentId: existingIncident.id };
+  const existingIncident = await incidents.findByExternalId(
+    message.source,
+    normalized.externalId,
+    integration.id,
+  );
+  let incident = existingIncident;
+  let created = false;
+  if (!incident) {
+    try {
+      incident = await incidents.create({
+        ...normalized,
+        integrationId: integration.id,
+        environment:
+          normalized.environment ??
+          (typeof integration.config.environment === "string"
+            ? integration.config.environment
+            : undefined),
+        service:
+          normalized.service ??
+          (typeof integration.config.service === "string" ? integration.config.service : undefined),
+      });
+      created = true;
+    } catch (error) {
+      incident = await incidents.findByExternalId(
+        message.source,
+        normalized.externalId,
+        integration.id,
+      );
+      if (!incident) throw error;
+    }
   }
+  if (!created) {
+    await db.incident.update({
+      where: { id: incident.id },
+      data: {
+        title: normalized.title,
+        description: normalized.description,
+        severity: normalized.severity,
+        priority: normalized.priority,
+        metadata: serializeJsonField({ ...incident.metadata, ...normalized.metadata }),
+      },
+    });
+  }
+  if (created) {
+    await db.incidentEvent.create({
+      data: {
+        incidentId: incident.id,
+        type: "ingested",
+        actor: "system",
+        detail: serializeJsonField({ source: message.source, externalId: incident.externalId }),
+      },
+    });
 
-  const incident = await incidents.create({ ...normalized, integrationId: integration.id });
-
-  await db.incidentEvent.create({
-    data: {
-      incidentId: incident.id,
-      type: "ingested",
-      actor: "system",
-      detail: serializeJsonField({ source: message.source, externalId: incident.externalId }),
-    },
-  });
-
-  await writeAuditLog(auditLogWriter(db), {
-    tenantId: integration.tenantId,
-    actorType: "system",
-    action: "incident.ingested",
-    targetType: "Incident",
-    targetId: incident.id,
-    metadata: { source: message.source, externalId: incident.externalId },
-  });
-
-  await deps.onIncidentCreated?.({ incidentId: incident.id, tenantId: integration.tenantId });
-
-  return { status: "created", incidentId: incident.id };
+    await writeAuditLog(auditLogWriter(db), {
+      tenantId: integration.tenantId,
+      actorType: "system",
+      action: "incident.ingested",
+      targetType: "Incident",
+      targetId: incident.id,
+      metadata: { source: message.source, externalId: incident.externalId },
+    });
+  }
+  // At-least-once dispatch: record completion only after the downstream send succeeds.
+  // A crash after send may duplicate a message; the investigation consumer atomically claims NEW.
+  if (incident.status === "NEW" && deps.onIncidentCreated) {
+    await deps.onIncidentCreated({ incidentId: incident.id, tenantId: integration.tenantId });
+    await db.incident.update({
+      where: { id: incident.id },
+      data: { investigationDispatchedAt: new Date() },
+    });
+  }
+  try {
+    await db.webhookEvent.create({
+      data: {
+        tenantId: integration.tenantId,
+        source: message.source,
+        externalId,
+        eventHash,
+        payload: message.rawBody,
+        processedAt: new Date(),
+      },
+    });
+  } catch (error) {
+    if (
+      !(await db.webhookEvent.findUnique({
+        where: { source_externalId_eventHash: { source: message.source, externalId, eventHash } },
+      }))
+    )
+      throw error;
+  }
+  return { status: created ? "created" : "already_ingested", incidentId: incident.id };
 }

@@ -1,3 +1,6 @@
+import { POLLING_SOURCES, sourceClient, validateSourceSettings } from "../lib/source-sync";
+import type { IncidentIngestionQueue, IngestionSource } from "../queue/types";
+import { AzureMonitorClient } from "@resolution/integrations";
 import { Hono } from "hono";
 import { z } from "zod";
 import { IncidentSourceType } from "@resolution/shared";
@@ -30,6 +33,7 @@ const CreateIntegrationBody = z.object({
   name: z.string().min(1).max(200),
   credentialId: z.string().uuid().optional(),
   config: z.record(z.unknown()).default({}),
+  syncEnabled: z.boolean().default(false),
 });
 
 /** Every incident-source type that generates its own webhook secret at creation time — the
@@ -48,15 +52,10 @@ function maskConfig(integration: Integration): Integration {
   };
 }
 
-/**
- * Generic CRUD for incident-source configuration records, plus real connectivity testing
- * for the sources that have a real adapter (JIRA today — see packages/integrations).
- * ServiceNow's real adapter lands in Phase 4; until then it behaves the same honest way
- * Map Servers do for an unregistered provider — DISCONNECTED with a clear reason, never a
- * fake CONNECTED.
- */
+/** Tenant-admin source setup, collection controls and vendor connectivity checks. */
 export function buildIntegrationRoutes(deps: {
   db: PrismaClient;
+  ingestionQueue: IncidentIngestionQueue;
   env: Env;
   secretProvider: SecretProvider;
   organizationRepository: OrganizationRepository;
@@ -80,6 +79,11 @@ export function buildIntegrationRoutes(deps: {
     }
 
     const config = { ...body.config };
+    try {
+      validateSourceSettings(body.type, config, body.syncEnabled, body.credentialId);
+    } catch (error) {
+      throw new ValidationError(error instanceof Error ? error.message : "Invalid source settings");
+    }
     if (WEBHOOK_BASED_SOURCES.has(body.type)) {
       // Always generated server-side — never trust a client-supplied "secret".
       config.webhookSecret = generateWebhookSecret();
@@ -159,6 +163,77 @@ export function buildIntegrationRoutes(deps: {
     return c.json({ integration: maskConfig(integration) });
   });
 
+  router.patch("/:id", auth, tenantContext, requireAdmin, async (c) => {
+    const body = z
+      .object({
+        name: z.string().min(1).max(200).optional(),
+        credentialId: z.string().uuid().optional(),
+        syncEnabled: z.boolean().optional(),
+        config: z.record(z.unknown()).optional(),
+      })
+      .strict()
+      .parse(await c.req.json());
+    const repo = new IntegrationRepository(db, c.get("tenantId")!);
+    const source = await repo.findById(c.req.param("id"));
+    if (!source) throw new NotFoundError("Source not found");
+    if (
+      body.credentialId &&
+      !(await new CredentialRepository(db, source.tenantId).findUsableById(body.credentialId))
+    )
+      throw new ValidationError("Credential is unavailable in this workspace");
+    const config: Record<string, unknown> = {
+      ...source.config,
+      ...body.config,
+      webhookSecret: source.config.webhookSecret,
+    };
+    try {
+      validateSourceSettings(
+        source.type,
+        config,
+        body.syncEnabled ?? source.syncEnabled ?? false,
+        body.credentialId ?? source.credentialId,
+      );
+    } catch (error) {
+      throw new ValidationError(error instanceof Error ? error.message : "Invalid source settings");
+    }
+    await db.integration.updateMany({
+      where: { id: source.id, tenantId: source.tenantId },
+      data: {
+        name: body.name,
+        credentialId: body.credentialId,
+        syncEnabled: body.syncEnabled,
+        config: JSON.stringify(config),
+        syncCursor: null,
+      },
+    });
+    await writeAuditLog(auditLogWriter(db), {
+      tenantId: source.tenantId,
+      actorType: "user",
+      actorId: c.get("userId"),
+      action: "integration.updated",
+      targetType: "Integration",
+      targetId: source.id,
+      metadata: { syncEnabled: body.syncEnabled, autoClose: config.autoClose },
+    });
+    return c.json({ integration: maskConfig((await repo.findById(source.id))!) });
+  });
+
+  router.post("/:id/sync", auth, tenantContext, requireAdmin, async (c) => {
+    const source = await new IntegrationRepository(db, c.get("tenantId")!).findById(
+      c.req.param("id"),
+    );
+    if (!source) throw new NotFoundError("Source not found");
+    if (!source.syncEnabled || !POLLING_SOURCES.has(source.type))
+      throw new ValidationError("Enable scheduled collection for this source first");
+    await deps.ingestionQueue.send({
+      kind: "SYNC",
+      source: source.type as IngestionSource,
+      integrationId: source.id,
+      rawBody: "",
+    });
+    return c.json({ status: "queued" }, 202);
+  });
+
   router.delete("/:id", auth, tenantContext, requireAdmin, async (c) => {
     const integrations = new IntegrationRepository(db, c.get("tenantId")!);
     const deleted = await integrations.delete(c.req.param("id"));
@@ -188,7 +263,16 @@ export function buildIntegrationRoutes(deps: {
     let status: "CONNECTED" | "DISCONNECTED" = "DISCONNECTED";
     let detail: string;
 
-    if (integration.type === "WEBHOOK") {
+    if (integration.type === "AZURE_MONITOR") {
+      try {
+        const client = (await sourceClient(db, secretProvider, integration)) as AzureMonitorClient;
+        await client.listAlerts();
+        status = "CONNECTED";
+        detail = "Azure Monitor subscription access verified";
+      } catch (error) {
+        detail = error instanceof Error ? error.message : "Azure Monitor connection failed";
+      }
+    } else if (integration.type === "WEBHOOK") {
       // Genuinely nothing to test — a generic webhook is purely inbound, with no outbound
       // connection or credential of its own to verify (unlike Jira/ServiceNow's real API
       // clients above). "DISCONNECTED" would misleadingly suggest something's wrong.

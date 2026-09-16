@@ -82,15 +82,14 @@ function GettingStarted({ setup }: { setup: SetupState }) {
       done: setup.hasIntegration,
       label: "Connect an incident source",
       detail:
-        "Datadog, Jira, ServiceNow, or a generic webhook can create incidents in this workspace.",
+        "Collect Jira, Azure Monitor and ServiceNow incidents automatically, or receive Datadog and other alerts by webhook.",
       href: "/dashboard/integrations",
-      cta: "Add integration",
+      cta: "Connect source",
     },
     {
       done: setup.hasMcpServer,
       label: "Connect an MCP Server",
-      detail:
-        "Give the agent specific read and remediation capabilities against an operational system you approve.",
+      detail: "Enable read and repair tools, then pair each repair with a recovery check.",
       href: "/dashboard/map-servers",
       cta: "Add MCP Server",
     },
@@ -189,11 +188,11 @@ export default function DashboardPage() {
       ) : metrics.incidents.total === 0 ? (
         <Card>
           <CardHeader>
-            <CardTitle>All set — waiting on your first incident</CardTitle>
+            <CardTitle>Connections added — check collection and permissions</CardTitle>
             <CardDescription>
-              Setup is done. When a connected integration sends an incident (or a Datadog monitor
-              fires), it will appear here. The agent can investigate automatically; your automation
-              policies determine whether a proposed change needs approval.
+              Enable collection on your incident source and review your MCP tools. New incidents
+              start an investigation automatically. Your automation policies control repair
+              approval, and recovery checks must pass before the agent marks an incident resolved.
             </CardDescription>
           </CardHeader>
         </Card>

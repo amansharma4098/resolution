@@ -9,6 +9,7 @@ export interface CreateIntegrationInput {
   name: string;
   credentialId?: string;
   config: Record<string, unknown>;
+  syncEnabled?: boolean;
 }
 
 /** The shape repository callers see — `config` parsed back to an object. D1/SQLite has no
@@ -22,6 +23,9 @@ export interface Integration {
   credentialId: string | null;
   config: Record<string, unknown>;
   status: ConnectionStatus;
+  syncEnabled?: boolean;
+  lastSyncedAt?: Date | null;
+  syncError?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -58,6 +62,7 @@ export class IntegrationRepository extends TenantScopedRepository {
     const row = await this.db.integration.create({
       data: {
         type: input.type,
+        syncEnabled: input.syncEnabled ?? false,
         name: input.name,
         credentialId: input.credentialId,
         config: serializeJsonField(input.config),

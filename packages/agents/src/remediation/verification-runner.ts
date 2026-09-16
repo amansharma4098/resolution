@@ -28,6 +28,7 @@ export async function runVerification(params: {
   mutatingInput: unknown;
   mutatingOutput: unknown;
   contextFor: (mapServerId: string) => Promise<MapServerContext>;
+  canReadCapability?: (key: string) => Promise<boolean>;
 }): Promise<VerificationRunResult | null> {
   const provider = getMapServerProvider(params.mapServerType);
   if (!provider) return null;
@@ -37,7 +38,8 @@ export async function runVerification(params: {
   if (!mutatingCapability || !spec) return null;
 
   const verifyCapability = await resolveCapability(provider, ctx, spec.capabilityKey);
-  if (!verifyCapability) return null;
+  if (!verifyCapability || verifyCapability.mutating) return null;
+  if (params.canReadCapability && !(await params.canReadCapability(spec.capabilityKey))) return null;
 
   const verifyInputParsed = verifyCapability.inputSchema.safeParse(
     spec.buildInput(params.mutatingInput, params.mutatingOutput),

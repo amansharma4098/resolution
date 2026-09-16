@@ -1,3 +1,4 @@
+import { validateSourceUrl } from "../source-url";
 /**
  * A thin wrapper over the real Jira Cloud REST API v3 — no SDK, just typed fetch calls.
  * Auth is HTTP Basic with an Atlassian API token (email + token), which is what Jira Cloud
@@ -27,7 +28,7 @@ export interface JiraIssue {
   fields: {
     summary: string;
     description?: unknown; // Atlassian Document Format (ADF) — rich text, not plain string
-    status: { name: string };
+    status: { name: string; statusCategory?: { key: string } };
     priority?: { name: string } | null;
     project: { key: string; name: string };
     created: string;
@@ -57,8 +58,10 @@ export class JiraClient {
   }
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
-    const res = await fetch(`${this.baseUrl.replace(/\/$/, "")}${path}`, {
+    const res = await fetch(`${validateSourceUrl(this.baseUrl, "JIRA")}${path}`, {
       ...init,
+      redirect: "error",
+      signal: AbortSignal.timeout(15000),
       headers: {
         Authorization: this.authHeader(),
         Accept: "application/json",
@@ -67,8 +70,7 @@ export class JiraClient {
       },
     });
     if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new JiraApiError(`Jira API ${path} returned ${res.status}: ${body.slice(0, 500)}`, res.status);
+      throw new JiraApiError(`Jira API ${path} returned ${res.status}`, res.status);
     }
     if (res.status === 204) return undefined as T;
     return (await res.json()) as T;
@@ -78,6 +80,21 @@ export class JiraClient {
    *  against a genuinely reachable Jira instance. */
   async getMyself(): Promise<{ accountId: string; displayName: string; emailAddress?: string }> {
     return this.request("/rest/api/3/myself");
+  }
+
+  async searchIssues(
+    jql: string,
+    nextPageToken?: string,
+  ): Promise<{ issues: JiraIssue[]; nextPageToken?: string }> {
+    return this.request("/rest/api/3/search/jql", {
+      method: "POST",
+      body: JSON.stringify({
+        jql,
+        nextPageToken,
+        maxResults: 100,
+        fields: ["summary", "description", "status", "priority", "project", "created", "updated"],
+      }),
+    });
   }
 
   async getIssue(issueIdOrKey: string): Promise<JiraIssue> {
@@ -99,10 +116,12 @@ export class JiraClient {
     });
   }
 
-  async listTransitions(issueIdOrKey: string): Promise<{ id: string; name: string }[]> {
-    const res = await this.request<{ transitions: { id: string; name: string }[] }>(
-      `/rest/api/3/issue/${encodeURIComponent(issueIdOrKey)}/transitions`,
-    );
+  async listTransitions(
+    issueIdOrKey: string,
+  ): Promise<{ id: string; name: string; to?: { statusCategory?: { key: string } } }[]> {
+    const res = await this.request<{
+      transitions: { id: string; name: string; to?: { statusCategory?: { key: string } } }[];
+    }>(`/rest/api/3/issue/${encodeURIComponent(issueIdOrKey)}/transitions`);
     return res.transitions;
   }
 

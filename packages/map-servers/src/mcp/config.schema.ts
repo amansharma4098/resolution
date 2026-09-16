@@ -1,3 +1,4 @@
+import { McpRecoveryRuleSchema } from "./verification";
 import { z } from "zod";
 
 // SaaS connections are remote HTTPS endpoints. Private systems must use a gateway.
@@ -47,6 +48,7 @@ export const McpConfigSchema = z
         }),
       )
       .default({}),
+    recoveryRules: z.record(McpRecoveryRuleSchema).default({}),
     disabled: z.boolean().default(false),
   })
   .strict();

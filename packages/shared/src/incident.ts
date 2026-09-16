@@ -5,7 +5,14 @@ import { z } from "zod";
 // packages/shared/src/__tests__ (Phase 1) diffs these against the Prisma DMMF so the two
 // can never silently disagree.
 
-export const IncidentSourceType = z.enum(["JIRA", "SERVICENOW", "PAGERDUTY", "WEBHOOK", "DATADOG"]);
+export const IncidentSourceType = z.enum([
+  "JIRA",
+  "SERVICENOW",
+  "PAGERDUTY",
+  "WEBHOOK",
+  "DATADOG",
+  "AZURE_MONITOR",
+]);
 export type IncidentSourceType = z.infer<typeof IncidentSourceType>;
 
 export const Severity = z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]);

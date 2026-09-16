@@ -1,3 +1,5 @@
+import { syncSource } from "./lib/source-sync";
+import { closeIncidentSource } from "./lib/source-closure";
 import type { D1Database, MessageBatch, Queue } from "@cloudflare/workers-types";
 import { createD1Client } from "@resolution/database";
 import {
@@ -96,6 +98,66 @@ function loadWorkerEnv(workerEnv: WorkerEnv) {
 }
 
 export default {
+  async scheduled(_event: unknown, workerEnv: WorkerEnv): Promise<void> {
+    const db = createD1Client(workerEnv.DB);
+    let after: string | undefined;
+    for (;;) {
+      const sources = await db.integration.findMany({
+        where: { syncEnabled: true, ...(after ? { id: { gt: after } } : {}) },
+        orderBy: { id: "asc" },
+        take: 100,
+      });
+      for (const source of sources)
+        await workerEnv.INCIDENT_INGESTION_QUEUE.send({
+          kind: "SYNC",
+          source: source.type as IngestionQueueMessage["source"],
+          integrationId: source.id,
+          rawBody: "",
+        });
+      if (sources.length < 100) break;
+      after = sources[sources.length - 1]!.id;
+    }
+    // Repair a crash between persisting a stage and sending its next queue message.
+    const pending = await db.incident.findMany({
+      where: {
+        OR: [
+          { status: "NEW", investigationDispatchedAt: null },
+          { status: "RCA_COMPLETE", remediationDispatchedAt: null },
+        ],
+        updatedAt: { lt: new Date(Date.now() - 300000) },
+      },
+      orderBy: { updatedAt: "asc" },
+      take: 100,
+    });
+    for (const incident of pending) {
+      const queue =
+        incident.status === "NEW"
+          ? workerEnv.INCIDENT_INVESTIGATION_QUEUE
+          : workerEnv.INCIDENT_REMEDIATION_QUEUE;
+      await queue.send({ incidentId: incident.id, tenantId: incident.tenantId });
+      await db.incident.update({
+        where: { id: incident.id },
+        data:
+          incident.status === "NEW"
+            ? { investigationDispatchedAt: new Date() }
+            : { remediationDispatchedAt: new Date() },
+      });
+    }
+    const closures = await db.incident.findMany({
+      where: { status: "RESOLVED", sourceSyncStatus: { in: ["PENDING", "RETRY"] } },
+      orderBy: { updatedAt: "asc" },
+      take: 50,
+    });
+    for (const incident of closures)
+      await workerEnv.INCIDENT_INGESTION_QUEUE.send({
+        kind: "CLOSE",
+        source: incident.source as IngestionQueueMessage["source"],
+        integrationId: incident.integrationId ?? "",
+        incidentId: incident.id,
+        tenantId: incident.tenantId,
+        rawBody: "",
+      });
+  },
   async fetch(request: Request, workerEnv: WorkerEnv): Promise<Response> {
     const env = loadWorkerEnv(workerEnv);
     // A fresh PrismaClient/app per request is deliberate, not an oversight — see
@@ -201,6 +263,32 @@ export default {
 
     for (const message of batch.messages as MessageBatch<IngestionQueueMessage>["messages"]) {
       try {
+        if (message.body.kind === "CLOSE" && message.body.incidentId && message.body.tenantId) {
+          const env = loadWorkerEnv(workerEnv);
+          await closeIncidentSource(
+            db,
+            createSecretProvider(env.SECRET_PROVIDER, { masterKey: env.ENCRYPTION_MASTER_KEY }),
+            message.body.tenantId,
+            message.body.incidentId,
+          );
+          message.ack();
+          continue;
+        }
+        if (message.body.kind === "SYNC") {
+          const env = loadWorkerEnv(workerEnv);
+          await syncSource(
+            db,
+            createSecretProvider(env.SECRET_PROVIDER, { masterKey: env.ENCRYPTION_MASTER_KEY }),
+            {
+              send: async (message) => {
+                await workerEnv.INCIDENT_INGESTION_QUEUE.send(message);
+              },
+            },
+            message.body.integrationId,
+          );
+          message.ack();
+          continue;
+        }
         await processIngestionMessage(db, message.body, {
           onIncidentCreated: async (evt) => {
             await workerEnv.INCIDENT_INVESTIGATION_QUEUE.send(evt);

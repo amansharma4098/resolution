@@ -27,6 +27,55 @@ describe("chat (POST /api/chat)", () => {
     ({ cookie, tenantId } = await signupWithOrg(app, "owner@example.com", "Acme"));
   });
 
+  it("binds incident conversations and rejects cross-tenant incident context", async () => {
+    const fixture = buildTestApp();
+    const owner = await signupWithOrg(fixture.app, "context-owner@example.com", "Context");
+    const other = await signupWithOrg(fixture.app, "context-other@example.com", "Other");
+    const incident = await fixture.db.incident.create({
+      data: {
+        tenantId: owner.tenantId,
+        externalId: "CTX-1",
+        source: "JIRA",
+        title: "Checkout unavailable",
+        description: "",
+        severity: "HIGH",
+        priority: "P2",
+      },
+    });
+    const denied = await req(fixture.app, "/api/chat", {
+      method: "POST",
+      ...other,
+      body: { incidentId: incident.id, message: "Explain" },
+    });
+    expect(denied.status).toBe(404);
+    const response = await req(fixture.app, "/api/chat", {
+      method: "POST",
+      ...owner,
+      body: { incidentId: incident.id, message: "Explain" },
+    });
+    expect(response.status).toBe(200);
+    const conversationId = (await jsonOf(response)).conversationId;
+    const saved = await req(fixture.app, `/api/chat/conversations/${conversationId}`, owner);
+    expect((await jsonOf(saved)).incidentId).toBe(incident.id);
+    const nextIncident = await fixture.db.incident.create({
+      data: {
+        tenantId: owner.tenantId,
+        externalId: "CTX-2",
+        source: "JIRA",
+        title: "Another incident",
+        description: "",
+        severity: "HIGH",
+        priority: "P2",
+      },
+    });
+    const mismatch = await req(fixture.app, "/api/chat", {
+      method: "POST",
+      ...owner,
+      body: { conversationId, incidentId: nextIncident.id, message: "Explain" },
+    });
+    expect(mismatch.status).toBe(400);
+  });
+
   it("requires authentication", async () => {
     const res = await app.request("/api/chat", {
       method: "POST",

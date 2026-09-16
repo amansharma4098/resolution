@@ -1,6 +1,9 @@
-export type IngestionSource = "JIRA" | "SERVICENOW" | "WEBHOOK" | "DATADOG";
+export type IngestionSource = "JIRA" | "SERVICENOW" | "WEBHOOK" | "DATADOG" | "AZURE_MONITOR";
 
 export interface IngestionQueueMessage {
+  kind?: "SYNC" | "CLOSE";
+  incidentId?: string;
+  tenantId?: string;
   source: IngestionSource;
   integrationId: string;
   rawBody: string;

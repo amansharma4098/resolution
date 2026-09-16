@@ -121,6 +121,7 @@ export interface FakeMapServerCapability {
 }
 
 export interface FakeIntegration {
+  syncEnabled?: boolean;
   id: string;
   tenantId: string;
   type: string;
@@ -404,6 +405,10 @@ export interface FakeDb {
     }): Promise<FakeMapServerCapability>;
   };
   integration: {
+    updateMany(args: {
+      where: Partial<FakeIntegration>;
+      data: Partial<FakeIntegration>;
+    }): Promise<{ count: number }>;
     create(args: { data: Partial<FakeIntegration> }): Promise<FakeIntegration>;
     findMany(args: { where: { tenantId: string } }): Promise<FakeIntegration[]>;
     findFirst(args: { where: OrgScopedWhere }): Promise<FakeIntegration | null>;
@@ -415,6 +420,10 @@ export interface FakeDb {
     delete(args: { where: { id: string } }): Promise<FakeIntegration>;
   };
   incident: {
+    updateMany(args: {
+      where: Partial<FakeIncident>;
+      data: Partial<FakeIncident>;
+    }): Promise<{ count: number }>;
     create(args: { data: Partial<FakeIncident> }): Promise<FakeIncident>;
     findMany(args: { where: { tenantId: string } }): Promise<FakeIncident[]>;
     findFirst(args: { where: OrgScopedWhere }): Promise<FakeIncident | null>;
@@ -979,11 +988,27 @@ export function createFakeDb(): FakeDb {
     },
     integration: {
       ...fakeTenantCollection(integrations),
+      async updateMany({
+        where,
+        data,
+      }: {
+        where: Partial<FakeIntegration>;
+        data: Partial<FakeIntegration>;
+      }) {
+        const selected = integrations.filter((row) =>
+          Object.entries(where).every(
+            ([key, value]) => row[key as keyof FakeIntegration] === value,
+          ),
+        );
+        selected.forEach((row) => Object.assign(row, data));
+        return { count: selected.length };
+      },
       async create({ data }: { data: Partial<FakeIntegration> }) {
         const row: FakeIntegration = {
           id: randomUUID(),
           tenantId: data.tenantId!,
           type: data.type!,
+          syncEnabled: data.syncEnabled ?? false,
           name: data.name!,
           credentialId: data.credentialId ?? null,
           config: data.config ?? {},
@@ -1045,8 +1070,25 @@ export function createFakeDb(): FakeDb {
         if (typeof take === "number") rows = rows.slice(0, take);
         return rows;
       },
-      async findFirst({ where }: { where: OrgScopedWhere }) {
-        return incidents.find((i) => i.tenantId === where.tenantId && i.id === where.id) ?? null;
+      async findFirst({ where }: { where: Partial<FakeIncident> }) {
+        return (
+          incidents.find((row) =>
+            Object.entries(where).every(([key, value]) => row[key as keyof FakeIncident] === value),
+          ) ?? null
+        );
+      },
+      async updateMany({
+        where,
+        data,
+      }: {
+        where: Partial<FakeIncident>;
+        data: Partial<FakeIncident>;
+      }) {
+        const selected = incidents.filter((row) =>
+          Object.entries(where).every(([key, value]) => row[key as keyof FakeIncident] === value),
+        );
+        selected.forEach((row) => Object.assign(row, data));
+        return { count: selected.length };
       },
       async findUnique({
         where,

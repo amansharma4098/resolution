@@ -95,12 +95,19 @@ export class IncidentRepository extends TenantScopedRepository {
 
   /** The idempotency check for incident ingestion (ARCHITECTURE.md §10) — the same
    *  external issue re-delivered by a webhook retry must never create a duplicate
-   *  Incident row. Matches the `@@unique([tenantId, source, externalId])`
+   *  Incident row. Matches the `@@unique([tenantId, integrationId, source, externalId])`
    *  constraint on the Incident model. */
-  async findByExternalId(source: IncidentSourceType, externalId: string): Promise<Incident | null> {
-    const row = await this.db.incident.findUnique({
+  async findByExternalId(
+    source: IncidentSourceType,
+    externalId: string,
+    integrationId?: string,
+  ): Promise<Incident | null> {
+    const row = await this.db.incident.findFirst({
       where: {
-        tenantId_source_externalId: { tenantId: this.tenantId, source, externalId },
+        tenantId: this.tenantId,
+        source,
+        externalId,
+        ...(integrationId ? { integrationId } : {}),
       },
     });
     return row ? toPublic(row) : null;
@@ -125,7 +132,13 @@ export class IncidentRepository extends TenantScopedRepository {
    *  candidate scan to the 200 most recent of those per tenant — real, not `O(all incidents
    *  ever)`, since a tenant's actionable precedent is almost always recent. */
   async findSimilarResolved(
-    target: { id: string; title: string; service: string | null; affectedSystem: string | null; source: IncidentSourceType },
+    target: {
+      id: string;
+      title: string;
+      service: string | null;
+      affectedSystem: string | null;
+      source: IncidentSourceType;
+    },
     limit = 3,
   ): Promise<RankedSimilarIncident<Incident>[]> {
     const rows = await this.db.incident.findMany({

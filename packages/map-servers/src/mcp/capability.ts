@@ -12,6 +12,7 @@ import type { McpTool } from "./client";
  *  every other Map Server's convention (execute() throws on failure) holds here too. */
 const McpCapabilityOutputSchema = z.object({
   content: z.array(z.record(z.unknown())),
+  structuredContent: z.record(z.unknown()).optional(),
 });
 
 /** Tool annotations are untrusted. Only an administrator's matching review grants access. */

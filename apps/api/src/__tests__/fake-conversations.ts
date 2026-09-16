@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@resolution/database";
 interface Row {
   id: string;
+  incidentId?: string;
   tenantId: string;
   userId: string;
   title: string;

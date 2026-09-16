@@ -9,6 +9,7 @@ export interface RootCauseAnalysisRow {
   claims: RootCauseAnalysisOutput["claims"];
   confidence: number;
   alternativeHypotheses: string[];
+  recommendedSteps: RootCauseAnalysisOutput["recommendedSteps"];
   createdAt: Date;
 }
 
@@ -19,11 +20,13 @@ function toPublic(row: {
   claims: string;
   confidence: number;
   alternativeHypotheses: string;
+  recommendedSteps?: string;
   createdAt: Date;
 }): RootCauseAnalysisRow {
   return {
     ...row,
     claims: parseJsonField(row.claims, []),
+    recommendedSteps: parseJsonField(row.recommendedSteps ?? "[]", []),
     alternativeHypotheses: parseJsonField(row.alternativeHypotheses, []),
   };
 }
@@ -40,6 +43,7 @@ export class RootCauseAnalysisRepository {
         summary: rca.summary,
         claims: serializeJsonField(rca.claims),
         confidence: rca.confidence,
+        recommendedSteps: serializeJsonField(rca.recommendedSteps ?? []),
         alternativeHypotheses: serializeJsonField(rca.alternativeHypotheses),
       },
     });
