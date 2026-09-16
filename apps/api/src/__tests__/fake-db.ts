@@ -207,6 +207,15 @@ export interface FakeAutomationPolicy {
   updatedAt: Date;
 }
 
+export interface FakePostmortem {
+  id: string;
+  incidentId: string;
+  content: string;
+  isMock: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface FakeResolution {
   id: string;
   incidentId: string;
@@ -421,6 +430,14 @@ export interface FakeDb {
       orderBy?: { createdAt: "asc" | "desc" };
     }): Promise<FakeRootCauseAnalysis | null>;
   };
+  postmortem: {
+    findUnique(args: { where: { incidentId: string } }): Promise<FakePostmortem | null>;
+    upsert(args: {
+      where: { incidentId: string };
+      create: { incidentId: string; content: string; isMock?: boolean };
+      update: { content: string; isMock?: boolean };
+    }): Promise<FakePostmortem>;
+  };
   automationPolicy: {
     findMany(args: { where: { tenantId: string } }): Promise<FakeAutomationPolicy[]>;
     findUnique(args: {
@@ -533,6 +550,7 @@ export function createFakeDb(): FakeDb {
   const incidentEvents: FakeIncidentEvent[] = [];
   const incidentEvidence: FakeIncidentEvidence[] = [];
   const rootCauseAnalyses: FakeRootCauseAnalysis[] = [];
+  const postmortems: FakePostmortem[] = [];
   const automationPolicies: FakeAutomationPolicy[] = [];
   const resolutions: FakeResolution[] = [];
   const remediationActions: FakeRemediationAction[] = [];
@@ -1093,6 +1111,36 @@ export function createFakeDb(): FakeDb {
             : b.createdAt.getTime() - a.createdAt.getTime(),
         );
         return rows[0] ?? null;
+      },
+    },
+    postmortem: {
+      async findUnique({ where }: { where: { incidentId: string } }) {
+        return postmortems.find((p) => p.incidentId === where.incidentId) ?? null;
+      },
+      async upsert({
+        where,
+        create,
+        update,
+      }: {
+        where: { incidentId: string };
+        create: { incidentId: string; content: string; isMock?: boolean };
+        update: { content: string; isMock?: boolean };
+      }) {
+        const existing = postmortems.find((p) => p.incidentId === where.incidentId);
+        if (existing) {
+          Object.assign(existing, update, { updatedAt: new Date() });
+          return existing;
+        }
+        const row: FakePostmortem = {
+          id: randomUUID(),
+          incidentId: create.incidentId,
+          content: create.content,
+          isMock: create.isMock ?? false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        postmortems.push(row);
+        return row;
       },
     },
     automationPolicy: {

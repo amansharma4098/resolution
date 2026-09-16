@@ -4,3 +4,4 @@ export { createMockLlmClient } from "./mock-client";
 export { createMockChatClient } from "./mock-chat-client";
 export { createLlmClient, type LlmConfig } from "./factory";
 export { zodToToolSchema } from "./zod-schema";
+export { draftPostmortem, type PostmortemInput, type PostmortemResult } from "./postmortem";

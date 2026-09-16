@@ -10,6 +10,7 @@ import { getMapServerProvider, resolveCapability } from "@resolution/map-servers
 import { canTransition, transition } from "@resolution/agents";
 import { writeAuditLog } from "@resolution/security";
 import type { SecretProvider } from "@resolution/credentials";
+import type { LlmClient } from "@resolution/ai";
 import { NotFoundError, ConflictError, ValidationError } from "./errors";
 import type { IncidentInvestigationQueue, IncidentRemediationQueue } from "../queue/types";
 import { executeAndVerify } from "../queue/remediation-consumer";
@@ -58,7 +59,7 @@ export async function proposeRemediationForIncident(
 }
 
 export async function decideRemediationApproval(
-  deps: { db: PrismaClient; secretProvider: SecretProvider },
+  deps: { db: PrismaClient; secretProvider: SecretProvider; llmClient: LlmClient },
   params: {
     tenantId: string;
     incidentId: string;
@@ -71,7 +72,7 @@ export async function decideRemediationApproval(
     requestId: string;
   },
 ): Promise<{ approval: unknown; status: "REJECTED" | "EXECUTED" }> {
-  const { db, secretProvider } = deps;
+  const { db, secretProvider, llmClient } = deps;
   const { tenantId } = params;
   const incidents = new IncidentRepository(db, tenantId);
   const incident = await incidents.findById(params.incidentId);
@@ -185,6 +186,7 @@ export async function decideRemediationApproval(
     input: resolution.input,
     remediationActionId: action.id,
     secretProvider,
+    llmClient,
   });
 
   return { approval: decided, status: "EXECUTED" };

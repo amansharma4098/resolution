@@ -30,6 +30,7 @@ import type { PolicyBehavior, ResolutionMode } from "@resolution/shared";
 import { writeAuditLog } from "@resolution/security";
 import type { SecretProvider } from "@resolution/credentials";
 import type { RemediationQueueMessage } from "./types";
+import { generatePostmortem } from "../lib/postmortem";
 
 export interface RemediationRunnerConfig {
   mockMode: boolean;
@@ -47,6 +48,30 @@ const VERIFY_RETRY_DELAY_MS = 2000;
 
 function defaultSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Fired the moment an incident reaches RESOLVED (all three places below) — a drafting
+ *  failure (a flaky LLM call, say) must never undo or retract the incident actually being
+ *  marked RESOLVED, so this is swallow-and-record, never a throw that would propagate back
+ *  into the remediation pipeline. */
+async function draftPostmortemBestEffort(
+  db: PrismaClient,
+  llmClient: LlmClient,
+  tenantId: string,
+  incidentId: string,
+): Promise<void> {
+  try {
+    await generatePostmortem({ db, llmClient }, { tenantId, incidentId });
+  } catch (err) {
+    await db.incidentEvent.create({
+      data: {
+        incidentId,
+        type: "postmortem_draft_failed",
+        actor: "system",
+        detail: serializeJsonField({ reason: err instanceof Error ? err.message : String(err) }),
+      },
+    });
+  }
 }
 
 /**
@@ -271,6 +296,7 @@ export async function processRemediationMessage(
     remediationActionId: action.id,
     secretProvider: config.secretProvider,
     sleep: config.sleep ?? defaultSleep,
+    llmClient,
   });
 }
 
@@ -292,6 +318,9 @@ export async function executeAndVerify(
     remediationActionId: string;
     secretProvider: SecretProvider;
     sleep?: (ms: number) => Promise<void>;
+    /** Used only to draft a postmortem the moment this incident reaches RESOLVED (below) —
+     *  never for the remediation decision itself. */
+    llmClient: LlmClient;
   },
 ): Promise<void> {
   const sleep = params.sleep ?? defaultSleep;
@@ -375,6 +404,7 @@ export async function executeAndVerify(
         detail: serializeJsonField({ verified: false, reason: "capability declares no verification companion" }),
       },
     });
+    await draftPostmortemBestEffort(db, params.llmClient, params.tenantId, params.incidentId);
     return;
   }
 
@@ -400,6 +430,7 @@ export async function executeAndVerify(
           detail: serializeJsonField({ verified: false, reason: "verification companion misconfigured" }),
         },
       });
+      await draftPostmortemBestEffort(db, params.llmClient, params.tenantId, params.incidentId);
       return;
     }
 
@@ -415,6 +446,7 @@ export async function executeAndVerify(
       await db.incidentEvent.create({
         data: { incidentId: params.incidentId, type: "resolved", actor: "system", detail: serializeJsonField({ verified: true }) },
       });
+      await draftPostmortemBestEffort(db, params.llmClient, params.tenantId, params.incidentId);
       return;
     }
 

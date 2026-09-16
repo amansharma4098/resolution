@@ -21,6 +21,7 @@ export * from "./repositories/automation-policy-repository";
 export * from "./repositories/remediation-repository";
 export * from "./repositories/audit-log-repository";
 export * from "./repositories/credit-wallet-repository";
+export * from "./repositories/postmortem-repository";
 export * from "./audit-log-writer";
 export * from "./json-field";
 export * from "./similarity";

@@ -308,10 +308,27 @@ model Incident {
   rcas            RootCauseAnalysis[]
   resolutions     Resolution[]
   agentExecutions AgentExecution[]
+  postmortem      Postmortem?
 
   @@unique([tenantId, source, externalId])
   @@index([tenantId, status])
   @@index([tenantId, createdAt])
+}
+
+model Postmortem {
+  id         String   @id @default(uuid())
+  incidentId String   @unique
+  // The full drafted retrospective, in Markdown — summary, timeline, root cause, impact,
+  // resolution, action items. See packages/ai/src/postmortem.ts for how it's produced.
+  content   String
+  // True when produced by draftPostmortem()'s MOCK_MODE fallback (no ANTHROPIC_API_KEY) — a
+  // structured skeleton assembled directly from stored data, not a written narrative. Same
+  // "never silently fake it" discipline as every other MOCK_MODE artifact in this codebase.
+  isMock    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  incident Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
 }
 
 model IncidentEvent {

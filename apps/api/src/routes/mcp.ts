@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { PrismaClient, OrganizationRepository } from "@resolution/database";
 import { ApiKeyRepository } from "@resolution/database";
 import type { SecretProvider } from "@resolution/credentials";
+import type { LlmClient } from "@resolution/ai";
 import type { Env } from "../env";
 import { authenticateApiKey } from "../middleware/authenticate-api-key";
 import { TOOLS, callIncidentTool } from "../lib/incident-tools";
@@ -44,6 +45,7 @@ export function buildMcpRoutes(deps: {
   investigationQueue: IncidentInvestigationQueue;
   remediationQueue: IncidentRemediationQueue;
   secretProvider: SecretProvider;
+  llmClient: LlmClient;
 }): Hono<AppEnv> {
   const { db } = deps;
   const router = new Hono<AppEnv>();

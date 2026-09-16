@@ -6,7 +6,7 @@ import { createSecretProvider, type SecretProvider } from "@resolution/credentia
 import type { Env } from "./env";
 import type { AppEnv } from "./types";
 import { createEmailSender, type EmailSender } from "@resolution/email";
-import { createAnthropicLlmClient, createMockChatClient, type LlmClient } from "@resolution/ai";
+import { createAnthropicLlmClient, createMockChatClient, createLlmClient, type LlmClient } from "@resolution/ai";
 import { handleError } from "./plugins/error-handler";
 import { createRateLimitStore, rateLimit, type RateLimitStore } from "./middleware/rate-limit";
 import { buildAuthRoutes } from "./routes/auth";
@@ -192,6 +192,10 @@ export function buildApp({
       investigationQueue: resolvedInvestigationQueue,
       remediationQueue: resolvedRemediationQueue,
       secretProvider: resolvedSecretProvider,
+      // Only used for get_postmortem/generate_postmortem/decide_approval's postmortem draft —
+      // the general-purpose factory (mock-if-unconfigured), not the chat-specific client
+      // below, since there's no conversational judgment involved here.
+      llmClient: createLlmClient({ mockMode: env.MOCK_MODE, apiKey: env.ANTHROPIC_API_KEY, model: env.ANTHROPIC_MODEL }),
     }),
   );
   app.route(

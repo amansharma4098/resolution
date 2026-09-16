@@ -1,12 +1,14 @@
 import { z } from "zod";
 import type { PrismaClient, OrganizationRepository, Membership } from "@resolution/database";
-import { IncidentRepository, RootCauseAnalysisRepository } from "@resolution/database";
+import { IncidentRepository, RootCauseAnalysisRepository, PostmortemRepository } from "@resolution/database";
 import { IncidentStatus } from "@resolution/shared";
 import { hasRole } from "@resolution/security";
 import type { SecretProvider } from "@resolution/credentials";
+import type { LlmClient } from "@resolution/ai";
 import { AppError } from "./errors";
 import { investigateIncident, proposeRemediationForIncident, decideRemediationApproval } from "./incident-actions";
 import { findSimilarIncidentSummaries } from "./similar-incidents";
+import { generatePostmortem } from "./postmortem";
 import type { IncidentInvestigationQueue, IncidentRemediationQueue } from "../queue/types";
 
 const ORG_AND_INCIDENT = {
@@ -68,6 +70,20 @@ export const TOOLS = [
       required: ["tenantId", "incidentId"],
     },
     annotations: { readOnlyHint: true },
+  },
+  {
+    name: "get_postmortem",
+    description:
+      "Get the drafted postmortem (retrospective) for an incident, if one has been generated yet. Returns null if none exists — use generate_postmortem to create one.",
+    inputSchema: { type: "object", properties: ORG_AND_INCIDENT, required: ["tenantId", "incidentId"] },
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: "generate_postmortem",
+    description:
+      "Draft (or redraft) a postmortem for an incident from its full record — root cause analysis, evidence, and remediation history. Works best once the incident is RESOLVED, but can be run earlier to see a draft in progress. Redrafting replaces any existing postmortem for this incident.",
+    inputSchema: { type: "object", properties: ORG_AND_INCIDENT, required: ["tenantId", "incidentId"] },
+    annotations: { readOnlyHint: false },
   },
   {
     name: "trigger_investigation",
@@ -142,6 +158,7 @@ export interface IncidentToolDeps {
   investigationQueue: IncidentInvestigationQueue;
   remediationQueue: IncidentRemediationQueue;
   secretProvider: SecretProvider;
+  llmClient: LlmClient;
 }
 
 export async function callIncidentTool(
@@ -223,6 +240,30 @@ export async function callIncidentTool(
       return textResult(similar);
     }
 
+    case "get_postmortem": {
+      const parsed = z.object({ tenantId: z.string(), incidentId: z.string() }).safeParse(args);
+      if (!parsed.success) return textResult({ error: "Invalid arguments" }, true);
+      if (!(await getMembership(organizationRepository, userId, parsed.data.tenantId))) {
+        return textResult({ error: "Organization not found" }, true);
+      }
+      const incidents = new IncidentRepository(db, parsed.data.tenantId);
+      const incident = await incidents.findById(parsed.data.incidentId);
+      if (!incident) return textResult({ error: "Incident not found" }, true);
+      const postmortem = await new PostmortemRepository(db).findByIncidentId(incident.id);
+      return textResult(postmortem);
+    }
+
+    case "generate_postmortem": {
+      const parsed = z.object({ tenantId: z.string(), incidentId: z.string() }).safeParse(args);
+      if (!parsed.success) return textResult({ error: "Invalid arguments" }, true);
+      if (!(await getMembership(organizationRepository, userId, parsed.data.tenantId))) {
+        return textResult({ error: "Organization not found" }, true);
+      }
+      return runAction(() =>
+        generatePostmortem({ db, llmClient: deps.llmClient }, { tenantId: parsed.data.tenantId, incidentId: parsed.data.incidentId }),
+      );
+    }
+
     case "trigger_investigation": {
       const parsed = z.object({ tenantId: z.string(), incidentId: z.string() }).safeParse(args);
       if (!parsed.success) return textResult({ error: "Invalid arguments" }, true);
@@ -264,7 +305,7 @@ export async function callIncidentTool(
       }
       return runAction(() =>
         decideRemediationApproval(
-          { db, secretProvider: deps.secretProvider },
+          { db, secretProvider: deps.secretProvider, llmClient: deps.llmClient },
           { ...parsed.data, actorUserId: userId, requestId },
         ),
       );

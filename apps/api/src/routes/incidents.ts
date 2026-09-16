@@ -6,10 +6,12 @@ import {
   IncidentEvidenceRepository,
   RootCauseAnalysisRepository,
   RemediationRepository,
+  PostmortemRepository,
   parseJsonField,
 } from "@resolution/database";
 import type { OrganizationRepository } from "@resolution/database";
 import type { SecretProvider } from "@resolution/credentials";
+import { createLlmClient } from "@resolution/ai";
 import type { Env } from "../env";
 import { authenticate } from "../middleware/authenticate";
 import { requireMinimumRole, resolveTenantContext } from "../middleware/tenant-context";
@@ -18,6 +20,7 @@ import type { AppEnv } from "../types";
 import type { IncidentInvestigationQueue, IncidentRemediationQueue } from "../queue/types";
 import { investigateIncident, proposeRemediationForIncident, decideRemediationApproval } from "../lib/incident-actions";
 import { findSimilarIncidentSummaries } from "../lib/similar-incidents";
+import { generatePostmortem } from "../lib/postmortem";
 
 const DecideApprovalBody = z.object({
   decision: z.enum(["APPROVE", "REJECT"]),
@@ -45,6 +48,10 @@ export function buildIncidentRoutes(deps: {
   const auth = authenticate(env.JWT_SECRET);
   const tenantContext = resolveTenantContext(organizationRepository);
   const requireAdmin = requireMinimumRole("ADMIN");
+  // Used only for postmortem drafting (below and on approval-decide, via executeAndVerify) —
+  // the investigation/remediation agents build their own LlmClient independently
+  // (queue/*-consumer.ts), same separation of concerns as routes/chat.ts's own client.
+  const llmClient = createLlmClient({ mockMode: env.MOCK_MODE, apiKey: env.ANTHROPIC_API_KEY, model: env.ANTHROPIC_MODEL });
 
   router.get("/", auth, tenantContext, async (c) => {
     const incidents = new IncidentRepository(db, c.get("tenantId")!);
@@ -132,8 +139,18 @@ export function buildIncidentRoutes(deps: {
     );
 
     const similarIncidents = await findSimilarIncidentSummaries(db, c.get("tenantId")!, incident);
+    const postmortem = await new PostmortemRepository(db).findByIncidentId(incident.id);
 
-    return c.json({ incident, evidence, rca, events, resolutions: resolutionsWithActions, similarIncidents });
+    return c.json({ incident, evidence, rca, events, resolutions: resolutionsWithActions, similarIncidents, postmortem });
+  });
+
+  // A manual (re)draft — the automatic path (executeAndVerify, at the moment an incident
+  // reaches RESOLVED) covers the common case, but a human may want a fresh draft after
+  // editing the RCA, or a draft before the incident is fully resolved to see where things
+  // stand. Regenerating replaces any existing postmortem (PostmortemRepository.upsertForIncident).
+  router.post("/:id/postmortem/regenerate", auth, tenantContext, async (c) => {
+    const result = await generatePostmortem({ db, llmClient }, { tenantId: c.get("tenantId")!, incidentId: c.req.param("id") });
+    return c.json(result);
   });
 
   router.post("/:id/investigate", auth, tenantContext, async (c) => {
@@ -155,7 +172,7 @@ export function buildIncidentRoutes(deps: {
   router.post("/:id/approvals/:approvalId/decide", auth, tenantContext, requireAdmin, async (c) => {
     const body = DecideApprovalBody.parse(await c.req.json());
     const result = await decideRemediationApproval(
-      { db, secretProvider },
+      { db, secretProvider, llmClient },
       {
         tenantId: c.get("tenantId")!,
         incidentId: c.req.param("id"),

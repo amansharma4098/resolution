@@ -36,7 +36,15 @@ function formatDuration(ms: number | null): string {
   return `${(hours / 24).toFixed(1)}d`;
 }
 
-function MetricCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
+function MetricCard({
+  label,
+  value,
+  sub,
+}: {
+  label: string;
+  value: string | number;
+  sub?: string;
+}) {
   return (
     <Card>
       <CardContent className="py-4">
@@ -58,25 +66,31 @@ interface SetupState {
  *  alone get auto-resolved — surfaced as a checklist instead of a wall of zeros, so a new
  *  user knows exactly what to click first instead of guessing between five config pages. */
 function GettingStarted({ setup }: { setup: SetupState }) {
+  const completed = [setup.hasCredential, setup.hasIntegration, setup.hasMcpServer].filter(
+    Boolean,
+  ).length;
   const steps = [
     {
       done: setup.hasCredential,
       label: "Add a credential",
-      detail: "An API key or login for a system you want to connect.",
+      detail:
+        "Store an API key or service login once, then reuse it safely across connected systems.",
       href: "/dashboard/credentials",
       cta: "Add credential",
     },
     {
       done: setup.hasIntegration,
-      label: "Connect where incidents come from",
-      detail: "Datadog, Jira, ServiceNow, or a generic webhook — this is what creates incidents here.",
+      label: "Connect an incident source",
+      detail:
+        "Datadog, Jira, ServiceNow, or a generic webhook can create incidents in this workspace.",
       href: "/dashboard/integrations",
       cta: "Add integration",
     },
     {
       done: setup.hasMcpServer,
-      label: "Give the agent something to act on",
-      detail: "An MCP Server the AI agent can investigate and remediate against (Datadog's is set up for you automatically).",
+      label: "Connect an MCP Server",
+      detail:
+        "Give the agent specific read and remediation capabilities against an operational system you approve.",
       href: "/dashboard/map-servers",
       cta: "Add MCP Server",
     },
@@ -86,11 +100,17 @@ function GettingStarted({ setup }: { setup: SetupState }) {
     <Card>
       <CardHeader>
         <CardTitle>Getting started</CardTitle>
-        <CardDescription>Three steps and incidents will start resolving themselves.</CardDescription>
+        <CardDescription>
+          {completed} of 3 connected. Complete the basics, then choose how much approval the agent
+          needs before it can act.
+        </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col divide-y divide-border">
         {steps.map((step) => (
-          <div key={step.label} className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0">
+          <div
+            key={step.label}
+            className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0"
+          >
             <div className="flex items-start gap-3">
               <span
                 className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs ${
@@ -171,9 +191,9 @@ export default function DashboardPage() {
           <CardHeader>
             <CardTitle>All set — waiting on your first incident</CardTitle>
             <CardDescription>
-              Setup is done. Once your connected integration sends one in (or a Datadog
-              monitor fires), it&apos;ll show up here and the agent will start investigating
-              automatically.
+              Setup is done. When a connected integration sends an incident (or a Datadog monitor
+              fires), it will appear here. The agent can investigate automatically; your automation
+              policies determine whether a proposed change needs approval.
             </CardDescription>
           </CardHeader>
         </Card>
@@ -200,7 +220,11 @@ export default function DashboardPage() {
                 .map(([status, count]) => (
                   <StatusBadge
                     key={status}
-                    status={domainStatusMap.incidentStatus[status as keyof typeof domainStatusMap.incidentStatus] ?? "neutral"}
+                    status={
+                      domainStatusMap.incidentStatus[
+                        status as keyof typeof domainStatusMap.incidentStatus
+                      ] ?? "neutral"
+                    }
                   >
                     {status}: {count}
                   </StatusBadge>
@@ -211,13 +235,18 @@ export default function DashboardPage() {
           <Card>
             <CardHeader>
               <CardTitle>Remediation</CardTitle>
-              <CardDescription>Every proposal the Resolution Agent has made, and what happened to it.</CardDescription>
+              <CardDescription>
+                Every proposal the Resolution Agent has made, and what happened to it.
+              </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 sm:grid-cols-3 lg:grid-cols-4">
               <MetricCard label="Proposed" value={metrics.remediation.proposed} />
               <MetricCard label="Auto/approved succeeded" value={metrics.remediation.succeeded} />
               <MetricCard label="Failed" value={metrics.remediation.failed} />
-              <MetricCard label="Declined (no safe action)" value={metrics.remediation.noActionCount} />
+              <MetricCard
+                label="Declined (no safe action)"
+                value={metrics.remediation.noActionCount}
+              />
               <MetricCard label="Denied by policy" value={metrics.remediation.deniedByPolicy} />
               <MetricCard label="Awaiting approval" value={metrics.remediation.approvalPending} />
               <MetricCard label="Approved" value={metrics.remediation.approved} />

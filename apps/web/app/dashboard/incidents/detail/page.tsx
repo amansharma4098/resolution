@@ -102,6 +102,14 @@ interface SimilarIncident {
   matchedOn: string[];
 }
 
+interface Postmortem {
+  id: string;
+  content: string;
+  isMock: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface IncidentDetailResponse {
   incident: IncidentDetail;
   evidence: Evidence[];
@@ -109,6 +117,7 @@ interface IncidentDetailResponse {
   events: IncidentEventRow[];
   resolutions: Resolution[];
   similarIncidents: SimilarIncident[];
+  postmortem: Postmortem | null;
 }
 
 // A manual (re-)investigate is only meaningful from a state the state machine actually
@@ -151,6 +160,7 @@ function IncidentDetailContent() {
   const [loading, setLoading] = useState(true);
   const [investigating, setInvestigating] = useState(false);
   const [proposing, setProposing] = useState(false);
+  const [draftingPostmortem, setDraftingPostmortem] = useState(false);
   const [decidingId, setDecidingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -206,6 +216,19 @@ function IncidentDetailContent() {
     }
   }, [currentTenantId, id, load]);
 
+  const regeneratePostmortem = useCallback(async () => {
+    if (!currentTenantId || !id) return;
+    setDraftingPostmortem(true);
+    try {
+      await apiRequest(`/api/incidents/${id}/postmortem/regenerate`, { method: "POST", tenantId: currentTenantId });
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to draft a postmortem");
+    } finally {
+      setDraftingPostmortem(false);
+    }
+  }, [currentTenantId, id, load]);
+
   const decideApproval = useCallback(
     async (approvalId: string, decision: "APPROVE" | "REJECT") => {
       if (!currentTenantId || !id) return;
@@ -230,7 +253,7 @@ function IncidentDetailContent() {
   if (error) return <p className="text-sm text-error">{error}</p>;
   if (!data) return <p className="text-sm text-subink">Incident not found.</p>;
 
-  const { incident, evidence, rca, events, resolutions, similarIncidents } = data;
+  const { incident, evidence, rca, events, resolutions, similarIncidents, postmortem } = data;
   const evidenceById = new Map(evidence.map((e) => [e.id, e]));
 
   return (
@@ -461,6 +484,38 @@ function IncidentDetailContent() {
                 ))}
               </div>
             ))
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-4">
+          <div>
+            <CardTitle>Postmortem</CardTitle>
+            <CardDescription>
+              {postmortem
+                ? "Drafted from this incident's own root cause analysis, evidence, and remediation history."
+                : "Drafted automatically once this incident resolves — or generate one now to see where things stand."}
+            </CardDescription>
+          </div>
+          <Button size="sm" variant="secondary" disabled={draftingPostmortem} onClick={() => void regeneratePostmortem()}>
+            {draftingPostmortem ? "Drafting…" : postmortem ? "Regenerate" : "Generate"}
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {!postmortem ? (
+            <p className="text-sm text-subink">No postmortem drafted yet.</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {postmortem.isMock && (
+                <div>
+                  <StatusBadge status="neutral">MOCK</StatusBadge>
+                </div>
+              )}
+              <pre className="whitespace-pre-wrap rounded border border-border bg-background p-3 font-body text-sm text-ink">
+                {postmortem.content}
+              </pre>
+            </div>
           )}
         </CardContent>
       </Card>
